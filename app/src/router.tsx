@@ -2,6 +2,8 @@ import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import LoginPage from './pages/LoginPage'
 import HomePage from './pages/HomePage'
 import OnboardingPage from './pages/OnboardingPage'
+import OverlayPage from './pages/OverlayPage'
+import NotificationsPage from './pages/NotificationsPage'
 import { getToken } from './lib/api'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -18,20 +20,18 @@ export default function AppRouter() {
         <Route path="/login" element={<LoginPage />} />
         <Route
           path="/onboarding"
-          element={
-            <RequireAuth>
-              <OnboardingPage />
-            </RequireAuth>
-          }
+          element={<RequireAuth><OnboardingPage /></RequireAuth>}
         />
         <Route
           path="/home"
-          element={
-            <RequireAuth>
-              <HomePage />
-            </RequireAuth>
-          }
+          element={<RequireAuth><HomePage /></RequireAuth>}
         />
+        <Route
+          path="/notifications"
+          element={<RequireAuth><NotificationsPage /></RequireAuth>}
+        />
+        {/* Overlay window route — renders floating panel */}
+        <Route path="/overlay" element={<OverlayPage />} />
         <Route path="/" element={<Navigate to="/home" replace />} />
         <Route path="*" element={<Navigate to="/home" replace />} />
       </Routes>

@@ -1,0 +1,217 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #0f172a;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #e2e8f0;
+}
+
+.header {
+  align-items: center;
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 16px 24px;
+  flex-shrink: 0;
+}
+
+.title {
+  align-items: center;
+  display: flex;
+  font-size: 16px;
+  font-weight: 600;
+  gap: 8px;
+  margin: 0;
+}
+
+.badge {
+  background: #ef4444;
+  border-radius: 10px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+}
+
+.toggle {
+  align-items: center;
+  color: #64748b;
+  cursor: pointer;
+  display: flex;
+  font-size: 13px;
+  gap: 6px;
+}
+
+.list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.item {
+  border-bottom: 1px solid #1e293b;
+  padding: 14px 24px;
+  transition: background 0.1s;
+}
+
+.item:hover { background: rgba(255,255,255,.03); }
+
+.itemUnread { background: rgba(99,102,241,.04); }
+.itemUnread:hover { background: rgba(99,102,241,.08); }
+
+.itemHeader {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.itemMeta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 1;
+}
+
+.unreadDot {
+  background: #6366f1;
+  border-radius: 50%;
+  flex-shrink: 0;
+  height: 7px;
+  width: 7px;
+}
+
+.packName {
+  color: #e2e8f0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.versionChange {
+  color: #64748b;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.versionChange strong { color: #a5b4fc; }
+
+.itemActions {
+  align-items: center;
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.date {
+  color: #475569;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.diffToggle, .readBtn {
+  background: none;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 3px 8px;
+  transition: border-color 0.1s, color 0.1s;
+}
+
+.diffToggle:hover { border-color: #6366f1; color: #a5b4fc; }
+.readBtn:hover   { border-color: #22c55e; color: #4ade80; }
+
+/* ── Diff box ──────────────────────────────────────────────── */
+
+.diffBox {
+  background: #0f172a;
+  border-radius: 6px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.diffEntity {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.changeLabel {
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+  width: 12px;
+}
+
+.change_added   { color: #4ade80; }
+.change_removed { color: #f87171; }
+.change_modified{ color: #fbbf24; }
+
+.diffEntityName {
+  color: #e2e8f0;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.diffFields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 100%;
+  padding-left: 18px;
+}
+
+.diffField {
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 11px;
+  padding: 1px 6px;
+}
+
+.change_added   .fieldType,
+.change_removed .fieldType,
+.change_modified .fieldType { opacity: 0.7; }
+
+.diffField.change_added   { background: rgba(74,222,128,.1); color: #4ade80; }
+.diffField.change_removed { background: rgba(248,113,113,.1); color: #f87171; }
+.diffField.change_modified{ background: rgba(251,191,36,.1);  color: #fbbf24; }
+
+.fieldType { font-style: italic; }
+
+/* ── Misc ──────────────────────────────────────────────────── */
+
+.hint {
+  color: #475569;
+  font-size: 13px;
+  padding: 16px 24px;
+  margin: 0;
+}
+
+.empty {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 8px;
+  justify-content: center;
+  padding: 40px;
+}
+
+.emptyIcon { font-size: 36px; margin: 0; }
+
+.emptyText {
+  color: #475569;
+  font-size: 13px;
+  margin: 0;
+}

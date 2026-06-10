@@ -84,6 +84,16 @@
   font-size: 12px;
 }
 
+.bellBtn {
+  color: #94a3b8;
+  font-size: 16px;
+  text-decoration: none;
+  line-height: 1;
+  transition: opacity 0.12s;
+}
+
+.bellBtn:hover { opacity: 0.7; }
+
 .logoutBtn {
   background: none;
   border: 1px solid #334155;

@@ -1,13 +1,22 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-// Expose a safe subset of Electron APIs to the renderer process.
 contextBridge.exposeInMainWorld('electronAPI', {
+  // Core
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
   platform: process.platform,
-})
 
-// Type declaration for window.electronAPI (used in renderer TypeScript code)
-export type ElectronAPI = {
-  openExternal: (url: string) => Promise<void>
-  platform: NodeJS.Platform
-}
+  // Overlay: file watcher
+  watchDirectory: (dir: string) => ipcRenderer.invoke('overlay:watch-dir', dir),
+  pickDirectory: () => ipcRenderer.invoke('overlay:pick-dir'),
+  onConfigChanged: (cb: (config: unknown) => void) => {
+    const handler = (_: unknown, config: unknown) => cb(config)
+    ipcRenderer.on('overlay:config-changed', handler)
+    return () => ipcRenderer.off('overlay:config-changed', handler)
+  },
+
+  // MCP: pass auth token to main process
+  setMCPToken: (token: string) => ipcRenderer.invoke('mcp:set-token', token),
+
+  // Tray: update unread badge
+  notifyTray: (count: number) => ipcRenderer.invoke('tray:set-badge', count),
+})

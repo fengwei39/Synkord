@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { getMe, logout, type AuthUser } from '../lib/auth'
 import { getMyOrgs, type Org } from '../lib/orgs'
+import { getToken } from '../lib/api'
 import ContractsPage from './ContractsPage'
 import styles from './HomePage.module.css'
 
@@ -23,6 +24,9 @@ export default function HomePage() {
           return
         }
         setActiveOrgId(myOrgs[0].id)
+        // Pass auth token to MCP server
+        const token = getToken()
+        if (token) window.electronAPI.setMCPToken(token)
       } catch {
         logout()
         navigate('/login', { replace: true })
@@ -64,6 +68,9 @@ export default function HomePage() {
         <div className={styles.headerRight}>
           {activeOrg && <span className={styles.orgBadge}>{activeOrg.name}</span>}
           <span className={styles.userEmail}>{user?.email}</span>
+          <Link to="/notifications" className={styles.bellBtn} title="通知">
+            🔔
+          </Link>
           <button className={styles.logoutBtn} onClick={logout}>
             退出
           </button>

@@ -18,7 +18,7 @@
 | B7 契约包 CRUD | 后端 | 增删改查 + 版本 Tag + Schema 校验 | ✅ 已完成 |
 | B8 契约 diff API | 后端 | 版本间字段差异对比 | ✅ 已完成 |
 | B9 订阅 + WebSocket 通知 | 后端 | 订阅契约包，实时推送版本变更 | ✅ 已完成 |
-| F1 App 骨架 + 登录 | 前端 | Electron + 登录页 | ⏳ 待开始 |
+| F1 App 骨架 | 前端 | Electron + React + 路由 + API 客户端 | ✅ 已完成 |
 | F2 入驻流程 | 前端 | 创建/加入组织引导 | ⏳ 待开始 |
 | F3 契约浏览器 | 前端 | 组织契约 + 版本历史 + diff | ⏳ 待开始 |
 | F4 悬浮看板 | 前端 | alwaysOnTop + synkord.json 感知 | ⏳ 待开始 |

@@ -2,4 +2,7 @@ packages:
   - "packages/*"
   - "app"
 allowBuilds:
-  esbuild: set this to true or false
+  electron: set this to true or false
+onlyBuiltDependencies:
+  - esbuild
+  - electron

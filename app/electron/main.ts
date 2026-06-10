@@ -1,7 +1,7 @@
 import { app, BrowserWindow, shell, ipcMain, dialog } from 'electron'
-import { join } from 'path'
+import { join, dirname } from 'path'
 import { readFileSync, writeFileSync, readdirSync, mkdirSync } from 'fs'
-import { dirname } from 'path'
+import os from 'os'
 import { watchDirectory, stopWatcher } from './watcher'
 import { startMCPServer, setMCPToken, stopMCPServer } from './mcp'
 import { createTray, updateTrayBadge } from './tray'
@@ -168,6 +168,13 @@ function registerIPC(): void {
     walk(dirPath, '')
     return results
   })
+
+  // Device info: OS platform, hostname, username
+  ipcMain.handle('sys:device-info', () => ({
+    platform: process.platform,
+    hostname: os.hostname(),
+    username: os.userInfo().username,
+  }))
 }
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────

@@ -22,6 +22,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readDirTree: (path: string) => ipcRenderer.invoke('fs:read-dir-tree', path),
   collectFiles: (path: string) => ipcRenderer.invoke('fs:collect-files', path),
 
+  // System info
+  getDeviceInfo: () => ipcRenderer.invoke('sys:device-info') as Promise<{ platform: string; hostname: string; username: string }>,
+
   // MCP: pass auth token to main process
   setMCPToken: (token: string) => ipcRenderer.invoke('mcp:set-token', token),
 

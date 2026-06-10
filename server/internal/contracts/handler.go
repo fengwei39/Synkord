@@ -120,6 +120,26 @@ func (h *Handler) GetVersion(c *gin.Context) {
 	c.JSON(http.StatusOK, detail)
 }
 
+// RegisterDevice  POST /api/orgs/:orgId/register-device
+// Called by the desktop client on startup to auto-subscribe the current user to
+// all packs and persist device/git/project metadata.
+func (h *Handler) RegisterDevice(c *gin.Context) {
+	orgID := c.Param("orgId")
+	userID := c.GetString("userID")
+
+	var req RegisterDeviceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.svc.RegisterDevice(orgID, userID, req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 // ListSubscribers  GET /api/orgs/:orgId/packs/:pack/subscribers
 func (h *Handler) ListSubscribers(c *gin.Context) {
 	orgID := c.Param("orgId")

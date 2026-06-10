@@ -561,34 +561,93 @@ function SubscribersTab({ orgId, packName, latestVersion }: {
   )
 }
 
+function platformLabel(platform: string): string {
+  if (platform === 'darwin') return '🍎 macOS'
+  if (platform === 'win32') return '🪟 Windows'
+  if (platform === 'linux') return '🐧 Linux'
+  return platform || '—'
+}
+
 function SubscriberRow({ item, latestVersion, onRemove, removing }: {
   item: SubscriberItem
   latestVersion: string
   onRemove: () => void
   removing: boolean
 }) {
+  const [expanded, setExpanded] = useState(false)
+  const syncTime = item.updatedAt
+    ? new Date(item.updatedAt).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' })
+    : null
+
+  const gitEmails = item.git?.emails?.filter(Boolean) ?? []
+  const projects = item.projectNames?.filter(Boolean) ?? []
+  const hasDetail = item.device?.hostname || gitEmails.length > 0 || projects.length > 0
+
   return (
-    <div className={styles.subRow}>
-      <div className={styles.subAvatar}>{item.email[0].toUpperCase()}</div>
-      <div className={styles.subInfo}>
-        <span className={styles.subEmail}>{item.email}</span>
-        <span className={styles.subVer}>
-          固定版本 <code>v{item.pinnedVersion || '—'}</code>
-        </span>
-      </div>
-      <div className={styles.subStatus}>
-        {item.pinnedVersion === latestVersion ? (
-          <span className={styles.badgeLatest}>✓ 最新</span>
-        ) : (
-          <span className={styles.badgeOutdated}>⚠ 需更新 → v{latestVersion}</span>
+    <div className={`${styles.subRow} ${expanded ? styles.subRowExpanded : ''}`}>
+      {/* Header row */}
+      <div className={styles.subRowHeader}>
+        <div className={styles.subAvatar}>{item.email[0].toUpperCase()}</div>
+        <div className={styles.subInfo}>
+          <span className={styles.subEmail}>{item.email}</span>
+          <span className={styles.subVer}>
+            固定版本 <code>v{item.pinnedVersion || '—'}</code>
+            {syncTime && <> · 同步于 {syncTime}</>}
+          </span>
+        </div>
+        <div className={styles.subStatus}>
+          {item.pinnedVersion === latestVersion ? (
+            <span className={styles.badgeLatest}>✓ 最新</span>
+          ) : (
+            <span className={styles.badgeOutdated}>⚠ 需更新 → v{latestVersion}</span>
+          )}
+        </div>
+        {hasDetail && (
+          <button
+            className={styles.subExpandBtn}
+            onClick={() => setExpanded((x) => !x)}
+            title={expanded ? '收起' : '展开详情'}
+          >{expanded ? '▲' : '▼'}</button>
         )}
+        <button
+          className={styles.subRemoveBtn}
+          onClick={onRemove}
+          disabled={removing}
+          title="移除使用者"
+        >✕</button>
       </div>
-      <button
-        className={styles.subRemoveBtn}
-        onClick={onRemove}
-        disabled={removing}
-        title="移除使用者"
-      >✕</button>
+
+      {/* Detail panel */}
+      {expanded && (
+        <div className={styles.subDetail}>
+          {item.device?.hostname && (
+            <div className={styles.subDetailRow}>
+              <span className={styles.subDetailLabel}>设备</span>
+              <span className={styles.subDetailValue}>
+                {platformLabel(item.device.platform)}
+                {' · '}{item.device.hostname}
+                {item.device.username && <> ({item.device.username})</>}
+              </span>
+            </div>
+          )}
+          {gitEmails.length > 0 && (
+            <div className={styles.subDetailRow}>
+              <span className={styles.subDetailLabel}>Git 邮箱</span>
+              <span className={styles.subDetailValue}>{gitEmails.join(' · ')}</span>
+            </div>
+          )}
+          {projects.length > 0 && (
+            <div className={styles.subDetailRow}>
+              <span className={styles.subDetailLabel}>本地项目</span>
+              <div className={styles.subDetailTags}>
+                {projects.map((p) => (
+                  <span key={p} className={styles.subDetailTag}>{p}</span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

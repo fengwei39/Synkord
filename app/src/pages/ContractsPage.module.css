@@ -774,13 +774,19 @@
 }
 
 .subRow {
-  align-items: center;
   border-bottom: 1px solid #1e293b;
+  display: flex;
+  flex-direction: column;
+}
+.subRow:last-child { border-bottom: none; }
+.subRowExpanded { background: rgba(99,102,241,.04); border-radius: 8px; }
+
+.subRowHeader {
+  align-items: center;
   display: flex;
   gap: 12px;
   padding: 10px 0;
 }
-.subRow:last-child { border-bottom: none; }
 
 .subAvatar {
   align-items: center;
@@ -823,6 +829,65 @@
 }
 
 .subStatus { flex-shrink: 0; }
+
+.subExpandBtn {
+  background: none;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: #475569;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: 9px;
+  height: 24px;
+  padding: 0 7px;
+  transition: color 0.1s;
+}
+.subExpandBtn:hover { color: #94a3b8; }
+
+/* Detail panel */
+.subDetail {
+  background: #0b1120;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 44px 10px;
+  padding: 10px 14px;
+}
+
+.subDetailRow {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+}
+
+.subDetailLabel {
+  color: #475569;
+  flex-shrink: 0;
+  font-size: 11px;
+  padding-top: 1px;
+  width: 56px;
+}
+
+.subDetailValue {
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.subDetailTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.subDetailTag {
+  background: #1e293b;
+  border-radius: 4px;
+  color: #94a3b8;
+  font-size: 11px;
+  padding: 2px 8px;
+}
 
 .badgeLatest {
   background: rgba(52,211,153,.12);

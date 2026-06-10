@@ -223,9 +223,8 @@ func (s *Service) GetVersion(orgID, name, version string) (*PackDetail, error) {
 	return &PackDetail{Name: name, Version: version, Content: content}, nil
 }
 
-// ListSubscribers returns all subscribers of a pack with their pinned version.
+// ListSubscribers returns all subscribers of a pack with device/git/project info.
 func (s *Service) ListSubscribers(orgID, packName string) ([]SubscriberItem, error) {
-	// Get the current pack version first
 	var currentVersion string
 	err := s.db.QueryRow(
 		`SELECT version FROM contract_packs WHERE org_id=$1 AND name=$2`,
@@ -236,7 +235,17 @@ func (s *Service) ListSubscribers(orgID, packName string) ([]SubscriberItem, err
 
 	var rows []subscriptionRecord
 	err = s.db.Select(&rows, `
-		SELECT s.id, s.user_id, s.org_id, s.pack_name, s.pinned_version, u.email
+		SELECT
+		  s.id, s.user_id, s.org_id, s.pack_name, s.pinned_version,
+		  COALESCE(s.device_info, '{}'::jsonb)  AS device_info,
+		  COALESCE(s.git_info,    '{}'::jsonb)   AS git_info,
+		  COALESCE(s.project_names, '{}')        AS project_names,
+		  COALESCE(s.updated_at, s.created_at)   AS updated_at,
+		  u.email,
+		  COALESCE(
+		    (SELECT array_agg(ge.email) FROM user_git_emails ge WHERE ge.user_id = u.id),
+		    '{}'
+		  ) AS git_emails
 		FROM subscriptions s
 		JOIN users u ON u.id = s.user_id
 		WHERE s.org_id=$1 AND s.pack_name=$2
@@ -247,11 +256,19 @@ func (s *Service) ListSubscribers(orgID, packName string) ([]SubscriberItem, err
 
 	items := make([]SubscriberItem, 0, len(rows))
 	for _, r := range rows {
+		gi := r.GitInfo
+		if len(r.GitEmails) > 0 {
+			gi.Emails = append(gi.Emails, r.GitEmails...)
+		}
 		items = append(items, SubscriberItem{
 			UserID:        r.UserID,
 			Email:         r.Email,
 			PinnedVersion: r.PinnedVersion,
 			IsLatest:      r.PinnedVersion == currentVersion,
+			Device:        r.DeviceInfo,
+			Git:           gi,
+			ProjectNames:  r.ProjectNames,
+			UpdatedAt:     r.UpdatedAt,
 		})
 	}
 	return items, nil
@@ -259,7 +276,6 @@ func (s *Service) ListSubscribers(orgID, packName string) ([]SubscriberItem, err
 
 // AddSubscriber subscribes a user (by email) to a pack with the current version as pinned.
 func (s *Service) AddSubscriber(orgID, packName, email string) (*SubscriberItem, error) {
-	// Get the current pack version
 	var currentVersion string
 	err := s.db.QueryRow(
 		`SELECT version FROM contract_packs WHERE org_id=$1 AND name=$2`,
@@ -268,7 +284,6 @@ func (s *Service) AddSubscriber(orgID, packName, email string) (*SubscriberItem,
 		return nil, ErrPackNotFound
 	}
 
-	// Look up user by email (must be org member)
 	var userID string
 	err = s.db.QueryRow(`
 		SELECT u.id FROM users u
@@ -278,12 +293,13 @@ func (s *Service) AddSubscriber(orgID, packName, email string) (*SubscriberItem,
 		return nil, fmt.Errorf("user %q not found in organisation", email)
 	}
 
+	now := time.Now().UTC()
 	_, err = s.db.Exec(`
-		INSERT INTO subscriptions (user_id, org_id, pack_name, pinned_version)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (user_id, org_id, pack_name, COALESCE(project_name,''))
-		DO UPDATE SET pinned_version = EXCLUDED.pinned_version`,
-		userID, orgID, packName, currentVersion)
+		INSERT INTO subscriptions (user_id, org_id, pack_name, pinned_version, updated_at)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (user_id, org_id, pack_name, project_name)
+		DO UPDATE SET pinned_version = EXCLUDED.pinned_version, updated_at = EXCLUDED.updated_at`,
+		userID, orgID, packName, currentVersion, now)
 	if err != nil {
 		return nil, fmt.Errorf("insert subscription: %w", err)
 	}
@@ -293,6 +309,7 @@ func (s *Service) AddSubscriber(orgID, packName, email string) (*SubscriberItem,
 		Email:         email,
 		PinnedVersion: currentVersion,
 		IsLatest:      true,
+		UpdatedAt:     now,
 	}, nil
 }
 
@@ -302,6 +319,48 @@ func (s *Service) RemoveSubscriber(orgID, packName, userID string) error {
 		DELETE FROM subscriptions WHERE org_id=$1 AND pack_name=$2 AND user_id=$3`,
 		orgID, packName, userID)
 	return err
+}
+
+// RegisterDevice upserts subscriptions for ALL packs in an org for the given user,
+// recording device and project info. This is called by the desktop client on startup
+// so every org member is automatically a subscriber.
+func (s *Service) RegisterDevice(orgID, userID string, req RegisterDeviceRequest) error {
+	// Fetch all packs in org
+	var packs []struct {
+		Name    string `db:"name"`
+		Version string `db:"version"`
+	}
+	if err := s.db.Select(&packs,
+		`SELECT name, version FROM contract_packs WHERE org_id=$1`, orgID); err != nil {
+		return fmt.Errorf("list packs: %w", err)
+	}
+
+	// Fetch git emails for this user
+	var gitEmails []string
+	_ = s.db.Select(&gitEmails,
+		`SELECT email FROM user_git_emails WHERE user_id=$1`, userID)
+	gi := GitInfo{Emails: gitEmails}
+
+	now := time.Now().UTC()
+	for _, p := range packs {
+		projectNames := pgTextArray(req.ProjectNames)
+		_, err := s.db.Exec(`
+			INSERT INTO subscriptions
+			  (user_id, org_id, pack_name, pinned_version, device_info, git_info, project_names, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			ON CONFLICT (user_id, org_id, pack_name, project_name)
+			DO UPDATE SET
+			  device_info   = EXCLUDED.device_info,
+			  git_info      = EXCLUDED.git_info,
+			  project_names = EXCLUDED.project_names,
+			  updated_at    = EXCLUDED.updated_at`,
+			userID, orgID, p.Name, p.Version,
+			req.Device, gi, projectNames, now)
+		if err != nil {
+			return fmt.Errorf("upsert subscription for pack %s: %w", p.Name, err)
+		}
+	}
+	return nil
 }
 
 // DeletePack removes a pack from git and the database.

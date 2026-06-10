@@ -22,6 +22,9 @@ interface Window {
     readDirTree: (path: string) => Promise<DirEntry[]>
     collectFiles: (path: string) => Promise<{ name: string; path: string; relPath: string }[]>
 
+    // System
+    getDeviceInfo: () => Promise<{ platform: string; hostname: string; username: string }>
+
     // MCP
     setMCPToken: (token: string) => Promise<void>
 

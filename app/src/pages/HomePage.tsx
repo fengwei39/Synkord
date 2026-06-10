@@ -3,6 +3,8 @@ import { useNavigate, Link } from 'react-router-dom'
 import { getMe, logout, type AuthUser } from '../lib/auth'
 import { getMyOrgs, type Org } from '../lib/orgs'
 import { getToken } from '../lib/api'
+import { registerDevice } from '../lib/contracts'
+import { getProjectsByOrg } from '../lib/ide-sync'
 import ContractsPage from './ContractsPage'
 import ProjectsPage from './ProjectsPage'
 import styles from './HomePage.module.css'
@@ -27,9 +29,17 @@ export default function HomePage() {
           navigate('/onboarding', { replace: true })
           return
         }
-        setActiveOrgId(myOrgs[0].id)
+        const firstOrgId = myOrgs[0].id
+        setActiveOrgId(firstOrgId)
         const token = getToken()
         if (token) window.electronAPI.setMCPToken(token)
+
+        // Auto-register device for all orgs (fire-and-forget)
+        const device = await window.electronAPI.getDeviceInfo()
+        for (const org of myOrgs) {
+          const projectNames = getProjectsByOrg(org.id).map((p) => p.name)
+          registerDevice(org.id, device, projectNames).catch(() => { /* ignore */ })
+        }
       } catch {
         logout()
         navigate('/login', { replace: true })

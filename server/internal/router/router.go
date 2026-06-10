@@ -94,6 +94,7 @@ func New(db *sqlx.DB, cfg Config) *gin.Engine {
 
 		orgItem := orgsGroup.Group("/:orgId")
 		{
+			orgItem.POST("/register-device", memberMiddleware, contractsHandler.RegisterDevice)
 			orgItem.GET("", orgHandler.GetOrg)
 			orgItem.GET("/members", memberMiddleware, orgHandler.ListMembers)
 			orgItem.POST("/invites", adminMiddleware, orgHandler.CreateInvite)

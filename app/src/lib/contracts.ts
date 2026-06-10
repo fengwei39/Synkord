@@ -115,11 +115,25 @@ export async function getDiff(
 
 // ─── Subscriber types & API ───────────────────────────────────────────────────
 
+export interface DeviceInfo {
+  platform: string   // "win32" | "darwin" | "linux"
+  hostname: string
+  username?: string
+}
+
+export interface GitInfo {
+  emails: string[]
+}
+
 export interface SubscriberItem {
   userId: string
   email: string
   pinnedVersion: string
   isLatest: boolean
+  device: DeviceInfo
+  git: GitInfo
+  projectNames: string[]
+  updatedAt: string
 }
 
 export async function listSubscribers(orgId: string, packName: string): Promise<SubscriberItem[]> {
@@ -134,6 +148,14 @@ export async function addSubscriber(orgId: string, packName: string, email: stri
 
 export async function removeSubscriber(orgId: string, packName: string, userId: string): Promise<void> {
   await api.delete(`/api/orgs/${orgId}/packs/${packName}/subscribers/${userId}`)
+}
+
+export async function registerDevice(
+  orgId: string,
+  device: DeviceInfo,
+  projectNames: string[],
+): Promise<void> {
+  await api.post(`/api/orgs/${orgId}/register-device`, { device, projectNames })
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

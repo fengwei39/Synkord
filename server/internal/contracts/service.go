@@ -246,7 +246,7 @@ func (s *Service) ListSubscribers(orgID, packName string) ([]SubscriberItem, err
 		  COALESCE(array_to_string(s.project_names, ','), '')     AS project_names,
 		  COALESCE(
 		    array_to_string(
-		      ARRAY(SELECT ge.email FROM user_git_emails ge WHERE ge.user_id = u.id),
+		      ARRAY(SELECT ge.email FROM git_emails ge WHERE ge.user_id = u.id),
 		      ','
 		    ),
 		    ''
@@ -269,7 +269,7 @@ func (s *Service) ListSubscribers(orgID, packName string) ([]SubscriberItem, err
 		var gi GitInfo
 		_ = json.Unmarshal(r.GitInfoRaw, &gi)
 
-		// Merge git emails from user_git_emails table
+		// Merge git emails from git_emails table
 		if r.GitEmailsRaw != "" {
 			for _, e := range strings.Split(r.GitEmailsRaw, ",") {
 				if e != "" {
@@ -378,7 +378,7 @@ func (s *Service) RegisterDevice(orgID, userID string, req RegisterDeviceRequest
 	// Fetch git emails for this user
 	var gitEmails []string
 	_ = s.db.Select(&gitEmails,
-		`SELECT email FROM user_git_emails WHERE user_id=$1`, userID)
+		`SELECT email FROM git_emails WHERE user_id=$1`, userID)
 	gi := GitInfo{Emails: gitEmails}
 
 	now := time.Now().UTC()

@@ -205,3 +205,95 @@ func (s *Store) ListTags(orgID, prefix string) ([]string, error) {
 
 	return names, nil
 }
+
+// TagInfo holds metadata about a git tag.
+type TagInfo struct {
+	TagName     string
+	CommittedAt time.Time
+	AuthorEmail string
+}
+
+// ListTagsWithInfo returns tags matching prefix, with commit metadata.
+func (s *Store) ListTagsWithInfo(orgID, prefix string) ([]TagInfo, error) {
+	repo, err := git.PlainOpen(s.repoPath(orgID))
+	if err != nil {
+		return nil, fmt.Errorf("open repo: %w", err)
+	}
+
+	iter, err := repo.Tags()
+	if err != nil {
+		return nil, fmt.Errorf("list tags: %w", err)
+	}
+
+	var infos []TagInfo
+	err = iter.ForEach(func(ref *plumbing.Reference) error {
+		name := ref.Name().Short()
+		if !strings.HasPrefix(name, prefix) {
+			return nil
+		}
+
+		commit, err := s.resolveTagToCommit(repo, ref)
+		if err != nil {
+			return nil
+		}
+
+		infos = append(infos, TagInfo{
+			TagName:     name,
+			CommittedAt: commit.Author.When,
+			AuthorEmail: commit.Author.Email,
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return infos, nil
+}
+
+// DeleteFile removes filePath from the repo and creates a commit.
+func (s *Store) DeleteFile(orgID, filePath, authorEmail, message string) error {
+	repo, err := git.PlainOpen(s.repoPath(orgID))
+	if err != nil {
+		return fmt.Errorf("open repo: %w", err)
+	}
+
+	w, err := repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("get worktree: %w", err)
+	}
+
+	absPath := filepath.Join(s.repoPath(orgID), filepath.FromSlash(filePath))
+	if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove file: %w", err)
+	}
+
+	if _, err := w.Remove(filePath); err != nil {
+		return fmt.Errorf("git rm: %w", err)
+	}
+
+	_, err = w.Commit(message, &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  authorEmail,
+			Email: authorEmail,
+			When:  time.Now(),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("git commit: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Store) resolveTagToCommit(repo *git.Repository, ref *plumbing.Reference) (*object.Commit, error) {
+	commit, err := repo.CommitObject(ref.Hash())
+	if err == nil {
+		return commit, nil
+	}
+	tagObj, err := repo.TagObject(ref.Hash())
+	if err != nil {
+		return nil, fmt.Errorf("resolve tag: %w", err)
+	}
+	return tagObj.Commit()
+}

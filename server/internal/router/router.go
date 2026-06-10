@@ -7,6 +7,7 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	"synkord/server/internal/auth"
+	"synkord/server/internal/contracts"
 	"synkord/server/internal/gitstore"
 	"synkord/server/internal/org"
 )
@@ -46,15 +47,19 @@ func New(db *sqlx.DB, cfg Config) *gin.Engine {
 		authGroup.POST("/git-email", authMiddleware, authHandler.AddGitEmail)
 	}
 
-	// Org routes (all require auth)
+	// Org + contracts routes (all require auth)
 	gs := gitstore.New(cfg.GitReposDir)
 	orgSvc := org.NewService(db, cfg.BaseURL, gs)
 	orgHandler := org.NewHandler(orgSvc)
 
+	contractsSvc := contracts.NewService(db, gs)
+	contractsHandler := contracts.NewHandler(contractsSvc)
+
 	adminMiddleware := org.AdminMiddleware(db)
 	memberMiddleware := org.MemberMiddleware(db)
+	emailMiddleware := auth.EmailMiddleware(db)
 
-	orgsGroup := api.Group("/orgs", authMiddleware)
+	orgsGroup := api.Group("/orgs", authMiddleware, emailMiddleware)
 	{
 		orgsGroup.POST("", orgHandler.CreateOrg)
 		orgsGroup.GET("/me", orgHandler.GetMyOrgs) // must be before /:orgId
@@ -66,6 +71,21 @@ func New(db *sqlx.DB, cfg Config) *gin.Engine {
 			orgItem.POST("/invites", adminMiddleware, orgHandler.CreateInvite)
 			orgItem.DELETE("/members/:userId", adminMiddleware, orgHandler.RemoveMember)
 			orgItem.PUT("/members/:userId/role", adminMiddleware, orgHandler.UpdateMemberRole)
+
+			// Contract packs
+			packsGroup := orgItem.Group("/packs", memberMiddleware)
+			{
+				packsGroup.GET("", contractsHandler.ListPacks)
+				packsGroup.POST("", contractsHandler.CreatePack)
+				packItem := packsGroup.Group("/:pack")
+				{
+					packItem.GET("", contractsHandler.GetPack)
+					packItem.PUT("", contractsHandler.UpdatePack)
+					packItem.DELETE("", adminMiddleware, contractsHandler.DeletePack)
+					packItem.GET("/versions", contractsHandler.ListVersions)
+					packItem.GET("/versions/:version", contractsHandler.GetVersion)
+				}
+			}
 		}
 	}
 

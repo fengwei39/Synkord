@@ -5,9 +5,11 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
 )
 
 const ContextUserID = "userID"
+const ContextUserEmail = "userEmail"
 
 func Middleware(jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -33,4 +35,17 @@ func GetUserID(c *gin.Context) string {
 	id, _ := c.Get(ContextUserID)
 	s, _ := id.(string)
 	return s
+}
+
+// EmailMiddleware enriches the context with userEmail after auth middleware runs.
+func EmailMiddleware(db *sqlx.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := GetUserID(c)
+		if userID != "" {
+			var email string
+			_ = db.QueryRow("SELECT email FROM users WHERE id = $1", userID).Scan(&email)
+			c.Set(ContextUserEmail, email)
+		}
+		c.Next()
+	}
 }

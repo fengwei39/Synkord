@@ -265,10 +265,26 @@ function ProjectDetail({ project, orgId, orgSlug }: {
   }
 
   async function handleBindDir(dirPath: string) {
+    setError('')
     try {
       const dirEntries = await window.electronAPI.readDirTree(dirPath)
-      const fileList = dirEntries.filter((e) => !e.isDir).map((e) => e.name).join('\n')
-      const content = `# 目录: ${dirPath}\n\n${fileList}`
+      const files = dirEntries.filter((e) => !e.isDir)
+      if (files.length === 0) {
+        setError('该目录下没有文件')
+        return
+      }
+
+      const sections: string[] = []
+      for (const file of files) {
+        try {
+          const text = await window.electronAPI.readTextFile(file.path)
+          sections.push(`# ${file.name}\n\n${text}`)
+        } catch {
+          sections.push(`# ${file.name}\n\n(读取失败)`)
+        }
+      }
+
+      const content = sections.join('\n\n---\n\n')
       setBindModal({ filePath: dirPath + '/', content })
     } catch (err: unknown) {
       setError(String(err))

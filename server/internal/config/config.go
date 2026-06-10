@@ -12,6 +12,7 @@ type Config struct {
 	DatabaseURL string
 	JWTSecret   string
 	BaseURL     string
+	GitReposDir string
 }
 
 func Load() (*Config, error) {
@@ -23,6 +24,7 @@ func Load() (*Config, error) {
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		JWTSecret:   os.Getenv("JWT_SECRET"),
 		BaseURL:     getEnv("BASE_URL", "http://localhost:8080"),
+		GitReposDir: getEnv("GIT_REPOS_DIR", "./data/repos"),
 	}
 
 	if cfg.DatabaseURL == "" {

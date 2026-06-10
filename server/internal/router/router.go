@@ -7,12 +7,14 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	"synkord/server/internal/auth"
+	"synkord/server/internal/gitstore"
 	"synkord/server/internal/org"
 )
 
 type Config struct {
-	JWTSecret string
-	BaseURL   string
+	JWTSecret   string
+	BaseURL     string
+	GitReposDir string
 }
 
 func New(db *sqlx.DB, cfg Config) *gin.Engine {
@@ -45,7 +47,8 @@ func New(db *sqlx.DB, cfg Config) *gin.Engine {
 	}
 
 	// Org routes (all require auth)
-	orgSvc := org.NewService(db, cfg.BaseURL)
+	gs := gitstore.New(cfg.GitReposDir)
+	orgSvc := org.NewService(db, cfg.BaseURL, gs)
 	orgHandler := org.NewHandler(orgSvc)
 
 	adminMiddleware := org.AdminMiddleware(db)

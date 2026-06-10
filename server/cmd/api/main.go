@@ -22,8 +22,9 @@ func main() {
 	defer database.Close()
 
 	r := router.New(database, router.Config{
-		JWTSecret: cfg.JWTSecret,
-		BaseURL:   cfg.BaseURL,
+		JWTSecret:   cfg.JWTSecret,
+		BaseURL:     cfg.BaseURL,
+		GitReposDir: cfg.GitReposDir,
 	})
 
 	addr := fmt.Sprintf(":%s", cfg.AppPort)

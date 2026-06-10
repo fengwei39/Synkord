@@ -25,13 +25,19 @@ var (
 	slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$`)
 )
 
-type Service struct {
-	db      *sqlx.DB
-	baseURL string // used for building invite URLs
+// GitStore is the interface gitstore.Store satisfies; used here to avoid circular imports.
+type GitStore interface {
+	Init(orgID string) error
 }
 
-func NewService(db *sqlx.DB, baseURL string) *Service {
-	return &Service{db: db, baseURL: baseURL}
+type Service struct {
+	db       *sqlx.DB
+	baseURL  string
+	gitStore GitStore
+}
+
+func NewService(db *sqlx.DB, baseURL string, gs GitStore) *Service {
+	return &Service{db: db, baseURL: baseURL, gitStore: gs}
 }
 
 func (s *Service) CreateOrg(ctx context.Context, userID string, req CreateOrgRequest) (*OrgResponse, error) {
@@ -69,6 +75,14 @@ func (s *Service) CreateOrg(ctx context.Context, userID string, req CreateOrgReq
 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
+	}
+
+	// Initialize git repository for the org (best-effort; log but don't fail)
+	if s.gitStore != nil {
+		if err := s.gitStore.Init(o.ID); err != nil {
+			// Non-fatal: repo can be initialised manually later
+			_ = err
+		}
 	}
 
 	return &OrgResponse{

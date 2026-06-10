@@ -195,8 +195,11 @@ function langFence(contentType: string): string {
   return map[contentType] ?? contentType
 }
 
-function joinPath(...parts: string[]): string {
-  return parts.join('/').replace(/\/+/g, '/').replace(/\\/g, '/')
+function joinPath(base: string, ...rel: string[]): string {
+  // Normalize the base to use forward slashes, then append relative parts
+  const normalBase = base.replace(/\\/g, '/')
+  const joined = [normalBase, ...rel].join('/')
+  return joined.replace(/\/+/g, '/')
 }
 
 // ─── localStorage helpers (for finding linked projects) ───────────────────────
@@ -244,6 +247,13 @@ export function getProjectsConsumingPack(packName: string, orgId: string): Local
   )
 
   return projects.filter((p) => p.orgId === orgId && projectIds.has(p.id))
+}
+
+/**
+ * Get all local projects linked to a given org (regardless of pack bindings).
+ */
+export function getProjectsByOrg(orgId: string): LocalProject[] {
+  return getLocalProjects().filter((p) => p.orgId === orgId)
 }
 
 /**

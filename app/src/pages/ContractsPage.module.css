@@ -192,6 +192,20 @@
 }
 .editBtn:hover { border-color: #6366f1; color: #a5b4fc; }
 
+.syncBtn {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 5px;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 12px;
+  transition: border-color 0.1s;
+  white-space: nowrap;
+}
+.syncBtn:hover:not(:disabled) { border-color: #10b981; color: #6ee7b7; }
+.syncBtn:disabled { opacity: 0.5; cursor: default; }
+
 /* ── Content viewer ────────────────────────────────────────────────────────── */
 
 .viewer {

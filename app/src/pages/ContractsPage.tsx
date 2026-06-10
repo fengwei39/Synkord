@@ -8,7 +8,7 @@ import {
   type VersionInfo, type DiffResult, type DiffHunk,
 } from '../lib/contracts'
 import {
-  syncIDEFiles, getProjectsConsumingPack, getConsumedPackNames,
+  syncIDEFiles, getProjectsByOrg, getConsumedPackNames,
   type SynkordProjectConfig,
 } from '../lib/ide-sync'
 import styles from './ContractsPage.module.css'
@@ -133,6 +133,11 @@ export default function ContractsPage({ orgId, orgSlug = '' }: Props) {
                     onClick={() => setTab('versions')}
                   >版本历史</button>
                   <span style={{ flex: 1 }} />
+                  <SyncButton
+                    orgId={orgId}
+                    orgSlug={orgSlug}
+                    pack={packDetail}
+                  />
                   <button className={styles.editBtn} onClick={openEdit}>✏️ 编辑</button>
                 </div>
 
@@ -437,33 +442,84 @@ function PackEditor({
   )
 }
 
-// ─── IDE sync (triggered after pack publish) ──────────────────────────────────
+// ─── Sync button ─────────────────────────────────────────────────────────────
 
-async function syncLinkedProjects(
+function SyncButton({ orgId, orgSlug, pack }: {
+  orgId: string
+  orgSlug: string
+  pack: PackDetail
+}) {
+  const [syncing, setSyncing] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  async function handleSync() {
+    setSyncing(true)
+    setMsg('')
+    try {
+      const result = await syncAllProjects(orgId, orgSlug, [pack])
+      if (result.projects === 0) {
+        setMsg('暂无关联项目')
+      } else {
+        setMsg(`✓ 已同步 ${result.projects} 个项目`)
+      }
+    } catch {
+      setMsg('同步失败')
+    } finally {
+      setSyncing(false)
+      setTimeout(() => setMsg(''), 4000)
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      {msg && <span style={{ color: '#64748b', fontSize: 12 }}>{msg}</span>}
+      <button
+        className={styles.syncBtn}
+        onClick={handleSync}
+        disabled={syncing}
+        title="将此契约同步到所有已关联的本地项目（写入IDE配置文件）"
+      >
+        {syncing ? '⏳' : '🔄'} 同步到项目
+      </button>
+    </div>
+  )
+}
+
+// ─── IDE sync helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Sync all org-linked local projects with the given packs (or fetch all packs if not provided).
+ * Returns the number of projects synced.
+ */
+async function syncAllProjects(
   orgId: string,
   orgSlug: string,
-  publishedPackName: string,
-  publishedVersion: string,
-  publishedContent: string,
-  publishedContentType: string,
-) {
-  const linkedProjects = getProjectsConsumingPack(publishedPackName, orgId)
-  if (linkedProjects.length === 0) return
+  knownPacks?: PackDetail[],
+): Promise<{ projects: number }> {
+  const linkedProjects = getProjectsByOrg(orgId)
+  if (linkedProjects.length === 0) return { projects: 0 }
+
+  // Build a pack cache to avoid redundant fetches
+  const packCache = new Map<string, PackDetail>()
+  if (knownPacks) {
+    for (const p of knownPacks) packCache.set(p.name, p)
+  }
 
   for (const project of linkedProjects) {
-    const packNames = getConsumedPackNames(project.id)
+    // Determine which packs this project consumes
+    const boundNames = getConsumedPackNames(project.id)
+    // If no bindings, include all known packs passed in
+    const packNames = boundNames.length > 0 ? boundNames : (knownPacks?.map((p) => p.name) ?? [])
+    if (packNames.length === 0) continue
+
     const packDetails = await Promise.all(
       packNames.map(async (name) => {
-        if (name === publishedPackName) {
-          return {
-            name: publishedPackName,
-            version: publishedVersion,
-            contentType: publishedContentType,
-            content: publishedContent,
-          }
-        }
-        try { return await getPack(orgId, name) }
-        catch { return null }
+        if (packCache.has(name)) return packCache.get(name)!
+        try {
+          const d = await getPack(orgId, name)
+          packCache.set(name, d)
+          return d
+        } catch { return null }
       }),
     )
 
@@ -483,4 +539,23 @@ async function syncLinkedProjects(
 
     await syncIDEFiles(project.localPath, config, packs)
   }
+
+  return { projects: linkedProjects.length }
+}
+
+async function syncLinkedProjects(
+  orgId: string,
+  orgSlug: string,
+  publishedPackName: string,
+  publishedVersion: string,
+  publishedContent: string,
+  publishedContentType: string,
+) {
+  const publishedPack: PackDetail = {
+    name: publishedPackName,
+    version: publishedVersion,
+    contentType: publishedContentType,
+    content: publishedContent,
+  }
+  await syncAllProjects(orgId, orgSlug, [publishedPack])
 }

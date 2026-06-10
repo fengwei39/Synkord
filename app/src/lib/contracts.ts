@@ -113,6 +113,29 @@ export async function getDiff(
   return res.data
 }
 
+// ─── Subscriber types & API ───────────────────────────────────────────────────
+
+export interface SubscriberItem {
+  userId: string
+  email: string
+  pinnedVersion: string
+  isLatest: boolean
+}
+
+export async function listSubscribers(orgId: string, packName: string): Promise<SubscriberItem[]> {
+  const res = await api.get<SubscriberItem[]>(`/api/orgs/${orgId}/packs/${packName}/subscribers`)
+  return res.data
+}
+
+export async function addSubscriber(orgId: string, packName: string, email: string): Promise<SubscriberItem> {
+  const res = await api.post<SubscriberItem>(`/api/orgs/${orgId}/packs/${packName}/subscribers`, { email })
+  return res.data
+}
+
+export async function removeSubscriber(orgId: string, packName: string, userId: string): Promise<void> {
+  await api.delete(`/api/orgs/${orgId}/packs/${packName}/subscribers/${userId}`)
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 export function detectContentType(filename: string): string {

@@ -696,3 +696,160 @@
 }
 .saveBtn:hover:not(:disabled) { background: #4f46e5; }
 .saveBtn:disabled { opacity: 0.5; cursor: default; }
+
+/* ── Subscribers tab ────────────────────────────────────────────────────────── */
+
+.subscribersTab {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.subSummary {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.subTotal {
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.subUpToDate {
+  background: rgba(52,211,153,.12);
+  border-radius: 4px;
+  color: #34d399;
+  font-size: 12px;
+  padding: 2px 8px;
+}
+
+.subOutdated {
+  background: rgba(251,191,36,.12);
+  border-radius: 4px;
+  color: #fbbf24;
+  font-size: 12px;
+  padding: 2px 8px;
+}
+
+.subAddForm {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.subEmailInput {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: #e2e8f0;
+  flex: 1;
+  font-size: 13px;
+  outline: none;
+  padding: 7px 12px;
+}
+.subEmailInput:focus { border-color: #6366f1; }
+
+.subAddBtn {
+  background: #6366f1;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 7px 16px;
+  transition: background 0.1s;
+  white-space: nowrap;
+}
+.subAddBtn:hover:not(:disabled) { background: #4f46e5; }
+.subAddBtn:disabled { opacity: 0.5; cursor: default; }
+
+.subError {
+  color: #f87171;
+  font-size: 12px;
+  margin: 0 0 10px;
+}
+
+.subRow {
+  align-items: center;
+  border-bottom: 1px solid #1e293b;
+  display: flex;
+  gap: 12px;
+  padding: 10px 0;
+}
+.subRow:last-child { border-bottom: none; }
+
+.subAvatar {
+  align-items: center;
+  background: #1e293b;
+  border-radius: 50%;
+  color: #94a3b8;
+  display: flex;
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 600;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.subInfo {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.subEmail {
+  color: #e2e8f0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subVer {
+  color: #475569;
+  font-size: 11px;
+}
+.subVer code {
+  background: #1e293b;
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+.subStatus { flex-shrink: 0; }
+
+.badgeLatest {
+  background: rgba(52,211,153,.12);
+  border-radius: 4px;
+  color: #34d399;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.badgeOutdated {
+  background: rgba(251,191,36,.10);
+  border-radius: 4px;
+  color: #fbbf24;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.subRemoveBtn {
+  background: none;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: #475569;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: 11px;
+  height: 26px;
+  padding: 0 8px;
+  transition: border-color 0.1s, color 0.1s;
+}
+.subRemoveBtn:hover:not(:disabled) { border-color: #f87171; color: #f87171; }

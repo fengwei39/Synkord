@@ -1,11 +1,13 @@
 import { useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import {
   listPacks, getPack, listVersions, getDiff,
   createPack, updatePack,
+  listSubscribers, addSubscriber, removeSubscriber,
   bumpPatch, detectContentType,
   type PackListItem, type PackDetail,
   type VersionInfo, type DiffResult, type DiffHunk,
+  type SubscriberItem,
 } from '../lib/contracts'
 import {
   syncIDEFiles, getProjectsByOrg, getConsumedPackNames,
@@ -13,7 +15,7 @@ import {
 } from '../lib/ide-sync'
 import styles from './ContractsPage.module.css'
 
-type DetailTab = 'content' | 'versions'
+type DetailTab = 'content' | 'versions' | 'subscribers'
 
 interface Props { orgId: string; orgSlug?: string }
 
@@ -132,6 +134,10 @@ export default function ContractsPage({ orgId, orgSlug = '' }: Props) {
                     className={`${styles.tab} ${tab === 'versions' ? styles.tabActive : ''}`}
                     onClick={() => setTab('versions')}
                   >版本历史</button>
+                  <button
+                    className={`${styles.tab} ${tab === 'subscribers' ? styles.tabActive : ''}`}
+                    onClick={() => setTab('subscribers')}
+                  >使用者</button>
                   <span style={{ flex: 1 }} />
                   <SyncButton
                     orgId={orgId}
@@ -146,6 +152,9 @@ export default function ContractsPage({ orgId, orgSlug = '' }: Props) {
                 )}
                 {tab === 'versions' && (
                   <VersionsTab orgId={orgId} packName={selectedPack} />
+                )}
+                {tab === 'subscribers' && (
+                  <SubscribersTab orgId={orgId} packName={selectedPack} latestVersion={packDetail.version} />
                 )}
               </>
             )}
@@ -451,6 +460,128 @@ function VersionsTab({ orgId, packName }: { orgId: string; packName: string }) {
       )}
 
       {diffResult && <LineDiffView result={diffResult} />}
+    </div>
+  )
+}
+
+// ─── Subscribers tab ──────────────────────────────────────────────────────────
+
+function SubscribersTab({ orgId, packName, latestVersion }: {
+  orgId: string; packName: string; latestVersion: string
+}) {
+  const queryClient = useQueryClient()
+  const [email, setEmail] = useState('')
+  const [addError, setAddError] = useState('')
+
+  const { data: subscribers = [], isLoading } = useQuery({
+    queryKey: ['subscribers', orgId, packName],
+    queryFn: () => listSubscribers(orgId, packName),
+  })
+
+  const addMutation = useMutation({
+    mutationFn: (e: string) => addSubscriber(orgId, packName, e),
+    onSuccess: () => {
+      setEmail('')
+      setAddError('')
+      queryClient.invalidateQueries({ queryKey: ['subscribers', orgId, packName] })
+    },
+    onError: (err: Error) => setAddError(err.message),
+  })
+
+  const removeMutation = useMutation({
+    mutationFn: (userId: string) => removeSubscriber(orgId, packName, userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['subscribers', orgId, packName] })
+    },
+  })
+
+  function handleAdd(e: React.FormEvent) {
+    e.preventDefault()
+    if (!email.trim()) return
+    setAddError('')
+    addMutation.mutate(email.trim())
+  }
+
+  const upToDate = subscribers.filter((s) => s.isLatest).length
+  const outdated = subscribers.filter((s) => !s.isLatest).length
+
+  return (
+    <div className={styles.subscribersTab}>
+      {/* Summary bar */}
+      <div className={styles.subSummary}>
+        <span className={styles.subTotal}>{subscribers.length} 位使用者</span>
+        {subscribers.length > 0 && (
+          <>
+            <span className={styles.subUpToDate}>✓ {upToDate} 最新</span>
+            {outdated > 0 && <span className={styles.subOutdated}>⚠ {outdated} 需更新</span>}
+          </>
+        )}
+      </div>
+
+      {/* Add subscriber form */}
+      <form className={styles.subAddForm} onSubmit={handleAdd}>
+        <input
+          className={styles.subEmailInput}
+          placeholder="输入成员邮箱（需已加入组织）"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <button
+          type="submit"
+          className={styles.subAddBtn}
+          disabled={addMutation.isPending || !email.trim()}
+        >
+          {addMutation.isPending ? '添加中…' : '+ 添加'}
+        </button>
+      </form>
+      {addError && <p className={styles.subError}>{addError}</p>}
+
+      {/* Subscriber list */}
+      {isLoading && <p className={styles.hint}>加载中…</p>}
+      {!isLoading && subscribers.length === 0 && (
+        <p className={styles.hint}>暂无使用者，可在上方添加组织成员</p>
+      )}
+      {subscribers.map((s) => (
+        <SubscriberRow
+          key={s.userId}
+          item={s}
+          latestVersion={latestVersion}
+          onRemove={() => removeMutation.mutate(s.userId)}
+          removing={removeMutation.isPending}
+        />
+      ))}
+    </div>
+  )
+}
+
+function SubscriberRow({ item, latestVersion, onRemove, removing }: {
+  item: SubscriberItem
+  latestVersion: string
+  onRemove: () => void
+  removing: boolean
+}) {
+  return (
+    <div className={styles.subRow}>
+      <div className={styles.subAvatar}>{item.email[0].toUpperCase()}</div>
+      <div className={styles.subInfo}>
+        <span className={styles.subEmail}>{item.email}</span>
+        <span className={styles.subVer}>
+          固定版本 <code>v{item.pinnedVersion || '—'}</code>
+        </span>
+      </div>
+      <div className={styles.subStatus}>
+        {item.pinnedVersion === latestVersion ? (
+          <span className={styles.badgeLatest}>✓ 最新</span>
+        ) : (
+          <span className={styles.badgeOutdated}>⚠ 需更新 → v{latestVersion}</span>
+        )}
+      </div>
+      <button
+        className={styles.subRemoveBtn}
+        onClick={onRemove}
+        disabled={removing}
+        title="移除使用者"
+      >✕</button>
     </div>
   )
 }

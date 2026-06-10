@@ -42,6 +42,29 @@ type UpdatePackRequest struct {
 	ContentType string `json:"contentType"`
 }
 
+// SubscriberItem represents one subscriber of a contract pack.
+type SubscriberItem struct {
+	UserID        string `json:"userId"`
+	Email         string `json:"email"`
+	PinnedVersion string `json:"pinnedVersion"` // version they subscribed at
+	IsLatest      bool   `json:"isLatest"`      // pinnedVersion == current pack version
+}
+
+// AddSubscriberRequest is the body for POST /orgs/:orgId/packs/:pack/subscribers
+type AddSubscriberRequest struct {
+	Email string `json:"email" binding:"required"`
+}
+
+// subscriptionRecord mirrors the subscriptions DB row (internal use).
+type subscriptionRecord struct {
+	ID            string `db:"id"`
+	UserID        string `db:"user_id"`
+	OrgID         string `db:"org_id"`
+	PackName      string `db:"pack_name"`
+	PinnedVersion string `db:"pinned_version"`
+	Email         string `db:"email"` // joined from users
+}
+
 // packRecord mirrors the contract_packs DB row (internal use).
 type packRecord struct {
 	ID          string    `db:"id"`

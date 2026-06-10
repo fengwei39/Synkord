@@ -120,6 +120,62 @@ func (h *Handler) GetVersion(c *gin.Context) {
 	c.JSON(http.StatusOK, detail)
 }
 
+// ListSubscribers  GET /api/orgs/:orgId/packs/:pack/subscribers
+func (h *Handler) ListSubscribers(c *gin.Context) {
+	orgID := c.Param("orgId")
+	name := c.Param("pack")
+
+	items, err := h.svc.ListSubscribers(orgID, name)
+	if err != nil {
+		if errors.Is(err, ErrPackNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "pack not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if items == nil {
+		items = []SubscriberItem{}
+	}
+	c.JSON(http.StatusOK, items)
+}
+
+// AddSubscriber  POST /api/orgs/:orgId/packs/:pack/subscribers
+func (h *Handler) AddSubscriber(c *gin.Context) {
+	orgID := c.Param("orgId")
+	name := c.Param("pack")
+
+	var req AddSubscriberRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	item, err := h.svc.AddSubscriber(orgID, name, req.Email)
+	if err != nil {
+		if errors.Is(err, ErrPackNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "pack not found"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, item)
+}
+
+// RemoveSubscriber  DELETE /api/orgs/:orgId/packs/:pack/subscribers/:userId
+func (h *Handler) RemoveSubscriber(c *gin.Context) {
+	orgID := c.Param("orgId")
+	name := c.Param("pack")
+	userID := c.Param("userId")
+
+	if err := h.svc.RemoveSubscriber(orgID, name, userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 // DeletePack  DELETE /api/orgs/:orgId/packs/:pack  (admin only)
 func (h *Handler) DeletePack(c *gin.Context) {
 	orgID := c.Param("orgId")

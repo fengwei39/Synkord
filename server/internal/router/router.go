@@ -115,6 +115,9 @@ func New(db *sqlx.DB, cfg Config) *gin.Engine {
 				packItem.GET("/diff", diffHandler.GetDiff)
 					packItem.POST("/subscribe", notifyHandler.Subscribe)
 					packItem.DELETE("/subscribe", notifyHandler.Unsubscribe)
+					packItem.GET("/subscribers", contractsHandler.ListSubscribers)
+					packItem.POST("/subscribers", adminMiddleware, contractsHandler.AddSubscriber)
+					packItem.DELETE("/subscribers/:userId", adminMiddleware, contractsHandler.RemoveSubscriber)
 				}
 			}
 		}

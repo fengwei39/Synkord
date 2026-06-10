@@ -1,28 +1,106 @@
-# 工程文档
+# Synkord 工程说明
 
-## 开发计划
+> 更新：2026-06-10
 
-→ [开发计划.md](./开发计划.md) — 阶段目标、交付物、API 设计、验收标准
+---
 
-## 阶段状态
+## 项目结构
 
-| 阶段 | 类型 | 说明 | 状态 |
-|---|---|---|---|
-| X1 契约格式基础 | 基础 | JSON Schema + TypeScript 校验库 | ✅ 已完成 |
-| B1 基础框架 | 后端 | Go + PostgreSQL + 健康检查 | ✅ 已完成 |
-| B2 邮箱登录 + JWT | 后端 | 注册/登录/JWT 中间件 | ✅ 已完成 |
-| B3 飞书 OAuth | 后端 | 飞书登录（待做） | ⏳ 待开始 |
-| B4 组织系统 | 后端 | 创建组织、邀请制成员管理 | ✅ 已完成 |
-| B5 成员管理 | 后端 | 角色 + 权限中间件 | ✅ 已完成 |
-| B6 Git 裸仓库 | 后端 | go-git + WriteFile/ReadFile/Tag | ✅ 已完成 |
-| B7 契约包 CRUD | 后端 | 增删改查 + 版本 Tag + Schema 校验 | ✅ 已完成 |
-| B8 契约 diff API | 后端 | 版本间字段差异对比 | ✅ 已完成 |
-| B9 订阅 + WebSocket 通知 | 后端 | 订阅契约包，实时推送版本变更 | ✅ 已完成 |
-| F1 App 骨架 | 前端 | Electron + React + 路由 + API 客户端 | ✅ 已完成 |
-| F2 邮箱登录页 | 前端 | 登录/注册表单 + 路由守卫 | ✅ 已完成 |
-| F4 入驻引导 | 前端 | 创建/加入组织引导 | ✅ 已完成 |
-| F5 契约浏览器 | 前端 | 两栏布局，实体/字段展开 | ✅ 已完成 |
-| F6 版本历史 + diff | 前端 | 版本对比，字段变化高亮 | ✅ 已完成 |
-| F7 悬浮看板 | 前端 | alwaysOnTop + synkord.json 感知 + 字段搜索 | ✅ 已完成 |
-| F8 MCP Server | 前端 | 内嵌 MCP（端口 3742），AI 工具接入 | ✅ 已完成 |
-| F9 通知中心 | 前端 | 版本变更 + 字段 diff + WebSocket + 托盘 | ✅ 已完成 |
+```
+synkord/
+├── app/                    # Electron + React 前端
+│   ├── electron/           # 主进程（main.ts / preload.ts / mcp.ts / tray.ts / watcher.ts）
+│   └── src/
+│       ├── lib/            # API 客户端、ide-sync、ws
+│       └── pages/          # React 页面组件
+├── server/                 # Go 后端
+│   ├── cmd/api/            # 入口
+│   ├── internal/           # auth / org / contracts / diff / notify / gitstore
+│   └── migrations/         # SQL 迁移文件（001~008）
+└── docs/
+    ├── product/产品设计.md
+    └── engineering/README.md（本文件）
+```
+
+---
+
+## 启动方式
+
+### 后端
+
+```bash
+cd server
+# 确保 PostgreSQL 运行（Docker 示例）
+docker run -d --name synkord-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=synkord -p 5432:5432 postgres:15
+
+# 运行所有迁移
+for f in migrations/*.sql; do
+  Get-Content $f | docker exec -i synkord-pg psql -U postgres -d synkord
+done
+
+cp .env.example .env   # 按需修改
+go run ./cmd/api
+```
+
+### 前端
+
+```bash
+cd app
+pnpm install
+pnpm dev
+```
+
+---
+
+## 数据库迁移文件
+
+| 文件 | 内容 |
+|------|------|
+| 001_init.sql | 初始化扩展 |
+| 002_users.sql | users + user_git_emails |
+| 003_organizations.sql | organizations + org_members + org_invites |
+| 004_contract_packs.sql | contract_packs |
+| 005_subscriptions.sql | subscriptions（含 pinned_version）+ notifications |
+| 006_content_type.sql | contract_packs 加 content_type 列 |
+| 007_subscriber_pinned_version.sql | 占位（已合并到 005） |
+| 008_subscription_device_info.sql | subscriptions 加 device_info/git_info/project_names/updated_at |
+
+---
+
+## 关键设计决策
+
+### 契约内容格式
+
+契约包内容为**任意文本**。当由多个文件组合时，格式为：
+
+```
+# 项目名/相对路径
+
+[文件内容]
+
+---
+
+# 项目名/另一个文件
+
+[文件内容]
+```
+
+前端 `ContentViewer` 会解析此格式，渲染为目录树 + 文件内容双栏视图。
+
+### IDE 同步策略
+
+`app/src/lib/ide-sync.ts` 的同步逻辑：
+
+1. 检测 IDE 目录是否存在，只写对应文件
+2. 写前比对内容，内容无变化跳过
+3. `.synkord/config.json` 始终写入
+
+### 设备注册
+
+应用启动（登录后）自动调用 `POST /api/orgs/:orgId/register-device`，将当前用户注册为该组织所有契约包的使用者，并上报设备信息（OS、hostname、username）和本地项目名。
+
+---
+
+## 待做
+
+- [ ] B3 / F3：飞书 OAuth 登录

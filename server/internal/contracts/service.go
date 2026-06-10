@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -234,18 +235,24 @@ func (s *Service) ListSubscribers(orgID, packName string) ([]SubscriberItem, err
 	}
 
 	var rows []subscriptionRecord
+	// Use array_to_string for TEXT[] columns to avoid driver array parsing issues.
+	// JSONB columns are read as raw text and parsed manually.
 	err = s.db.Select(&rows, `
 		SELECT
-		  s.id, s.user_id, s.org_id, s.pack_name, s.pinned_version,
-		  COALESCE(s.device_info, '{}'::jsonb)  AS device_info,
-		  COALESCE(s.git_info,    '{}'::jsonb)   AS git_info,
-		  COALESCE(s.project_names, '{}')        AS project_names,
-		  COALESCE(s.updated_at, s.created_at)   AS updated_at,
-		  u.email,
+		  s.id, s.user_id, s.org_id, s.pack_name,
+		  s.pinned_version,
+		  COALESCE(s.device_info::text,  '{}')                    AS device_info,
+		  COALESCE(s.git_info::text,     '{}')                    AS git_info,
+		  COALESCE(array_to_string(s.project_names, ','), '')     AS project_names,
 		  COALESCE(
-		    (SELECT array_agg(ge.email) FROM user_git_emails ge WHERE ge.user_id = u.id),
-		    '{}'
-		  ) AS git_emails
+		    array_to_string(
+		      ARRAY(SELECT ge.email FROM user_git_emails ge WHERE ge.user_id = u.id),
+		      ','
+		    ),
+		    ''
+		  )                                                        AS git_emails,
+		  COALESCE(s.updated_at, s.created_at)                    AS updated_at,
+		  u.email
 		FROM subscriptions s
 		JOIN users u ON u.id = s.user_id
 		WHERE s.org_id=$1 AND s.pack_name=$2
@@ -256,18 +263,39 @@ func (s *Service) ListSubscribers(orgID, packName string) ([]SubscriberItem, err
 
 	items := make([]SubscriberItem, 0, len(rows))
 	for _, r := range rows {
-		gi := r.GitInfo
-		if len(r.GitEmails) > 0 {
-			gi.Emails = append(gi.Emails, r.GitEmails...)
+		var device DeviceInfo
+		_ = json.Unmarshal(r.DeviceInfoRaw, &device)
+
+		var gi GitInfo
+		_ = json.Unmarshal(r.GitInfoRaw, &gi)
+
+		// Merge git emails from user_git_emails table
+		if r.GitEmailsRaw != "" {
+			for _, e := range strings.Split(r.GitEmailsRaw, ",") {
+				if e != "" {
+					gi.Emails = append(gi.Emails, e)
+				}
+			}
 		}
+
+		// Parse project names from comma-separated string
+		var projectNames []string
+		if r.ProjectNamesRaw != "" {
+			for _, p := range strings.Split(r.ProjectNamesRaw, ",") {
+				if p != "" {
+					projectNames = append(projectNames, p)
+				}
+			}
+		}
+
 		items = append(items, SubscriberItem{
 			UserID:        r.UserID,
 			Email:         r.Email,
 			PinnedVersion: r.PinnedVersion,
 			IsLatest:      r.PinnedVersion == currentVersion,
-			Device:        r.DeviceInfo,
+			Device:        device,
 			Git:           gi,
-			ProjectNames:  r.ProjectNames,
+			ProjectNames:  projectNames,
 			UpdatedAt:     r.UpdatedAt,
 		})
 	}

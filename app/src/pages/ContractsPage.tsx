@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import {
   listPacks, getPack, listVersions, getDiff,
-  createPack, updatePack,
+  createPack, updatePack, deletePack,
   listSubscribers, addSubscriber, removeSubscriber,
   bumpPatch, detectContentType,
   type PackListItem, type PackDetail,
@@ -53,6 +53,20 @@ export default function ContractsPage({ orgId, orgSlug = '' }: Props) {
   function openEdit() {
     setEditorMode('edit')
     setShowEditor(true)
+  }
+
+  async function handleDelete() {
+    if (!selectedPack) return
+    if (!window.confirm(`确定要删除契约包「${selectedPack}」吗？此操作不可恢复。`)) return
+    try {
+      await deletePack(orgId, selectedPack)
+      setSelectedPack(null)
+      setShowEditor(false)
+      queryClient.invalidateQueries({ queryKey: ['packs', orgId] })
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      window.alert(`删除失败：${msg}`)
+    }
   }
 
   function handleSaved(name: string) {
@@ -149,6 +163,7 @@ export default function ContractsPage({ orgId, orgSlug = '' }: Props) {
                     pack={packDetail}
                   />
                   <button className={styles.editBtn} onClick={openEdit}>✏️ 编辑</button>
+                  <button className={styles.deleteBtn} onClick={handleDelete}>🗑 删除</button>
                 </div>
 
                 {tab === 'content' && (

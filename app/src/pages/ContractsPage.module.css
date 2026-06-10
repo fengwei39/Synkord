@@ -651,6 +651,181 @@
 }
 .importBtn:hover { border-color: #6366f1; color: #a5b4fc; }
 
+/* Source toolbar */
+.editorSourceBar {
+  align-items: center;
+  border-bottom: 1px solid #1e293b;
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 8px 16px;
+}
+
+.sourceBtn {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 5px;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 5px 12px;
+  transition: border-color 0.1s, color 0.1s;
+  white-space: nowrap;
+}
+.sourceBtn:hover:not(:disabled) { border-color: #6366f1; color: #a5b4fc; }
+.sourceBtn:disabled { opacity: 0.5; cursor: default; }
+
+.sourceSections {
+  background: rgba(99,102,241,.12);
+  border-radius: 4px;
+  color: #a5b4fc;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.sourceClear {
+  background: none;
+  border: none;
+  color: #475569;
+  cursor: pointer;
+  font-size: 12px;
+  margin-left: auto;
+  padding: 4px 8px;
+}
+.sourceClear:hover { color: #f87171; }
+
+/* Multi-project picker modal */
+.mpOverlay {
+  align-items: center;
+  background: rgba(0,0,0,.6);
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  left: 0;
+  position: fixed;
+  right: 0;
+  top: 0;
+  z-index: 200;
+}
+
+.mpModal {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  height: 70vh;
+  max-width: 640px;
+  overflow: hidden;
+  width: 90vw;
+}
+
+.mpHeader {
+  align-items: center;
+  border-bottom: 1px solid #1e293b;
+  display: flex;
+  flex-shrink: 0;
+  padding: 14px 20px;
+}
+
+.mpTitle {
+  color: #e2e8f0;
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.mpClose {
+  background: none;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 14px;
+}
+.mpClose:hover { color: #e2e8f0; }
+
+.mpBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.mpProject { border-bottom: 1px solid #1e293b; }
+.mpProject:last-child { border-bottom: none; }
+
+.mpProjectBtn {
+  align-items: center;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  display: flex;
+  font-size: 13px;
+  gap: 6px;
+  padding: 10px 16px;
+  text-align: left;
+  transition: background 0.1s;
+  width: 100%;
+}
+.mpProjectBtn:hover { background: rgba(255,255,255,.04); }
+
+.mpProjectName {
+  color: #e2e8f0;
+  font-weight: 500;
+}
+
+.mpProjectPath {
+  color: #475569;
+  font-family: monospace;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mpTree {
+  padding: 4px 0 4px 32px;
+}
+
+.mpEntryRow {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  font-size: 12px;
+  gap: 6px;
+  padding: 4px 12px;
+  transition: background 0.1s;
+}
+.mpEntryRow:hover { background: rgba(255,255,255,.04); }
+
+.mpCheck {
+  accent-color: #6366f1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.mpEntryName {
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mpFooter {
+  align-items: center;
+  border-top: 1px solid #1e293b;
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 12px 20px;
+}
+
+.mpCount {
+  color: #64748b;
+  flex: 1;
+  font-size: 12px;
+}
+
 .editorTextarea {
   background: #0d1117;
   border: none;

@@ -797,6 +797,141 @@ function DiffHunkBlock({ hunk }: { hunk: DiffHunk }) {
 
 // ─── Pack editor ──────────────────────────────────────────────────────────────
 
+// ─── Multi-project file picker ────────────────────────────────────────────────
+
+interface PickedFile {
+  projectId: string
+  projectName: string
+  absPath: string        // absolute path on disk
+  relPath: string        // relative to project root
+  isDir: boolean
+}
+
+function MultiProjectPicker({ orgId, onConfirm, onCancel }: {
+  orgId: string
+  onConfirm: (files: PickedFile[]) => void
+  onCancel: () => void
+}) {
+  const projects = getProjectsByOrg(orgId)
+  const [openProjects, setOpenProjects] = useState<Set<string>>(new Set())
+  const [trees, setTrees] = useState<Record<string, DirEntry[]>>({})
+  const [selected, setSelected] = useState<Set<string>>(new Set()) // key = `${projectId}::${absPath}`
+  const [loading, setLoading] = useState<Set<string>>(new Set())
+
+  async function toggleProject(proj: LocalProject) {
+    const id = proj.id
+    if (openProjects.has(id)) {
+      setOpenProjects((s) => { const n = new Set(s); n.delete(id); return n })
+      return
+    }
+    if (!trees[id]) {
+      setLoading((s) => new Set(s).add(id))
+      try {
+        const entries = await window.electronAPI.readDirTree(proj.localPath)
+        setTrees((t) => ({ ...t, [id]: entries }))
+      } catch { /* skip */ } finally {
+        setLoading((s) => { const n = new Set(s); n.delete(id); return n })
+      }
+    }
+    setOpenProjects((s) => new Set(s).add(id))
+  }
+
+  function toggleEntry(projId: string, absPath: string) {
+    const key = `${projId}::${absPath}`
+    setSelected((s) => {
+      const n = new Set(s)
+      if (n.has(key)) n.delete(key)
+      else n.add(key)
+      return n
+    })
+  }
+
+  function isChecked(projId: string, absPath: string) {
+    return selected.has(`${projId}::${absPath}`)
+  }
+
+  function buildResult(): PickedFile[] {
+    const result: PickedFile[] = []
+    for (const key of selected) {
+      const colonIdx = key.indexOf('::')
+      const projId = key.slice(0, colonIdx)
+      const absPath = key.slice(colonIdx + 2)
+      const proj = projects.find((p) => p.id === projId)
+      if (!proj) continue
+      const relPath = absPath.replace(proj.localPath, '').replace(/^[/\\]+/, '')
+      const entry = trees[projId]?.find((e) => e.path === absPath)
+      result.push({
+        projectId: projId,
+        projectName: proj.name,
+        absPath,
+        relPath,
+        isDir: entry?.isDir ?? false,
+      })
+    }
+    return result
+  }
+
+  return (
+    <div className={styles.mpOverlay}>
+      <div className={styles.mpModal}>
+        <div className={styles.mpHeader}>
+          <span className={styles.mpTitle}>从项目选择文件</span>
+          <button className={styles.mpClose} onClick={onCancel}>✕</button>
+        </div>
+
+        <div className={styles.mpBody}>
+          {projects.length === 0 && (
+            <p className={styles.hint}>该组织下暂无本地项目，请先在「本地项目」页添加。</p>
+          )}
+          {projects.map((proj) => (
+            <div key={proj.id} className={styles.mpProject}>
+              <button
+                className={styles.mpProjectBtn}
+                onClick={() => toggleProject(proj)}
+              >
+                <span className={styles.treeChevron}>
+                  {loading.has(proj.id) ? '…' : openProjects.has(proj.id) ? '▾' : '▸'}
+                </span>
+                <span>📁</span>
+                <span className={styles.mpProjectName}>{proj.name}</span>
+                <span className={styles.mpProjectPath}>{proj.localPath}</span>
+              </button>
+              {openProjects.has(proj.id) && trees[proj.id] && (
+                <div className={styles.mpTree}>
+                  {trees[proj.id].map((entry) => (
+                    <label key={entry.path} className={styles.mpEntryRow}>
+                      <input
+                        type="checkbox"
+                        checked={isChecked(proj.id, entry.path)}
+                        onChange={() => toggleEntry(proj.id, entry.path)}
+                        className={styles.mpCheck}
+                      />
+                      <span>{entry.isDir ? '📁' : fileTypeIcon(entry.name)}</span>
+                      <span className={styles.mpEntryName}>{entry.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className={styles.mpFooter}>
+          <span className={styles.mpCount}>已选 {selected.size} 项</span>
+          <button className={styles.cancelBtn} onClick={onCancel}>取消</button>
+          <button
+            className={styles.saveBtn}
+            disabled={selected.size === 0}
+            onClick={() => onConfirm(buildResult())}
+          >添加到契约包</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Pack editor ──────────────────────────────────────────────────────────────
+
 function PackEditor({
   orgId, orgSlug, mode, existing, onSaved, onCancel,
 }: {
@@ -815,14 +950,48 @@ function PackEditor({
   const [contentType, setContentType] = useState(existing?.contentType ?? 'text')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [showPicker, setShowPicker] = useState(false)
+  const [building, setBuilding] = useState(false)
 
-  async function handleImport() {
+  async function handleImportFile() {
     const path = await window.electronAPI.pickFile()
     if (!path) return
     const text = await window.electronAPI.readTextFile(path)
-    setContent(text)
-    const ct = detectContentType(path)
-    setContentType(ct)
+    const fileName = path.replace(/\\/g, '/').split('/').pop() ?? path
+    const section = `# ${fileName}\n\n${text}`
+    setContent((c) => c.trim() ? `${c}\n\n---\n\n${section}` : section)
+    setContentType(detectContentType(path))
+  }
+
+  async function handlePickerConfirm(files: PickedFile[]) {
+    setShowPicker(false)
+    setBuilding(true)
+    try {
+      const sections: string[] = []
+      for (const f of files) {
+        const header = `${f.projectName}/${f.relPath}`
+        if (f.isDir) {
+          const all = await window.electronAPI.collectFiles(f.absPath)
+          for (const item of all) {
+            const text = await window.electronAPI.readTextFile(item.path).catch(() => '(读取失败)')
+            sections.push(`# ${header}/${item.relPath}\n\n${text}`)
+          }
+          if (all.length === 0) sections.push(`# ${header}\n\n(空目录)`)
+        } else {
+          const text = await window.electronAPI.readTextFile(f.absPath).catch(() => '(读取失败)')
+          sections.push(`# ${header}\n\n${text}`)
+        }
+      }
+      const newPart = sections.join('\n\n---\n\n')
+      setContent((c) => c.trim() ? `${c}\n\n---\n\n${newPart}` : newPart)
+      // Auto-detect content type from first file
+      const firstFile = files.find((f) => !f.isDir)
+      if (firstFile && contentType === 'text') {
+        setContentType(detectContentType(firstFile.relPath))
+      }
+    } finally {
+      setBuilding(false)
+    }
   }
 
   async function handleSave() {
@@ -837,7 +1006,6 @@ function PackEditor({
         await updatePack(orgId, packName, version.trim(), content, contentType)
       }
       onSaved(packName)
-      // Async: sync IDE files for all projects consuming this pack
       void syncLinkedProjects(orgId, orgSlug, packName, version.trim(), content, contentType)
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: string } }; message?: string }
@@ -847,76 +1015,109 @@ function PackEditor({
     }
   }
 
-  return (
-    <div className={styles.editor}>
-      {/* Header */}
-      <div className={styles.editorHeader}>
-        <h3 className={styles.editorTitle}>
-          {mode === 'create' ? '新建契约包' : `编辑 ${existing?.name}`}
-        </h3>
-        <button className={styles.editorClose} onClick={onCancel}>✕</button>
-      </div>
+  // Count sections in content
+  const sectionCount = content.trim()
+    ? content.split(/\n---\n/).filter((s) => s.trim()).length
+    : 0
 
-      {/* Meta row */}
-      <div className={styles.editorMeta}>
-        {mode === 'create' && (
+  return (
+    <>
+      {showPicker && (
+        <MultiProjectPicker
+          orgId={orgId}
+          onConfirm={handlePickerConfirm}
+          onCancel={() => setShowPicker(false)}
+        />
+      )}
+
+      <div className={styles.editor}>
+        {/* Header */}
+        <div className={styles.editorHeader}>
+          <h3 className={styles.editorTitle}>
+            {mode === 'create' ? '新建契约包' : `编辑 ${existing?.name}`}
+          </h3>
+          <button className={styles.editorClose} onClick={onCancel}>✕</button>
+        </div>
+
+        {/* Meta row */}
+        <div className={styles.editorMeta}>
+          {mode === 'create' && (
+            <div className={styles.editorField}>
+              <label className={styles.editorLabel}>名称</label>
+              <input
+                className={styles.editorInput}
+                placeholder="user-api"
+                value={name}
+                onChange={(e) => setName(e.target.value.replace(/\s/g, '-'))}
+              />
+            </div>
+          )}
           <div className={styles.editorField}>
-            <label className={styles.editorLabel}>名称</label>
+            <label className={styles.editorLabel}>版本</label>
             <input
               className={styles.editorInput}
-              placeholder="user-api"
-              value={name}
-              onChange={(e) => setName(e.target.value.replace(/\s/g, '-'))}
+              placeholder="0.1.0"
+              value={version}
+              onChange={(e) => setVersion(e.target.value)}
             />
           </div>
-        )}
-        <div className={styles.editorField}>
-          <label className={styles.editorLabel}>版本</label>
-          <input
-            className={styles.editorInput}
-            placeholder="0.1.0"
-            value={version}
-            onChange={(e) => setVersion(e.target.value)}
-          />
+          <div className={styles.editorField}>
+            <label className={styles.editorLabel}>类型</label>
+            <select
+              className={styles.editorInput}
+              value={contentType}
+              onChange={(e) => setContentType(e.target.value)}
+            >
+              {['text', 'markdown', 'yaml', 'json', 'typescript', 'go', 'sql', 'proto'].map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </div>
         </div>
-        <div className={styles.editorField}>
-          <label className={styles.editorLabel}>类型</label>
-          <select
-            className={styles.editorInput}
-            value={contentType}
-            onChange={(e) => setContentType(e.target.value)}
+
+        {/* Source toolbar */}
+        <div className={styles.editorSourceBar}>
+          <button className={styles.sourceBtn} onClick={() => setShowPicker(true)} disabled={building}>
+            {building ? '读取中…' : '📦 从项目添加文件'}
+          </button>
+          <button className={styles.sourceBtn} onClick={handleImportFile} disabled={building}>
+            📄 从本地文件导入
+          </button>
+          {sectionCount > 0 && (
+            <span className={styles.sourceSections}>{sectionCount} 个文件段落</span>
+          )}
+          {content.trim() && (
+            <button
+              className={styles.sourceClear}
+              onClick={() => { if (window.confirm('清空所有内容？')) setContent('') }}
+            >清空</button>
+          )}
+        </div>
+
+        {/* Textarea */}
+        <textarea
+          className={styles.editorTextarea}
+          placeholder="在此粘贴或编辑契约内容，或用上方按钮从项目中添加文件…"
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          spellCheck={false}
+        />
+
+        {error && <p className={styles.editorError}>{error}</p>}
+
+        {/* Actions */}
+        <div className={styles.editorActions}>
+          <button className={styles.cancelBtn} onClick={onCancel}>取消</button>
+          <button
+            className={styles.saveBtn}
+            onClick={handleSave}
+            disabled={saving || !content.trim() || (mode === 'create' && !name.trim())}
           >
-            {['text', 'markdown', 'yaml', 'json', 'typescript', 'go', 'sql', 'proto'].map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
+            {saving ? '发布中…' : mode === 'create' ? '创建并发布' : '发布新版本'}
+          </button>
         </div>
-        <button className={styles.importBtn} onClick={handleImport}>📂 从文件导入</button>
       </div>
-
-      {/* Textarea */}
-      <textarea
-        className={styles.editorTextarea}
-        placeholder="在此粘贴或编辑契约内容…"
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
-        spellCheck={false}
-      />
-
-      {error && <p className={styles.editorError}>{error}</p>}
-
-      {/* Actions */}
-      <div className={styles.editorActions}>
-        <button className={styles.cancelBtn} onClick={onCancel}>取消</button>
-        <button
-          className={styles.saveBtn}
-          onClick={handleSave}
-          disabled={saving || !content.trim() || (mode === 'create' && !name.trim())}
-        >
-          {saving ? '发布中…' : mode === 'create' ? '创建并发布' : '发布新版本'}
-        </button>
-      </div>
-    </div>
+    </>
   )
 }
 

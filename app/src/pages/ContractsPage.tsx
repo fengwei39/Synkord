@@ -179,29 +179,214 @@ function PackItem({ pack, selected, onClick }: {
   )
 }
 
-// ─── Content viewer (syntax-highlighted text) ────────────────────────────────
+// ─── Multi-file content parser ───────────────────────────────────────────────
+
+interface ParsedFile {
+  path: string      // relative path, e.g. "src/api/user.ts"
+  name: string      // filename, e.g. "user.ts"
+  content: string
+}
+
+interface TreeNode {
+  name: string
+  path: string
+  isDir: boolean
+  children: TreeNode[]
+  file?: ParsedFile
+}
+
+function parseMultiFileContent(raw: string): ParsedFile[] {
+  // Split by separator line "---" (may have surrounding newlines)
+  const sections = raw.split(/\n---\n/)
+  const files: ParsedFile[] = []
+
+  for (const section of sections) {
+    const trimmed = section.trim()
+    if (!trimmed) continue
+
+    // First line should be "# path/to/file"
+    const firstNewline = trimmed.indexOf('\n')
+    const firstLine = firstNewline === -1 ? trimmed : trimmed.slice(0, firstNewline)
+    const rest = firstNewline === -1 ? '' : trimmed.slice(firstNewline + 1).trim()
+
+    if (firstLine.startsWith('# ')) {
+      const filePath = firstLine.slice(2).trim()
+      files.push({
+        path: filePath,
+        name: filePath.split('/').pop() ?? filePath,
+        content: rest,
+      })
+    } else {
+      // Single-file pack (no header) — treat as root file
+      files.push({ path: '_content', name: '_content', content: trimmed })
+    }
+  }
+
+  return files.length > 0 ? files : [{ path: '_content', name: '_content', content: raw }]
+}
+
+function buildTree(files: ParsedFile[]): TreeNode[] {
+  const root: TreeNode[] = []
+
+  for (const file of files) {
+    const parts = file.path.split('/')
+    let nodes = root
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]
+      const isLast = i === parts.length - 1
+
+      let node = nodes.find((n) => n.name === part)
+      if (!node) {
+        node = {
+          name: part,
+          path: parts.slice(0, i + 1).join('/'),
+          isDir: !isLast,
+          children: [],
+          file: isLast ? file : undefined,
+        }
+        nodes.push(node)
+      }
+      if (!isLast) nodes = node.children
+    }
+  }
+
+  return root
+}
+
+// ─── Content viewer (tree + code panel) ──────────────────────────────────────
 
 function ContentViewer({ detail }: { detail: PackDetail }) {
-  const lines = detail.content.split('\n')
+  const files = parseMultiFileContent(detail.content)
+  const isMultiFile = files.length > 1 || (files.length === 1 && files[0].path !== '_content')
+  const tree = buildTree(files)
+  const [selectedFile, setSelectedFile] = useState<ParsedFile>(files[0])
+
+  // Reset to first file when pack changes
+  const firstPath = files[0]?.path
+  const [lastFirst, setLastFirst] = useState(firstPath)
+  if (firstPath !== lastFirst) {
+    setLastFirst(firstPath)
+    setSelectedFile(files[0])
+  }
+
+  const lines = selectedFile.content.split('\n')
+  const ct = selectedFile.name !== '_content'
+    ? detectFileType(selectedFile.name)
+    : (detail.contentType || 'text')
 
   return (
     <div className={styles.viewer}>
       <div className={styles.viewerMeta}>
         <span className={styles.metaType}>{detail.contentType || 'text'}</span>
         <span className={styles.metaVer}>v{detail.version}</span>
+        {isMultiFile && (
+          <span className={styles.metaFiles}>{files.length} 个文件</span>
+        )}
       </div>
-      <div className={styles.codeWrap}>
-        <div className={styles.lineNums}>
-          {lines.map((_, i) => (
-            <span key={i} className={styles.lineNum}>{i + 1}</span>
-          ))}
+
+      <div className={styles.viewerBody}>
+        {/* Tree sidebar (only for multi-file packs) */}
+        {isMultiFile && (
+          <div className={styles.treeSidebar}>
+            {tree.map((node) => (
+              <TreeNodeView
+                key={node.path}
+                node={node}
+                selectedPath={selectedFile.path}
+                onSelect={(f) => setSelectedFile(f)}
+                depth={0}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Code panel */}
+        <div className={styles.codeWrap}>
+          {isMultiFile && (
+            <div className={styles.codePath}>
+              <span className={styles.codePathType}>{ct}</span>
+              <span className={styles.codePathName}>{selectedFile.path}</span>
+            </div>
+          )}
+          <div className={styles.codeScroll}>
+            <div className={styles.lineNums}>
+              {lines.map((_, i) => (
+                <span key={i} className={styles.lineNum}>{i + 1}</span>
+              ))}
+            </div>
+            <pre className={styles.codeContent}>{selectedFile.content}</pre>
+          </div>
         </div>
-        <pre className={`${styles.codeContent} ${styles[`lang_${detail.contentType}`] ?? ''}`}>
-          {detail.content}
-        </pre>
       </div>
     </div>
   )
+}
+
+function TreeNodeView({ node, selectedPath, onSelect, depth }: {
+  node: TreeNode
+  selectedPath: string
+  onSelect: (f: ParsedFile) => void
+  depth: number
+}) {
+  const [open, setOpen] = useState(true)
+  const indent = depth * 14
+
+  if (node.isDir) {
+    return (
+      <div>
+        <button
+          className={styles.treeDir}
+          style={{ paddingLeft: 8 + indent }}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <span className={styles.treeChevron}>{open ? '▾' : '▸'}</span>
+          <span className={styles.treeDirIcon}>📁</span>
+          <span className={styles.treeName}>{node.name}</span>
+        </button>
+        {open && node.children.map((child) => (
+          <TreeNodeView
+            key={child.path}
+            node={child}
+            selectedPath={selectedPath}
+            onSelect={onSelect}
+            depth={depth + 1}
+          />
+        ))}
+      </div>
+    )
+  }
+
+  const isSelected = node.file?.path === selectedPath
+  return (
+    <button
+      className={`${styles.treeFile} ${isSelected ? styles.treeFileSelected : ''}`}
+      style={{ paddingLeft: 8 + indent }}
+      onClick={() => node.file && onSelect(node.file)}
+    >
+      <span className={styles.treeFileIcon}>{fileTypeIcon(node.name)}</span>
+      <span className={styles.treeName}>{node.name}</span>
+    </button>
+  )
+}
+
+function detectFileType(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  const map: Record<string, string> = {
+    md: 'markdown', yaml: 'yaml', yml: 'yaml', json: 'json',
+    ts: 'typescript', tsx: 'typescript', go: 'go', sql: 'sql',
+    proto: 'proto', txt: 'text',
+  }
+  return map[ext] ?? 'text'
+}
+
+function fileTypeIcon(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  const icons: Record<string, string> = {
+    md: '📝', markdown: '📝', yaml: '⚙️', yml: '⚙️', json: '📋',
+    ts: '🔷', tsx: '🔷', go: '🐹', sql: '🗄️', proto: '📡', txt: '📄',
+  }
+  return icons[ext] ?? '📄'
 }
 
 // ─── Versions tab ─────────────────────────────────────────────────────────────

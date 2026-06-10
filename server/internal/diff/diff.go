@@ -1,207 +1,249 @@
-// Package diff computes field-level differences between two contract pack versions.
+// Package diff computes line-level text differences between two contract versions.
 package diff
 
-import (
-	"encoding/json"
-	"fmt"
-	"reflect"
-)
+import "strings"
 
-// ChangeType represents the kind of change for a field or entity.
-type ChangeType string
+// LineType classifies a diff line.
+type LineType string
 
 const (
-	ChangeAdded    ChangeType = "added"
-	ChangeRemoved  ChangeType = "removed"
-	ChangeModified ChangeType = "modified"
+	LineContext LineType = "context"
+	LineAdded   LineType = "added"
+	LineRemoved LineType = "removed"
 )
 
-// FieldDiff describes a single field change.
-type FieldDiff struct {
-	Change ChangeType  `json:"change"`
-	Type   string      `json:"type,omitempty"`   // present for added/removed
-	Before interface{} `json:"before,omitempty"` // present for modified
-	After  interface{} `json:"after,omitempty"`  // present for modified
+// Line is one line in a diff hunk.
+type Line struct {
+	Type    LineType `json:"type"`
+	OldNum  int      `json:"oldNum,omitempty"` // 1-based; 0 for pure additions
+	NewNum  int      `json:"newNum,omitempty"` // 1-based; 0 for pure removals
+	Content string   `json:"content"`
 }
 
-// EntityDiff describes the changes within one entity.
-type EntityDiff struct {
-	Change    ChangeType            `json:"change"`
-	Fields    map[string]*FieldDiff `json:"fields,omitempty"`
-	Relations map[string]*FieldDiff `json:"relations,omitempty"`
+// Hunk is a contiguous block of changes with surrounding context.
+type Hunk struct {
+	OldStart int    `json:"oldStart"`
+	NewStart int    `json:"newStart"`
+	Lines    []Line `json:"lines"`
+}
+
+// Stats summarises the diff.
+type Stats struct {
+	Added   int `json:"added"`
+	Removed int `json:"removed"`
 }
 
 // Result is the full diff between two versions.
 type Result struct {
-	From     string                 `json:"from"`
-	To       string                 `json:"to"`
-	Entities map[string]*EntityDiff `json:"entities"`
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Hunks []Hunk `json:"hunks"`
+	Stats Stats  `json:"stats"`
 }
 
-// contractDoc is a minimal parse of a contract-v1 JSON document.
-type contractDoc struct {
-	Pack     string                            `json:"pack"`
-	Version  string                            `json:"version"`
-	Entities map[string]map[string]interface{} `json:"entities"`
-}
+const contextSize = 3
 
-func parseDoc(content string) (*contractDoc, error) {
-	var doc contractDoc
-	if err := json.Unmarshal([]byte(content), &doc); err != nil {
-		return nil, fmt.Errorf("parse contract: %w", err)
-	}
-	return &doc, nil
-}
+// Compute returns the line-level diff between fromContent and toContent.
+func Compute(fromVersion, toVersion, fromContent, toContent string) *Result {
+	a := splitLines(fromContent)
+	b := splitLines(toContent)
 
-// Compute returns the structured diff between fromContent and toContent.
-// Both must be valid contract-v1 JSON strings. Returns an empty entities map
-// when there are no changes.
-func Compute(fromVersion, toVersion, fromContent, toContent string) (*Result, error) {
-	fromDoc, err := parseDoc(fromContent)
-	if err != nil {
-		return nil, fmt.Errorf("from: %w", err)
-	}
-	toDoc, err := parseDoc(toContent)
-	if err != nil {
-		return nil, fmt.Errorf("to: %w", err)
-	}
+	edits := lcs(a, b)
+	hunks := buildHunks(edits, a, b)
 
-	result := &Result{
-		From:     fromVersion,
-		To:       toVersion,
-		Entities: make(map[string]*EntityDiff),
-	}
-
-	// Entities in "from" — may be removed or modified
-	for entityName, fromEntity := range fromDoc.Entities {
-		toEntity, exists := toDoc.Entities[entityName]
-		if !exists {
-			result.Entities[entityName] = entityAllRemoved(fromEntity)
-			continue
-		}
-		if ed := diffEntity(fromEntity, toEntity); ed != nil {
-			result.Entities[entityName] = ed
-		}
-	}
-
-	// Entities only in "to" — added
-	for entityName, toEntity := range toDoc.Entities {
-		if _, exists := fromDoc.Entities[entityName]; !exists {
-			result.Entities[entityName] = entityAllAdded(toEntity)
-		}
-	}
-
-	return result, nil
-}
-
-// entityAllAdded returns an EntityDiff marking all fields as added.
-func entityAllAdded(entity map[string]interface{}) *EntityDiff {
-	ed := &EntityDiff{Change: ChangeAdded, Fields: make(map[string]*FieldDiff)}
-	if fields, ok := entity["fields"].(map[string]interface{}); ok {
-		for fname, fval := range fields {
-			typeName := extractType(fval)
-			ed.Fields[fname] = &FieldDiff{Change: ChangeAdded, Type: typeName}
-		}
-	}
-	if rels, ok := entity["relations"].(map[string]interface{}); ok {
-		ed.Relations = make(map[string]*FieldDiff)
-		for rname := range rels {
-			ed.Relations[rname] = &FieldDiff{Change: ChangeAdded}
-		}
-	}
-	return ed
-}
-
-// entityAllRemoved returns an EntityDiff marking all fields as removed.
-func entityAllRemoved(entity map[string]interface{}) *EntityDiff {
-	ed := &EntityDiff{Change: ChangeRemoved, Fields: make(map[string]*FieldDiff)}
-	if fields, ok := entity["fields"].(map[string]interface{}); ok {
-		for fname, fval := range fields {
-			typeName := extractType(fval)
-			ed.Fields[fname] = &FieldDiff{Change: ChangeRemoved, Type: typeName}
-		}
-	}
-	if rels, ok := entity["relations"].(map[string]interface{}); ok {
-		ed.Relations = make(map[string]*FieldDiff)
-		for rname := range rels {
-			ed.Relations[rname] = &FieldDiff{Change: ChangeRemoved}
-		}
-	}
-	return ed
-}
-
-// diffEntity computes field-level changes between two entity objects.
-// Returns nil if there are no differences.
-func diffEntity(fromEntity, toEntity map[string]interface{}) *EntityDiff {
-	ed := &EntityDiff{Change: ChangeModified}
-
-	fieldDiffs := diffObjectMap(
-		asStringMap(fromEntity["fields"]),
-		asStringMap(toEntity["fields"]),
-	)
-	relDiffs := diffObjectMap(
-		asStringMap(fromEntity["relations"]),
-		asStringMap(toEntity["relations"]),
-	)
-
-	if len(fieldDiffs) == 0 && len(relDiffs) == 0 {
-		return nil
-	}
-	if len(fieldDiffs) > 0 {
-		ed.Fields = fieldDiffs
-	}
-	if len(relDiffs) > 0 {
-		ed.Relations = relDiffs
-	}
-	return ed
-}
-
-// diffObjectMap computes diffs for a map of field or relation objects.
-func diffObjectMap(from, to map[string]interface{}) map[string]*FieldDiff {
-	diffs := make(map[string]*FieldDiff)
-
-	for name, fromVal := range from {
-		toVal, exists := to[name]
-		if !exists {
-			diffs[name] = &FieldDiff{Change: ChangeRemoved, Type: extractType(fromVal)}
-			continue
-		}
-		if !reflect.DeepEqual(fromVal, toVal) {
-			diffs[name] = &FieldDiff{
-				Change: ChangeModified,
-				Before: fromVal,
-				After:  toVal,
+	stats := Stats{}
+	for _, h := range hunks {
+		for _, l := range h.Lines {
+			switch l.Type {
+			case LineAdded:
+				stats.Added++
+			case LineRemoved:
+				stats.Removed++
 			}
 		}
 	}
 
-	for name, toVal := range to {
-		if _, exists := from[name]; !exists {
-			diffs[name] = &FieldDiff{Change: ChangeAdded, Type: extractType(toVal)}
+	return &Result{From: fromVersion, To: toVersion, Hunks: hunks, Stats: stats}
+}
+
+// ─── edit script ─────────────────────────────────────────────────────────────
+
+type opKind int
+
+const (
+	opEqual  opKind = iota
+	opInsert        // in b only
+	opDelete        // in a only
+)
+
+type edit struct {
+	op   opKind
+	aIdx int
+	bIdx int
+}
+
+// lcs builds an edit list using LCS dynamic programming (O(n*m)).
+// Suitable for contract files which are typically small-to-medium.
+func lcs(a, b []string) []edit {
+	m, n := len(a), len(b)
+	dp := make([][]int, m+1)
+	for i := range dp {
+		dp[i] = make([]int, n+1)
+	}
+	for i := 1; i <= m; i++ {
+		for j := 1; j <= n; j++ {
+			if a[i-1] == b[j-1] {
+				dp[i][j] = dp[i-1][j-1] + 1
+			} else if dp[i-1][j] > dp[i][j-1] {
+				dp[i][j] = dp[i-1][j]
+			} else {
+				dp[i][j] = dp[i][j-1]
+			}
 		}
 	}
 
-	return diffs
+	edits := make([]edit, 0, m+n)
+	i, j := m, n
+	for i > 0 || j > 0 {
+		if i > 0 && j > 0 && a[i-1] == b[j-1] {
+			edits = append(edits, edit{op: opEqual, aIdx: i - 1, bIdx: j - 1})
+			i--
+			j--
+		} else if j > 0 && (i == 0 || dp[i][j-1] >= dp[i-1][j]) {
+			edits = append(edits, edit{op: opInsert, bIdx: j - 1})
+			j--
+		} else {
+			edits = append(edits, edit{op: opDelete, aIdx: i - 1})
+			i--
+		}
+	}
+
+	// reverse
+	for l, r := 0, len(edits)-1; l < r; l, r = l+1, r-1 {
+		edits[l], edits[r] = edits[r], edits[l]
+	}
+	return edits
 }
 
-// extractType pulls the "type" string from a field definition map.
-func extractType(v interface{}) string {
-	m, ok := v.(map[string]interface{})
-	if !ok {
-		return ""
+// ─── hunk builder ────────────────────────────────────────────────────────────
+
+func buildHunks(edits []edit, a, b []string) []Hunk {
+	type rawLine struct {
+		edit
+		oldNum int
+		newNum int
 	}
-	t, _ := m["type"].(string)
-	return t
+
+	// Assign line numbers
+	lines := make([]rawLine, 0, len(edits))
+	oldN, newN := 0, 0
+	for _, e := range edits {
+		rl := rawLine{edit: e}
+		switch e.op {
+		case opEqual:
+			oldN++
+			newN++
+			rl.oldNum = oldN
+			rl.newNum = newN
+		case opDelete:
+			oldN++
+			rl.oldNum = oldN
+		case opInsert:
+			newN++
+			rl.newNum = newN
+		}
+		lines = append(lines, rl)
+	}
+
+	// Find changed positions
+	changed := make([]bool, len(lines))
+	for i, l := range lines {
+		changed[i] = l.op != opEqual
+	}
+
+	// Expand context around changed lines
+	inHunk := make([]bool, len(lines))
+	for i, c := range changed {
+		if c {
+			lo := i - contextSize
+			if lo < 0 {
+				lo = 0
+			}
+			hi := i + contextSize
+			if hi >= len(lines) {
+				hi = len(lines) - 1
+			}
+			for k := lo; k <= hi; k++ {
+				inHunk[k] = true
+			}
+		}
+	}
+
+	// Build hunks from inHunk spans
+	var hunks []Hunk
+	i := 0
+	for i < len(lines) {
+		if !inHunk[i] {
+			i++
+			continue
+		}
+		// Start of a hunk
+		start := i
+		for i < len(lines) && inHunk[i] {
+			i++
+		}
+		span := lines[start:i]
+
+		hunk := Hunk{}
+		for _, rl := range span {
+			switch rl.op {
+			case opEqual:
+				if hunk.OldStart == 0 {
+					hunk.OldStart = rl.oldNum
+					hunk.NewStart = rl.newNum
+				}
+				hunk.Lines = append(hunk.Lines, Line{
+					Type:    LineContext,
+					OldNum:  rl.oldNum,
+					NewNum:  rl.newNum,
+					Content: a[rl.aIdx],
+				})
+			case opDelete:
+				if hunk.OldStart == 0 {
+					hunk.OldStart = rl.oldNum
+				}
+				hunk.Lines = append(hunk.Lines, Line{
+					Type:    LineRemoved,
+					OldNum:  rl.oldNum,
+					Content: a[rl.aIdx],
+				})
+			case opInsert:
+				if hunk.NewStart == 0 {
+					hunk.NewStart = rl.newNum
+				}
+				hunk.Lines = append(hunk.Lines, Line{
+					Type:    LineAdded,
+					NewNum:  rl.newNum,
+					Content: b[rl.bIdx],
+				})
+			}
+		}
+		if len(hunk.Lines) > 0 {
+			hunks = append(hunks, hunk)
+		}
+	}
+
+	return hunks
 }
 
-// asStringMap safely casts interface{} to map[string]interface{}.
-func asStringMap(v interface{}) map[string]interface{} {
-	if v == nil {
-		return map[string]interface{}{}
+func splitLines(s string) []string {
+	if s == "" {
+		return []string{}
 	}
-	m, ok := v.(map[string]interface{})
-	if !ok {
-		return map[string]interface{}{}
+	lines := strings.Split(s, "\n")
+	// Remove trailing empty line from final newline
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
 	}
-	return m
+	return lines
 }

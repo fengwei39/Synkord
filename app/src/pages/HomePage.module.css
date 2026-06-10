@@ -84,6 +84,28 @@
   font-size: 12px;
 }
 
+.subNav {
+  background: #0f172a;
+  border-bottom: 1px solid #1e293b;
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+  padding: 0 16px;
+}
+
+.subNavTab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 8px 14px 6px;
+  transition: color 0.1s;
+}
+.subNavTab:hover { color: #94a3b8; }
+.subNavActive { border-bottom-color: #6366f1 !important; color: #e2e8f0 !important; }
+
 .bellBtn {
   color: #94a3b8;
   font-size: 16px;

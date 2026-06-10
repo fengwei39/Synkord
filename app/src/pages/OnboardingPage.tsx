@@ -1,6 +1,6 @@
 import { useState, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createOrg, acceptInvite, getInvite } from '../lib/orgs'
+import { createOrg, acceptInvite, getInvite, toSlug } from '../lib/orgs'
 import styles from './OnboardingPage.module.css'
 
 type Step = 'choice' | 'create' | 'join'
@@ -51,15 +51,27 @@ function ChoiceStep({ onChoose }: { onChoose: (s: 'create' | 'join') => void }) 
 
 function CreateStep({ onBack, onDone }: { onBack: () => void; onDone: () => void }) {
   const [name, setName] = useState('')
+  const [slug, setSlug] = useState('')
+  const [slugEdited, setSlugEdited] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  function handleNameChange(v: string) {
+    setName(v)
+    if (!slugEdited) setSlug(toSlug(v))
+  }
+
+  function handleSlugChange(v: string) {
+    setSlugEdited(true)
+    setSlug(v.toLowerCase().replace(/[^a-z0-9-]/g, ''))
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError('')
     setLoading(true)
     try {
-      await createOrg(name.trim())
+      await createOrg(name.trim(), slug.trim() || toSlug(name.trim()))
       onDone()
     } catch (err: unknown) {
       setError(extractMsg(err))
@@ -79,9 +91,22 @@ function CreateStep({ onBack, onDone }: { onBack: () => void; onDone: () => void
           className={styles.input}
           placeholder="例：我的团队"
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => handleNameChange(e.target.value)}
           required
           autoFocus
+        />
+      </div>
+      <div className={styles.field}>
+        <label className={styles.label} htmlFor="orgSlug">
+          标识符（英文）
+        </label>
+        <input
+          id="orgSlug"
+          className={styles.input}
+          placeholder="例：my-team"
+          value={slug}
+          onChange={(e) => handleSlugChange(e.target.value)}
+          required
         />
       </div>
       {error && <p className={styles.error}>{error}</p>}
@@ -89,7 +114,7 @@ function CreateStep({ onBack, onDone }: { onBack: () => void; onDone: () => void
         <button type="button" className={styles.backBtn} onClick={onBack}>
           返回
         </button>
-        <button type="submit" className={styles.submitBtn} disabled={loading || !name.trim()}>
+        <button type="submit" className={styles.submitBtn} disabled={loading || !name.trim() || !slug.trim()}>
           {loading ? '创建中…' : '创建组织'}
         </button>
       </div>

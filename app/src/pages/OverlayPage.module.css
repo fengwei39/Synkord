@@ -209,20 +209,21 @@
   font-size: 10px;
 }
 
-.entityList {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 4px 12px 8px 28px;
+.packPreview {
+  background: #0d1117;
+  border-top: 1px solid #1e293b;
+  padding: 6px 12px;
 }
 
-.entityChip {
-  background: #334155;
-  border-radius: 4px;
+.packPreviewCode {
   color: #94a3b8;
+  font-family: monospace;
   font-size: 11px;
-  padding: 2px 7px;
-  cursor: default;
+  line-height: 1.5;
+  margin: 0;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 /* ── Footer ────────────────────────────────────────────────── */
@@ -254,11 +255,27 @@
   margin: 0;
 }
 
-/* ── Type colors (reuse from ContractsPage) ─────────────────── */
-.type_uuid     { background: rgba(16,185,129,.12); color: #6ee7b7; }
-.type_string   { background: rgba(59,130,246,.12); color: #93c5fd; }
-.type_int      { background: rgba(245,158,11,.12); color: #fcd34d; }
-.type_boolean  { background: rgba(139,92,246,.12); color: #c4b5fd; }
-.type_datetime { background: rgba(236,72,153,.12); color: #f9a8d4; }
-.type_enum     { background: rgba(249,115,22,.12); color: #fdba74; }
-.type_json     { background: rgba(148,163,184,.12); color: #cbd5e1; }
+/* ── Search results ────────────────────────────────────────── */
+.srPack {
+  color: #6366f1;
+  font-family: monospace;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.srLineNum {
+  color: #475569;
+  font-family: monospace;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.srLine {
+  color: #94a3b8;
+  font-family: monospace;
+  font-size: 11px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -41,11 +41,6 @@ func (h *Handler) GetDiff(c *gin.Context) {
 		return
 	}
 
-	result, err := Compute(fromVer, toVer, fromDetail.Content, toDetail.Content)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
+	result := Compute(fromVer, toVer, fromDetail.Content, toDetail.Content)
 	c.JSON(http.StatusOK, result)
 }

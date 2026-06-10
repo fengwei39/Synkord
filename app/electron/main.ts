@@ -1,5 +1,6 @@
 import { app, BrowserWindow, shell, ipcMain, dialog } from 'electron'
 import { join } from 'path'
+import { readFileSync, readdirSync, statSync } from 'fs'
 import { watchDirectory, stopWatcher } from './watcher'
 import { startMCPServer, setMCPToken, stopMCPServer } from './mcp'
 import { createTray, updateTrayBadge } from './tray'
@@ -100,6 +101,38 @@ function registerIPC(): void {
   // Tray: update unread badge
   ipcMain.handle('tray:set-badge', (_e, count: number) => {
     updateTrayBadge(count)
+  })
+
+  // File system: pick a file
+  ipcMain.handle('fs:pick-file', async (_e, filters?: { name: string; extensions: string[] }[]) => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: filters ?? [{ name: 'All Files', extensions: ['*'] }],
+    })
+    return result.canceled ? null : result.filePaths[0]
+  })
+
+  // File system: read text file
+  ipcMain.handle('fs:read-text', (_e, filePath: string) => {
+    try {
+      return readFileSync(filePath, 'utf8')
+    } catch (err) {
+      throw new Error(`Cannot read file: ${String(err)}`)
+    }
+  })
+
+  // File system: read directory tree (1 level deep)
+  ipcMain.handle('fs:read-dir-tree', (_e, dirPath: string) => {
+    try {
+      const entries = readdirSync(dirPath, { withFileTypes: true })
+      return entries.map((e) => ({
+        name: e.name,
+        isDir: e.isDirectory(),
+        path: join(dirPath, e.name),
+      }))
+    } catch (err) {
+      throw new Error(`Cannot read directory: ${String(err)}`)
+    }
   })
 }
 

@@ -1,18 +1,18 @@
 import { useState, useEffect, useMemo } from 'react'
-import { getPack, parseContent, type ContractContent } from '../lib/contracts'
+import { getPack, type PackDetail } from '../lib/contracts'
 import { getToken } from '../lib/api'
 import styles from './OverlayPage.module.css'
 
 interface SynkordConfig {
   project: string
   org: string
-  consumes: string[]  // e.g. ["auth-pack@^1.x"]
+  consumes: string[]
 }
 
 interface PackState {
   name: string
   versionSpec: string
-  content: ContractContent | null
+  detail: PackDetail | null
   loading: boolean
   error: boolean
 }
@@ -24,33 +24,29 @@ export default function OverlayPage() {
   const [watchDir, setWatchDir] = useState('')
   const [orgId, setOrgId] = useState('')
 
-  // Listen for synkord.json changes from main process
   useEffect(() => {
     const unsubscribe = window.electronAPI.onConfigChanged((cfg) => {
-      const config = cfg as SynkordConfig | null
-      setConfig(config)
+      setConfig(cfg as SynkordConfig | null)
     })
     return () => unsubscribe?.()
   }, [])
 
-  // When config changes, load pack contents
   useEffect(() => {
     if (!config || !orgId) return
 
     const newPacks: PackState[] = config.consumes.map((spec) => {
       const name = spec.split('@')[0]
       const versionSpec = spec.split('@')[1] ?? '*'
-      return { name, versionSpec, content: null, loading: true, error: false }
+      return { name, versionSpec, detail: null, loading: true, error: false }
     })
     setPacks(newPacks)
 
     newPacks.forEach(async (p, idx) => {
       try {
         const detail = await getPack(orgId, p.name)
-        const content = parseContent(detail)
         setPacks((prev) => {
           const next = [...prev]
-          next[idx] = { ...next[idx], content, loading: false }
+          next[idx] = { ...next[idx], detail, loading: false }
           return next
         })
       } catch {
@@ -71,30 +67,27 @@ export default function OverlayPage() {
     }
   }
 
-  // Filtered field results across all packs
+  // Search across all pack content lines
   const searchResults = useMemo(() => {
     if (!search.trim()) return null
     const q = search.toLowerCase()
-    const results: { packName: string; entityName: string; fieldName: string; type: string }[] = []
+    const results: { packName: string; lineNum: number; line: string }[] = []
 
     for (const pack of packs) {
-      if (!pack.content) continue
-      for (const [entityName, entity] of Object.entries(pack.content.entities)) {
-        for (const [fieldName, fieldDef] of Object.entries(entity.fields)) {
-          if (fieldName.toLowerCase().includes(q) || entityName.toLowerCase().includes(q)) {
-            results.push({ packName: pack.name, entityName, fieldName, type: fieldDef.type })
-          }
+      if (!pack.detail) continue
+      pack.detail.content.split('\n').forEach((line, i) => {
+        if (line.toLowerCase().includes(q)) {
+          results.push({ packName: pack.name, lineNum: i + 1, line: line.trim() })
         }
-      }
+      })
     }
-    return results
+    return results.slice(0, 50)
   }, [search, packs])
 
   const isAuthed = !!getToken()
 
   return (
     <div className={styles.container}>
-      {/* Drag handle */}
       <div className={styles.titleBar}>
         <span className={styles.dot} />
         <span className={styles.title}>
@@ -116,12 +109,11 @@ export default function OverlayPage() {
         </div>
       ) : (
         <>
-          {/* Search */}
           <div className={styles.searchWrap}>
             <span className={styles.searchIcon}>🔍</span>
             <input
               className={styles.searchInput}
-              placeholder="搜索字段名…"
+              placeholder="搜索内容…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -130,22 +122,20 @@ export default function OverlayPage() {
             )}
           </div>
 
-          {/* Search results */}
           {searchResults ? (
             <div className={styles.searchResults}>
               {searchResults.length === 0 && (
-                <p className={styles.hint}>无匹配字段</p>
+                <p className={styles.hint}>无匹配内容</p>
               )}
               {searchResults.map((r, i) => (
                 <div key={i} className={styles.searchResultItem}>
-                  <span className={styles.srField}>{r.fieldName}</span>
-                  <span className={styles.srEntity}>{r.entityName}</span>
-                  <span className={`${styles.srType} ${styles[`type_${r.type}`]}`}>{r.type}</span>
+                  <span className={styles.srPack}>{r.packName}</span>
+                  <span className={styles.srLineNum}>:{r.lineNum}</span>
+                  <span className={styles.srLine}>{r.line.slice(0, 60)}</span>
                 </div>
               ))}
             </div>
           ) : (
-            /* Pack list */
             <div className={styles.packList}>
               {packs.map((p) => (
                 <PackRow key={p.name} pack={p} />
@@ -164,26 +154,26 @@ export default function OverlayPage() {
 
 function PackRow({ pack }: { pack: PackState }) {
   const [open, setOpen] = useState(false)
-  const entityNames = pack.content ? Object.keys(pack.content.entities) : []
+  const lines = pack.detail?.content.split('\n').slice(0, 8) ?? []
 
   return (
     <div className={styles.packRow}>
       <button className={styles.packHeader} onClick={() => setOpen((o) => !o)}>
         <span className={styles.packDot}>●</span>
         <span className={styles.packName}>{pack.name}</span>
-        {pack.content && (
-          <span className={styles.packVer}>v{pack.content.version}</span>
+        {pack.detail && (
+          <span className={styles.packVer}>v{pack.detail.version}</span>
         )}
         {pack.loading && <span className={styles.loadingDot}>…</span>}
         {pack.error && <span className={styles.errorDot}>⚠️</span>}
         <span className={styles.chevron}>{open ? '▾' : '▸'}</span>
       </button>
 
-      {open && !pack.loading && pack.content && (
-        <div className={styles.entityList}>
-          {entityNames.map((name) => (
-            <span key={name} className={styles.entityChip}>{name}</span>
-          ))}
+      {open && pack.detail && (
+        <div className={styles.packPreview}>
+          <pre className={styles.packPreviewCode}>
+            {lines.join('\n')}{pack.detail.content.split('\n').length > 8 ? '\n…' : ''}
+          </pre>
         </div>
       )}
     </div>

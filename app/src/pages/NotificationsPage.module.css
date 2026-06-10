@@ -18,6 +18,20 @@
   flex-shrink: 0;
 }
 
+.backBtn {
+  background: none;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 18px;
+  padding: 0 8px 0 0;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: color 0.1s;
+}
+
+.backBtn:hover { color: #e2e8f0; }
+
 .title {
   align-items: center;
   display: flex;

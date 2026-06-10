@@ -1,23 +1,26 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  listPacks, getPack, listVersions, getDiff, parseContent,
-  type PackListItem, type ContractContent,
-  type VersionInfo, type DiffResult, type EntityDiff, type FieldDiff,
+  listPacks, getPack, listVersions, getDiff,
+  createPack, updatePack,
+  bumpPatch, detectContentType,
+  type PackListItem, type PackDetail,
+  type VersionInfo, type DiffResult, type DiffHunk,
 } from '../lib/contracts'
 import styles from './ContractsPage.module.css'
 
 type DetailTab = 'content' | 'versions'
 
-interface Props {
-  orgId: string
-}
+interface Props { orgId: string }
 
 export default function ContractsPage({ orgId }: Props) {
   const [selectedPack, setSelectedPack] = useState<string | null>(null)
   const [tab, setTab] = useState<DetailTab>('content')
+  const [showEditor, setShowEditor] = useState(false)
+  const [editorMode, setEditorMode] = useState<'create' | 'edit'>('create')
+  const queryClient = useQueryClient()
 
-  const { data: packs = [], isLoading: packsLoading, error: packsError } = useQuery({
+  const { data: packs = [], isLoading: packsLoading } = useQuery({
     queryKey: ['packs', orgId],
     queryFn: () => listPacks(orgId),
     enabled: !!orgId,
@@ -26,76 +29,115 @@ export default function ContractsPage({ orgId }: Props) {
   const { data: packDetail, isLoading: detailLoading } = useQuery({
     queryKey: ['pack-detail', orgId, selectedPack],
     queryFn: () => getPack(orgId, selectedPack!),
-    enabled: !!selectedPack,
+    enabled: !!selectedPack && !showEditor,
   })
 
-  const content = packDetail ? parseContent(packDetail) : null
-
-  function handleSelectPack(name: string) {
+  function selectPack(name: string) {
     setSelectedPack(name)
     setTab('content')
+    setShowEditor(false)
+  }
+
+  function openNew() {
+    setEditorMode('create')
+    setShowEditor(true)
+    setSelectedPack(null)
+  }
+
+  function openEdit() {
+    setEditorMode('edit')
+    setShowEditor(true)
+  }
+
+  function handleSaved(name: string) {
+    setShowEditor(false)
+    queryClient.invalidateQueries({ queryKey: ['packs', orgId] })
+    setSelectedPack(name)
+    setTab('content')
+    queryClient.invalidateQueries({ queryKey: ['pack-detail', orgId, name] })
   }
 
   return (
     <div className={styles.layout}>
-      {/* ── Left sidebar ── */}
+      {/* ── Sidebar ── */}
       <aside className={styles.sidebar}>
         <div className={styles.sidebarHeader}>
           <span className={styles.sidebarTitle}>契约包</span>
-          <span className={styles.packCount}>{packs.length}</span>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <span className={styles.packCount}>{packs.length}</span>
+            <button className={styles.newBtn} onClick={openNew} title="新建契约包">＋</button>
+          </div>
         </div>
 
         {packsLoading && <p className={styles.hint}>加载中…</p>}
-        {packsError && <p className={styles.errorHint}>加载失败</p>}
 
         <ul className={styles.packList}>
-          {packs.map((pack) => (
+          {packs.map((p) => (
             <PackItem
-              key={pack.name}
-              pack={pack}
-              selected={selectedPack === pack.name}
-              onClick={() => handleSelectPack(pack.name)}
+              key={p.name}
+              pack={p}
+              selected={selectedPack === p.name}
+              onClick={() => selectPack(p.name)}
             />
           ))}
         </ul>
 
-        {!packsLoading && packs.length === 0 && <p className={styles.hint}>暂无契约包</p>}
+        {!packsLoading && packs.length === 0 && (
+          <div className={styles.emptyHint}>
+            <p className={styles.hint}>暂无契约包</p>
+            <button className={styles.newBtnLarge} onClick={openNew}>＋ 新建契约包</button>
+          </div>
+        )}
       </aside>
 
-      {/* ── Right detail panel ── */}
+      {/* ── Main panel ── */}
       <main className={styles.detail}>
-        {!selectedPack && (
+        {/* Editor */}
+        {showEditor && (
+          <PackEditor
+            orgId={orgId}
+            mode={editorMode}
+            existing={editorMode === 'edit' ? packDetail : undefined}
+            onSaved={handleSaved}
+            onCancel={() => setShowEditor(false)}
+          />
+        )}
+
+        {/* Placeholder */}
+        {!showEditor && !selectedPack && (
           <div className={styles.empty}>
             <p className={styles.emptyIcon}>📄</p>
-            <p className={styles.emptyText}>选择左侧契约包查看详情</p>
+            <p className={styles.emptyText}>选择左侧契约包，或新建一个</p>
+            <button className={styles.newBtnLarge} onClick={openNew}>＋ 新建契约包</button>
           </div>
         )}
 
-        {selectedPack && detailLoading && <p className={styles.hint}>加载中…</p>}
-
-        {selectedPack && !detailLoading && (
+        {/* Detail view */}
+        {!showEditor && selectedPack && (
           <>
-            {/* Tab bar */}
-            <div className={styles.tabBar}>
-              <button
-                className={`${styles.tab} ${tab === 'content' ? styles.tabActive : ''}`}
-                onClick={() => setTab('content')}
-              >
-                内容
-              </button>
-              <button
-                className={`${styles.tab} ${tab === 'versions' ? styles.tabActive : ''}`}
-                onClick={() => setTab('versions')}
-              >
-                版本历史
-              </button>
-            </div>
+            {detailLoading && <p className={styles.hint}>加载中…</p>}
+            {!detailLoading && packDetail && (
+              <>
+                <div className={styles.tabBar}>
+                  <button
+                    className={`${styles.tab} ${tab === 'content' ? styles.tabActive : ''}`}
+                    onClick={() => setTab('content')}
+                  >内容</button>
+                  <button
+                    className={`${styles.tab} ${tab === 'versions' ? styles.tabActive : ''}`}
+                    onClick={() => setTab('versions')}
+                  >版本历史</button>
+                  <span style={{ flex: 1 }} />
+                  <button className={styles.editBtn} onClick={openEdit}>✏️ 编辑</button>
+                </div>
 
-            {tab === 'content' && content && (
-              <PackContent packName={selectedPack} content={content} />
-            )}
-            {tab === 'versions' && (
-              <VersionsTab orgId={orgId} packName={selectedPack} />
+                {tab === 'content' && (
+                  <ContentViewer detail={packDetail} />
+                )}
+                {tab === 'versions' && (
+                  <VersionsTab orgId={orgId} packName={selectedPack} />
+                )}
+              </>
             )}
           </>
         )}
@@ -104,97 +146,50 @@ export default function ContractsPage({ orgId }: Props) {
   )
 }
 
-// ─── Pack list item ───────────────────────────────────────────────────────────
+// ─── Sidebar item ─────────────────────────────────────────────────────────────
 
-function PackItem({ pack, selected, onClick }: { pack: PackListItem; selected: boolean; onClick: () => void }) {
+function PackItem({ pack, selected, onClick }: {
+  pack: PackListItem; selected: boolean; onClick: () => void
+}) {
+  const typeColors: Record<string, string> = {
+    markdown: '#a78bfa', yaml: '#34d399', json: '#60a5fa',
+    typescript: '#38bdf8', go: '#4ade80', sql: '#fbbf24',
+  }
+  const color = typeColors[pack.contentType] ?? '#94a3b8'
+
   return (
-    <li className={`${styles.packItem} ${selected ? styles.packItemActive : ''}`} onClick={onClick}>
-      <span className={styles.packName}>{pack.name}</span>
-      <span className={styles.packVersion}>v{pack.version}</span>
+    <li
+      className={`${styles.packItem} ${selected ? styles.packItemSelected : ''}`}
+      onClick={onClick}
+    >
+      <span className={styles.packTypeDot} style={{ background: color }} />
+      <span className={styles.packItemName}>{pack.name}</span>
+      <span className={styles.packItemVer}>v{pack.version}</span>
     </li>
   )
 }
 
-// ─── Content tab ─────────────────────────────────────────────────────────────
+// ─── Content viewer (syntax-highlighted text) ────────────────────────────────
 
-function PackContent({ packName, content }: { packName: string; content: ContractContent }) {
-  const entityNames = Object.keys(content.entities)
-  return (
-    <div className={styles.packDetailWrap}>
-      <div className={styles.packDetailHeader}>
-        <h2 className={styles.packDetailTitle}>{packName}</h2>
-        <span className={styles.versionTag}>v{content.version}</span>
-      </div>
-      <p className={styles.entityCount}>{entityNames.length} 个实体</p>
-      <div className={styles.entityList}>
-        {entityNames.map((name) => (
-          <EntityCard key={name} name={name} entity={content.entities[name]} />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ─── Entity card ─────────────────────────────────────────────────────────────
-
-function EntityCard({
-  name,
-  entity,
-}: {
-  name: string
-  entity: {
-    table: string
-    fields: Record<string, { type: string; primary?: boolean; unique?: boolean; values?: string[] }>
-    relations?: Record<string, { type: string; target: string }>
-  }
-}) {
-  const [open, setOpen] = useState(true)
-  const fieldEntries = Object.entries(entity.fields)
-  const relationEntries = Object.entries(entity.relations ?? {})
+function ContentViewer({ detail }: { detail: PackDetail }) {
+  const lines = detail.content.split('\n')
 
   return (
-    <div className={styles.entityCard}>
-      <button className={styles.entityHeader} onClick={() => setOpen((o) => !o)}>
-        <span className={styles.chevron}>{open ? '▾' : '▸'}</span>
-        <span className={styles.entityName}>{name}</span>
-        <span className={styles.tableTag}>{entity.table}</span>
-        <span className={styles.fieldCount}>{fieldEntries.length} 字段</span>
-      </button>
-
-      {open && (
-        <table className={styles.fieldTable}>
-          <thead>
-            <tr><th>字段</th><th>类型</th><th>标记</th></tr>
-          </thead>
-          <tbody>
-            {fieldEntries.map(([fname, fdef]) => (
-              <tr key={fname}>
-                <td className={styles.fieldName}>{fname}</td>
-                <td>
-                  <span className={`${styles.typeTag} ${styles[`type_${fdef.type}`]}`}>{fdef.type}</span>
-                  {fdef.type === 'enum' && fdef.values && (
-                    <span className={styles.enumValues}> ({fdef.values.join(' | ')})</span>
-                  )}
-                </td>
-                <td className={styles.badges}>
-                  {fdef.primary && <span className={styles.badge}>PK</span>}
-                  {fdef.unique && <span className={styles.badge}>UQ</span>}
-                </td>
-              </tr>
-            ))}
-            {relationEntries.map(([rname, rdef]) => (
-              <tr key={rname} className={styles.relationRow}>
-                <td className={styles.fieldName}>{rname}</td>
-                <td>
-                  <span className={styles.relationTag}>{rdef.type}</span>
-                  <span className={styles.relationTarget}> → {rdef.target}</span>
-                </td>
-                <td />
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+    <div className={styles.viewer}>
+      <div className={styles.viewerMeta}>
+        <span className={styles.metaType}>{detail.contentType || 'text'}</span>
+        <span className={styles.metaVer}>v{detail.version}</span>
+      </div>
+      <div className={styles.codeWrap}>
+        <div className={styles.lineNums}>
+          {lines.map((_, i) => (
+            <span key={i} className={styles.lineNum}>{i + 1}</span>
+          ))}
+        </div>
+        <pre className={`${styles.codeContent} ${styles[`lang_${detail.contentType}`] ?? ''}`}>
+          {detail.content}
+        </pre>
+      </div>
     </div>
   )
 }
@@ -204,184 +199,232 @@ function EntityCard({
 function VersionsTab({ orgId, packName }: { orgId: string; packName: string }) {
   const [fromVer, setFromVer] = useState('')
   const [toVer, setToVer] = useState('')
-  const [diffEnabled, setDiffEnabled] = useState(false)
+  const [diffResult, setDiffResult] = useState<DiffResult | null>(null)
+  const [diffLoading, setDiffLoading] = useState(false)
 
-  const { data: versions = [], isLoading } = useQuery({
+  const { data: versions = [] } = useQuery({
     queryKey: ['versions', orgId, packName],
     queryFn: () => listVersions(orgId, packName),
   })
 
-  const { data: diffResult, isLoading: diffLoading, error: diffError } = useQuery({
-    queryKey: ['diff', orgId, packName, fromVer, toVer],
-    queryFn: () => getDiff(orgId, packName, fromVer, toVer),
-    enabled: diffEnabled && !!fromVer && !!toVer && fromVer !== toVer,
-  })
-
-  function handleCompare() {
-    if (fromVer && toVer && fromVer !== toVer) setDiffEnabled(true)
+  async function handleDiff() {
+    if (!fromVer || !toVer) return
+    setDiffLoading(true)
+    try {
+      const r = await getDiff(orgId, packName, fromVer, toVer)
+      setDiffResult(r)
+    } finally {
+      setDiffLoading(false)
+    }
   }
 
-  if (isLoading) return <p className={styles.hint}>加载中…</p>
-
   return (
-    <div className={styles.versionsWrap}>
-      {/* Version history list */}
-      <div className={styles.versionList}>
-        {versions.length === 0 && <p className={styles.hint}>暂无版本记录</p>}
+    <div className={styles.versionsTab}>
+      {/* Version list */}
+      <div className={styles.verList}>
         {versions.map((v) => (
-          <VersionRow key={v.version} v={v} />
+          <div key={v.tagName} className={styles.verItem}>
+            <span className={styles.verBadge}>v{v.version}</span>
+            <span className={styles.verAuthor}>{v.authorEmail}</span>
+            <span className={styles.verDate}>
+              {new Date(v.committedAt).toLocaleDateString('zh-CN')}
+            </span>
+          </div>
         ))}
       </div>
 
       {/* Diff selector */}
       {versions.length >= 2 && (
-        <div className={styles.diffPanel}>
-          <div className={styles.diffPanelHeader}>
-            <span className={styles.diffPanelTitle}>版本对比</span>
-          </div>
-          <div className={styles.diffSelector}>
-            <select
-              className={styles.verSelect}
-              value={fromVer}
-              onChange={(e) => { setFromVer(e.target.value); setDiffEnabled(false) }}
-            >
-              <option value="">基础版本</option>
-              {versions.map((v) => (
-                <option key={v.version} value={v.version}>{v.version}</option>
-              ))}
-            </select>
-            <span className={styles.diffArrow}>→</span>
-            <select
-              className={styles.verSelect}
-              value={toVer}
-              onChange={(e) => { setToVer(e.target.value); setDiffEnabled(false) }}
-            >
-              <option value="">对比版本</option>
-              {versions.map((v) => (
-                <option key={v.version} value={v.version}>{v.version}</option>
-              ))}
-            </select>
-            <button
-              className={styles.compareBtn}
-              onClick={handleCompare}
-              disabled={!fromVer || !toVer || fromVer === toVer}
-            >
-              对比
-            </button>
-          </div>
-
-          {diffLoading && <p className={styles.hint}>计算中…</p>}
-          {diffError && <p className={styles.errorHint}>对比失败</p>}
-          {diffResult && <DiffView result={diffResult} />}
+        <div className={styles.diffSelector}>
+          <select value={fromVer} onChange={(e) => setFromVer(e.target.value)} className={styles.verSelect}>
+            <option value="">from 版本</option>
+            {versions.map((v) => <option key={v.version} value={v.version}>v{v.version}</option>)}
+          </select>
+          <span className={styles.diffArrow}>→</span>
+          <select value={toVer} onChange={(e) => setToVer(e.target.value)} className={styles.verSelect}>
+            <option value="">to 版本</option>
+            {versions.map((v) => <option key={v.version} value={v.version}>v{v.version}</option>)}
+          </select>
+          <button
+            className={styles.diffBtn}
+            onClick={handleDiff}
+            disabled={!fromVer || !toVer || diffLoading}
+          >
+            {diffLoading ? '对比中…' : '查看 diff'}
+          </button>
         </div>
       )}
+
+      {diffResult && <LineDiffView result={diffResult} />}
     </div>
   )
 }
 
-function VersionRow({ v }: { v: VersionInfo }) {
-  const date = new Date(v.committedAt).toLocaleString('zh-CN', {
-    month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit',
-  })
-  return (
-    <div className={styles.versionRow}>
-      <span className={styles.verBadge}>v{v.version}</span>
-      <span className={styles.verDate}>{date}</span>
-      <span className={styles.verAuthor}>{v.authorEmail}</span>
-    </div>
-  )
-}
+// ─── Line diff view ───────────────────────────────────────────────────────────
 
-// ─── Diff view ────────────────────────────────────────────────────────────────
-
-function DiffView({ result }: { result: DiffResult }) {
-  const entityEntries = Object.entries(result.entities)
-
-  if (entityEntries.length === 0) {
-    return (
-      <div className={styles.noDiff}>
-        <span>✅ 两版本无差异</span>
-      </div>
-    )
+function LineDiffView({ result }: { result: DiffResult }) {
+  if (result.hunks.length === 0) {
+    return <p className={styles.hint} style={{ padding: 16 }}>两版本内容相同</p>
   }
 
   return (
-    <div className={styles.diffResult}>
-      <p className={styles.diffMeta}>
-        <span className={styles.verBadge}>v{result.from}</span>
-        <span className={styles.diffArrow}> → </span>
-        <span className={styles.verBadge}>v{result.to}</span>
-      </p>
-      {entityEntries.map(([entityName, entityDiff]) => (
-        <DiffEntityCard key={entityName} name={entityName} diff={entityDiff} />
+    <div className={styles.lineDiff}>
+      <div className={styles.diffMeta}>
+        <span className={`${styles.diffStat} ${styles.diffStatAdded}`}>+{result.stats.added}</span>
+        <span className={`${styles.diffStat} ${styles.diffStatRemoved}`}>-{result.stats.removed}</span>
+        <span className={styles.diffRange}>{result.from} → {result.to}</span>
+      </div>
+      {result.hunks.map((hunk, hi) => (
+        <DiffHunkBlock key={hi} hunk={hunk} />
       ))}
     </div>
   )
 }
 
-function DiffEntityCard({ name, diff }: { name: string; diff: EntityDiff }) {
-  const fieldEntries = Object.entries(diff.fields ?? {})
-  const relEntries = Object.entries(diff.relations ?? {})
-
+function DiffHunkBlock({ hunk }: { hunk: DiffHunk }) {
   return (
-    <div className={`${styles.diffCard} ${styles[`diffCard_${diff.change}`]}`}>
-      <div className={styles.diffCardHeader}>
-        <span className={`${styles.changeBadge} ${styles[`change_${diff.change}`]}`}>
-          {diff.change === 'added' ? '+ 新增' : diff.change === 'removed' ? '- 删除' : '~ 修改'}
-        </span>
-        <span className={styles.diffEntityName}>{name}</span>
+    <div className={styles.hunk}>
+      <div className={styles.hunkHeader}>
+        @@ -{hunk.oldStart} +{hunk.newStart} @@
       </div>
-
-      {(fieldEntries.length > 0 || relEntries.length > 0) && (
-        <table className={styles.diffTable}>
-          <tbody>
-            {fieldEntries.map(([fname, fDiff]) => (
-              <DiffFieldRow key={fname} name={fname} diff={fDiff} />
-            ))}
-            {relEntries.map(([rname, rDiff]) => (
-              <DiffFieldRow key={rname} name={rname} diff={rDiff} isRelation />
-            ))}
-          </tbody>
-        </table>
-      )}
+      {hunk.lines.map((line, i) => (
+        <div
+          key={i}
+          className={`${styles.diffLine} ${
+            line.type === 'added' ? styles.diffLineAdded :
+            line.type === 'removed' ? styles.diffLineRemoved : styles.diffLineCtx
+          }`}
+        >
+          <span className={styles.diffLineNum}>{line.oldNum || ''}</span>
+          <span className={styles.diffLineNum}>{line.newNum || ''}</span>
+          <span className={styles.diffSign}>
+            {line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' '}
+          </span>
+          <span className={styles.diffContent}>{line.content}</span>
+        </div>
+      ))}
     </div>
   )
 }
 
-function DiffFieldRow({
-  name,
-  diff,
-  isRelation = false,
+// ─── Pack editor ──────────────────────────────────────────────────────────────
+
+function PackEditor({
+  orgId, mode, existing, onSaved, onCancel,
 }: {
-  name: string
-  diff: FieldDiff
-  isRelation?: boolean
+  orgId: string
+  mode: 'create' | 'edit'
+  existing?: PackDetail
+  onSaved: (name: string) => void
+  onCancel: () => void
 }) {
+  const [name, setName] = useState(existing?.name ?? '')
+  const [version, setVersion] = useState(
+    mode === 'edit' && existing ? bumpPatch(existing.version) : '0.1.0'
+  )
+  const [content, setContent] = useState(existing?.content ?? '')
+  const [contentType, setContentType] = useState(existing?.contentType ?? 'text')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function handleImport() {
+    const path = await window.electronAPI.pickFile()
+    if (!path) return
+    const text = await window.electronAPI.readTextFile(path)
+    setContent(text)
+    const ct = detectContentType(path)
+    setContentType(ct)
+  }
+
+  async function handleSave() {
+    setError('')
+    if (!content.trim()) { setError('内容不能为空'); return }
+    setSaving(true)
+    try {
+      if (mode === 'create') {
+        await createPack(orgId, name.trim(), version.trim(), content, contentType)
+        onSaved(name.trim())
+      } else {
+        await updatePack(orgId, existing!.name, version.trim(), content, contentType)
+        onSaved(existing!.name)
+      }
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: string } }; message?: string }
+      setError(e.response?.data?.error ?? e.message ?? '保存失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
-    <tr className={`${styles.diffFieldRow} ${styles[`diffRow_${diff.change}`]}`}>
-      <td className={styles.diffFieldPrefix}>
-        {diff.change === 'added' ? '+' : diff.change === 'removed' ? '-' : '~'}
-      </td>
-      <td className={styles.diffFieldName}>
-        {isRelation && <span className={styles.relLabel}>rel </span>}
-        {name}
-      </td>
-      <td className={styles.diffFieldDetail}>
-        {diff.change === 'added' && diff.type && (
-          <span className={`${styles.typeTag} ${styles[`type_${diff.type}`]}`}>{diff.type}</span>
+    <div className={styles.editor}>
+      {/* Header */}
+      <div className={styles.editorHeader}>
+        <h3 className={styles.editorTitle}>
+          {mode === 'create' ? '新建契约包' : `编辑 ${existing?.name}`}
+        </h3>
+        <button className={styles.editorClose} onClick={onCancel}>✕</button>
+      </div>
+
+      {/* Meta row */}
+      <div className={styles.editorMeta}>
+        {mode === 'create' && (
+          <div className={styles.editorField}>
+            <label className={styles.editorLabel}>名称</label>
+            <input
+              className={styles.editorInput}
+              placeholder="user-api"
+              value={name}
+              onChange={(e) => setName(e.target.value.replace(/\s/g, '-'))}
+            />
+          </div>
         )}
-        {diff.change === 'removed' && diff.type && (
-          <span className={`${styles.typeTag} ${styles[`type_${diff.type}`]}`}>{diff.type}</span>
-        )}
-        {diff.change === 'modified' && (
-          <span className={styles.modifiedDetail}>
-            <span className={styles.beforeVal}>{JSON.stringify(diff.before)}</span>
-            <span className={styles.diffArrow}> → </span>
-            <span className={styles.afterVal}>{JSON.stringify(diff.after)}</span>
-          </span>
-        )}
-      </td>
-    </tr>
+        <div className={styles.editorField}>
+          <label className={styles.editorLabel}>版本</label>
+          <input
+            className={styles.editorInput}
+            placeholder="0.1.0"
+            value={version}
+            onChange={(e) => setVersion(e.target.value)}
+          />
+        </div>
+        <div className={styles.editorField}>
+          <label className={styles.editorLabel}>类型</label>
+          <select
+            className={styles.editorInput}
+            value={contentType}
+            onChange={(e) => setContentType(e.target.value)}
+          >
+            {['text', 'markdown', 'yaml', 'json', 'typescript', 'go', 'sql', 'proto'].map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+        <button className={styles.importBtn} onClick={handleImport}>📂 从文件导入</button>
+      </div>
+
+      {/* Textarea */}
+      <textarea
+        className={styles.editorTextarea}
+        placeholder="在此粘贴或编辑契约内容…"
+        value={content}
+        onChange={(e) => setContent(e.target.value)}
+        spellCheck={false}
+      />
+
+      {error && <p className={styles.editorError}>{error}</p>}
+
+      {/* Actions */}
+      <div className={styles.editorActions}>
+        <button className={styles.cancelBtn} onClick={onCancel}>取消</button>
+        <button
+          className={styles.saveBtn}
+          onClick={handleSave}
+          disabled={saving || !content.trim() || (mode === 'create' && !name.trim())}
+        >
+          {saving ? '发布中…' : mode === 'create' ? '创建并发布' : '发布新版本'}
+        </button>
+      </div>
+    </div>
   )
 }

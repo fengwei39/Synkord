@@ -14,6 +14,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.off('overlay:config-changed', handler)
   },
 
+  // File system
+  pickFile: (filters?: { name: string; extensions: string[] }[]) =>
+    ipcRenderer.invoke('fs:pick-file', filters),
+  readTextFile: (path: string) => ipcRenderer.invoke('fs:read-text', path),
+  readDirTree: (path: string) => ipcRenderer.invoke('fs:read-dir-tree', path),
+
   // MCP: pass auth token to main process
   setMCPToken: (token: string) => ipcRenderer.invoke('mcp:set-token', token),
 

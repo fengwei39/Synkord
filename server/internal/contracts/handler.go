@@ -38,7 +38,7 @@ func (h *Handler) CreatePack(c *gin.Context) {
 		return
 	}
 
-	item, err := h.svc.CreatePack(orgID, req.Name, req.Content, authorEmail)
+	item, err := h.svc.CreatePack(orgID, req.Name, req.Version, req.Content, req.ContentType, authorEmail)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -76,7 +76,7 @@ func (h *Handler) UpdatePack(c *gin.Context) {
 		return
 	}
 
-	item, err := h.svc.UpdatePack(orgID, name, req.Content, authorEmail)
+	item, err := h.svc.UpdatePack(orgID, name, req.Version, req.Content, req.ContentType, authorEmail)
 	if err != nil {
 		if errors.Is(err, ErrPackNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "pack not found"})

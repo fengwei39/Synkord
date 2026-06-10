@@ -1,0 +1,449 @@
+.layout {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Sidebar ───────────────────────────────────────────────────────────────── */
+
+.sidebar {
+  background: #0f172a;
+  border-right: 1px solid #1e293b;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow-y: auto;
+  width: 200px;
+}
+
+.sidebarHeader {
+  align-items: center;
+  background: #0f172a;
+  border-bottom: 1px solid #1e293b;
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 14px;
+  position: sticky;
+  top: 0;
+}
+
+.sidebarTitle {
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.addBtn {
+  background: #334155;
+  border: none;
+  border-radius: 4px;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 7px;
+  transition: background 0.1s;
+}
+.addBtn:hover { background: #475569; }
+
+.emptyHint {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px;
+}
+
+.hint {
+  color: #475569;
+  font-size: 12px;
+  margin: 0;
+  text-align: center;
+}
+
+.addBtnLarge {
+  background: #1e293b;
+  border: 1px dashed #334155;
+  border-radius: 6px;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 8px 14px;
+  transition: border-color 0.1s, color 0.1s;
+  white-space: nowrap;
+}
+.addBtnLarge:hover { border-color: #6366f1; color: #a5b4fc; }
+
+.projectList {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+.projectItem {
+  align-items: center;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  margin: 2px 6px;
+  padding: 7px 8px;
+  transition: background 0.1s;
+}
+.projectItem:hover { background: rgba(255,255,255,.05); }
+.projectItemSelected { background: rgba(99,102,241,.15) !important; }
+
+.projectIcon { font-size: 14px; flex-shrink: 0; }
+
+.projectName {
+  color: #e2e8f0;
+  flex: 1;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deleteBtn {
+  background: none;
+  border: none;
+  color: #475569;
+  cursor: pointer;
+  font-size: 11px;
+  opacity: 0;
+  padding: 0 2px;
+  transition: color 0.1s;
+}
+.projectItem:hover .deleteBtn { opacity: 1; }
+.deleteBtn:hover { color: #f87171; }
+
+/* ── Main ──────────────────────────────────────────────────────────────────── */
+
+.main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.empty {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  justify-content: center;
+  padding: 40px;
+}
+
+.emptyIcon { font-size: 44px; margin: 0; }
+
+.emptyText {
+  color: #e2e8f0;
+  font-size: 14px;
+  margin: 0;
+}
+
+.emptyDesc {
+  color: #475569;
+  font-size: 13px;
+  margin: 0;
+  max-width: 360px;
+  text-align: center;
+}
+
+/* ── Add project panel ─────────────────────────────────────────────────────── */
+
+.addPanel {
+  background: #0f172a;
+  border-bottom: 1px solid #1e293b;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 24px;
+  flex-shrink: 0;
+}
+
+.addTitle {
+  color: #e2e8f0;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+
+.fieldLabel {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.fieldInput {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 5px;
+  color: #e2e8f0;
+  font-size: 13px;
+  padding: 6px 10px;
+  transition: border-color 0.1s;
+}
+.fieldInput:focus { border-color: #6366f1; outline: none; }
+
+.pickBtn {
+  background: #334155;
+  border: none;
+  border-radius: 5px;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+.pickBtn:hover { background: #475569; }
+
+.addActions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.cancelBtn {
+  background: none;
+  border: 1px solid #334155;
+  border-radius: 5px;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 6px 16px;
+}
+.cancelBtn:hover { color: #94a3b8; }
+
+.saveBtn {
+  background: #6366f1;
+  border: none;
+  border-radius: 5px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 20px;
+}
+.saveBtn:hover:not(:disabled) { background: #4f46e5; }
+.saveBtn:disabled { opacity: 0.5; cursor: default; }
+
+.saveBtnAlt { background: #0ea5e9; }
+.saveBtnAlt:hover:not(:disabled) { background: #0284c7; }
+
+/* ── Project detail ────────────────────────────────────────────────────────── */
+
+.projectDetail {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sourcesBar {
+  align-items: center;
+  background: rgba(99,102,241,.08);
+  border-bottom: 1px solid #1e293b;
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px;
+}
+
+.sourcesLabel {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.sourceChip {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: #a5b4fc;
+  font-family: monospace;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.sourceChipType { color: #64748b; }
+
+.breadcrumb {
+  align-items: center;
+  background: #0f172a;
+  border-bottom: 1px solid #1e293b;
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 8px 16px;
+}
+
+.breadBtn {
+  background: none;
+  border: none;
+  color: #6366f1;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+}
+.breadBtn:hover { text-decoration: underline; }
+
+.breadSep { color: #334155; font-size: 13px; padding: 0 2px; }
+
+.breadCurrent {
+  color: #94a3b8;
+  font-size: 13px;
+  padding: 2px 4px;
+}
+
+.errorHint {
+  color: #f87171;
+  font-size: 12px;
+  padding: 8px 16px;
+  margin: 0;
+}
+
+.fileTree {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.fileEntry {
+  align-items: center;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: #e2e8f0;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  margin: 1px 8px;
+  padding: 6px 10px;
+  text-align: left;
+  transition: background 0.1s;
+  width: calc(100% - 16px);
+}
+.fileEntry:hover { background: rgba(255,255,255,.05); }
+
+.fileIcon { flex-shrink: 0; font-size: 14px; }
+
+.fileName { color: #e2e8f0; flex: 1; font-size: 13px; }
+
+.boundBadge {
+  background: rgba(74,222,128,.12);
+  border-radius: 4px;
+  color: #4ade80;
+  font-size: 11px;
+  padding: 1px 7px;
+}
+
+/* ── Bind modal ────────────────────────────────────────────────────────────── */
+
+.modalOverlay {
+  background: rgba(0,0,0,.7);
+  bottom: 0;
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  left: 0;
+  padding-top: 60px;
+  position: absolute;
+  right: 0;
+  top: 0;
+  z-index: 100;
+}
+
+.modal {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  height: fit-content;
+  max-height: 80vh;
+  overflow: hidden;
+  width: 480px;
+}
+
+.modalHeader {
+  align-items: center;
+  border-bottom: 1px solid #334155;
+  display: flex;
+  justify-content: space-between;
+  padding: 14px 18px;
+}
+
+.modalTitle {
+  color: #e2e8f0;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.modalClose {
+  background: none;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 14px;
+}
+.modalClose:hover { color: #e2e8f0; }
+
+.modalBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  padding: 16px 18px;
+}
+
+.modalFile {
+  background: #0f172a;
+  border-radius: 5px;
+  color: #94a3b8;
+  font-family: monospace;
+  font-size: 12px;
+  margin: 0;
+  padding: 6px 10px;
+}
+
+.previewWrap {
+  background: #0d1117;
+  border-radius: 5px;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.preview {
+  color: #94a3b8;
+  font-family: monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  padding: 10px 14px;
+  white-space: pre;
+}
+
+.modalError {
+  color: #f87171;
+  font-size: 12px;
+  margin: 0;
+}
+
+.modalActions {
+  align-items: center;
+  border-top: 1px solid #334155;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 12px 18px;
+}

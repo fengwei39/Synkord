@@ -5,45 +5,16 @@ import { api } from './api'
 export interface PackListItem {
   name: string
   version: string
+  contentType: string
   updatedAt: string
   ownerEmail: string
-}
-
-export interface FieldDef {
-  type: 'uuid' | 'string' | 'int' | 'boolean' | 'datetime' | 'enum' | 'json'
-  primary?: boolean
-  unique?: boolean
-  maxLength?: number
-  values?: string[]
-}
-
-export interface RelationDef {
-  type: 'many-to-one' | 'one-to-many' | 'many-to-many' | 'one-to-one'
-  target: string
-  through?: string
-}
-
-export interface EntityDef {
-  table: string
-  fields: Record<string, FieldDef>
-  relations?: Record<string, RelationDef>
-}
-
-export interface ContractContent {
-  pack: string
-  version: string
-  entities: Record<string, EntityDef>
-  conventions?: {
-    id_type?: 'uuid' | 'int' | 'string'
-    naming?: Record<string, string>
-    timestamps?: Record<string, string>
-  }
 }
 
 export interface PackDetail {
   name: string
   version: string
-  content: string // raw JSON string
+  contentType: string
+  content: string
 }
 
 export interface VersionInfo {
@@ -51,6 +22,35 @@ export interface VersionInfo {
   tagName: string
   committedAt: string
   authorEmail: string
+}
+
+// ─── Diff types (line-level) ──────────────────────────────────────────────────
+
+export type LineType = 'context' | 'added' | 'removed'
+
+export interface DiffLine {
+  type: LineType
+  oldNum?: number
+  newNum?: number
+  content: string
+}
+
+export interface DiffHunk {
+  oldStart: number
+  newStart: number
+  lines: DiffLine[]
+}
+
+export interface DiffStats {
+  added: number
+  removed: number
+}
+
+export interface DiffResult {
+  from: string
+  to: string
+  hunks: DiffHunk[]
+  stats: DiffStats
 }
 
 // ─── API calls ────────────────────────────────────────────────────────────────
@@ -65,35 +65,47 @@ export async function getPack(orgId: string, packName: string): Promise<PackDeta
   return res.data
 }
 
+export async function createPack(
+  orgId: string,
+  name: string,
+  version: string,
+  content: string,
+  contentType: string,
+): Promise<PackListItem> {
+  const res = await api.post<PackListItem>(`/api/orgs/${orgId}/packs`, {
+    name, version, content, contentType,
+  })
+  return res.data
+}
+
+export async function updatePack(
+  orgId: string,
+  packName: string,
+  version: string,
+  content: string,
+  contentType: string,
+): Promise<PackListItem> {
+  const res = await api.put<PackListItem>(`/api/orgs/${orgId}/packs/${packName}`, {
+    version, content, contentType,
+  })
+  return res.data
+}
+
+export async function deletePack(orgId: string, packName: string): Promise<void> {
+  await api.delete(`/api/orgs/${orgId}/packs/${packName}`)
+}
+
 export async function listVersions(orgId: string, packName: string): Promise<VersionInfo[]> {
   const res = await api.get<VersionInfo[]>(`/api/orgs/${orgId}/packs/${packName}/versions`)
   return res.data
 }
 
-// ─── Diff types ───────────────────────────────────────────────────────────────
-
-export type ChangeType = 'added' | 'removed' | 'modified'
-
-export interface FieldDiff {
-  change: ChangeType
-  type?: string
-  before?: unknown
-  after?: unknown
-}
-
-export interface EntityDiff {
-  change: ChangeType
-  fields?: Record<string, FieldDiff>
-  relations?: Record<string, FieldDiff>
-}
-
-export interface DiffResult {
-  from: string
-  to: string
-  entities: Record<string, EntityDiff>
-}
-
-export async function getDiff(orgId: string, packName: string, from: string, to: string): Promise<DiffResult> {
+export async function getDiff(
+  orgId: string,
+  packName: string,
+  from: string,
+  to: string,
+): Promise<DiffResult> {
   const res = await api.get<DiffResult>(
     `/api/orgs/${orgId}/packs/${packName}/diff`,
     { params: { from, to } },
@@ -101,10 +113,25 @@ export async function getDiff(orgId: string, packName: string, from: string, to:
   return res.data
 }
 
-export function parseContent(detail: PackDetail): ContractContent | null {
-  try {
-    return JSON.parse(detail.content) as ContractContent
-  } catch {
-    return null
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+export function detectContentType(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? ''
+  const map: Record<string, string> = {
+    md: 'markdown', markdown: 'markdown',
+    yaml: 'yaml', yml: 'yaml',
+    json: 'json',
+    ts: 'typescript', tsx: 'typescript',
+    go: 'go',
+    sql: 'sql',
+    proto: 'proto',
+    txt: 'text',
   }
+  return map[ext] ?? 'text'
+}
+
+export function bumpPatch(version: string): string {
+  const parts = version.split('.').map(Number)
+  if (parts.length !== 3) return version
+  return `${parts[0]}.${parts[1]}.${parts[2] + 1}`
 }

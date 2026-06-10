@@ -1,11 +1,13 @@
 import { useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { listNotifications, markRead, type Notification } from '../lib/notifications-api'
 import { useWebSocket, type WsMessage } from '../lib/ws'
 import styles from './NotificationsPage.module.css'
 
 export default function NotificationsPage() {
   const [unreadOnly, setUnreadOnly] = useState(false)
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
 
   const { data: notifications = [], isLoading } = useQuery({
@@ -37,6 +39,9 @@ export default function NotificationsPage() {
   return (
     <div className={styles.container}>
       <div className={styles.header}>
+        <button className={styles.backBtn} onClick={() => navigate(-1)} title="返回">
+          ←
+        </button>
         <h2 className={styles.title}>
           通知
           {unreadCount > 0 && <span className={styles.badge}>{unreadCount}</span>}

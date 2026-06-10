@@ -4,13 +4,17 @@ import { getMe, logout, type AuthUser } from '../lib/auth'
 import { getMyOrgs, type Org } from '../lib/orgs'
 import { getToken } from '../lib/api'
 import ContractsPage from './ContractsPage'
+import ProjectsPage from './ProjectsPage'
 import styles from './HomePage.module.css'
+
+type MainTab = 'contracts' | 'projects'
 
 export default function HomePage() {
   const navigate = useNavigate()
   const [user, setUser] = useState<AuthUser | null>(null)
   const [orgs, setOrgs] = useState<Org[]>([])
   const [activeOrgId, setActiveOrgId] = useState<string>('')
+  const [mainTab, setMainTab] = useState<MainTab>('contracts')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -24,7 +28,6 @@ export default function HomePage() {
           return
         }
         setActiveOrgId(myOrgs[0].id)
-        // Pass auth token to MCP server
         const token = getToken()
         if (token) window.electronAPI.setMCPToken(token)
       } catch {
@@ -77,9 +80,30 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* Body: contracts browser */}
+      {/* Sub nav */}
+      <div className={styles.subNav}>
+        <button
+          className={`${styles.subNavTab} ${mainTab === 'contracts' ? styles.subNavActive : ''}`}
+          onClick={() => setMainTab('contracts')}
+        >
+          📋 契约包
+        </button>
+        <button
+          className={`${styles.subNavTab} ${mainTab === 'projects' ? styles.subNavActive : ''}`}
+          onClick={() => setMainTab('projects')}
+        >
+          🗂️ 本地项目
+        </button>
+      </div>
+
+      {/* Body */}
       <div className={styles.body}>
-        {activeOrgId && <ContractsPage orgId={activeOrgId} />}
+        {activeOrgId && mainTab === 'contracts' && (
+          <ContractsPage orgId={activeOrgId} />
+        )}
+        {activeOrgId && mainTab === 'projects' && activeOrg && (
+          <ProjectsPage orgId={activeOrgId} orgName={activeOrg.name} />
+        )}
       </div>
     </div>
   )

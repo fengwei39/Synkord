@@ -10,6 +10,7 @@ export default function LoginPage() {
   const [mode, setMode] = useState<Mode>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [displayName, setDisplayName] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -22,7 +23,7 @@ export default function LoginPage() {
       if (mode === 'login') {
         await login({ email, password })
       } else {
-        await register({ email, password })
+        await register({ email, password, displayName: displayName || email.split('@')[0] })
       }
       navigate('/home', { replace: true })
     } catch (err: unknown) {
@@ -61,6 +62,22 @@ export default function LoginPage() {
               autoFocus
             />
           </div>
+
+          {mode === 'register' && (
+            <div className={styles.field}>
+              <label className={styles.label} htmlFor="displayName">
+                昵称
+              </label>
+              <input
+                id="displayName"
+                type="text"
+                className={styles.input}
+                placeholder="你的名字"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+              />
+            </div>
+          )}
 
           <div className={styles.field}>
             <label className={styles.label} htmlFor="password">

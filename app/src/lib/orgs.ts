@@ -25,8 +25,17 @@ export async function getMyOrgs(): Promise<Org[]> {
   return res.data
 }
 
-export async function createOrg(name: string): Promise<Org> {
-  const res = await api.post<Org>('/api/orgs', { name })
+export function toSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50) || 'org'
+}
+
+export async function createOrg(name: string, slug?: string): Promise<Org> {
+  const res = await api.post<Org>('/api/orgs', { name, slug: slug ?? toSlug(name) })
   return res.data
 }
 

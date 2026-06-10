@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readTextFile: (path: string) => ipcRenderer.invoke('fs:read-text', path),
   writeFile: (path: string, content: string) => ipcRenderer.invoke('fs:write-file', path, content),
   readDirTree: (path: string) => ipcRenderer.invoke('fs:read-dir-tree', path),
+  collectFiles: (path: string) => ipcRenderer.invoke('fs:collect-files', path),
 
   // MCP: pass auth token to main process
   setMCPToken: (token: string) => ipcRenderer.invoke('mcp:set-token', token),

@@ -147,6 +147,27 @@ function registerIPC(): void {
       throw new Error(`Cannot read directory: ${String(err)}`)
     }
   })
+
+  // File system: collect all file paths recursively under a directory
+  ipcMain.handle('fs:collect-files', (_e, dirPath: string) => {
+    const results: { name: string; path: string; relPath: string }[] = []
+    const walk = (dir: string, rel: string) => {
+      try {
+        const entries = readdirSync(dir, { withFileTypes: true })
+        for (const e of entries) {
+          const fullPath = join(dir, e.name)
+          const relPath = rel ? `${rel}/${e.name}` : e.name
+          if (e.isDirectory()) {
+            walk(fullPath, relPath)
+          } else {
+            results.push({ name: e.name, path: fullPath, relPath })
+          }
+        }
+      } catch { /* skip unreadable dirs */ }
+    }
+    walk(dirPath, '')
+    return results
+  })
 }
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────

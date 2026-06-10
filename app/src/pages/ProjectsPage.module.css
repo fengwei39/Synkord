@@ -398,73 +398,116 @@
   padding: 4px 0;
 }
 
-.dirActions {
+/* ── Selection toolbar ─────────────────────────────────────────────────────── */
+
+.selectionBar {
   align-items: center;
   background: #0f172a;
   border-bottom: 1px solid #1e293b;
   display: flex;
   flex-shrink: 0;
-  gap: 8px;
-  padding: 6px 12px;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 7px 14px;
 }
 
-.bindCurDirBtn {
-  background: rgba(99,102,241,.1);
-  border: 1px solid rgba(99,102,241,.3);
-  border-radius: 5px;
+.selectionInfo {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.selCount {
+  background: rgba(99,102,241,.15);
+  border-radius: 4px;
   color: #a5b4fc;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 10px;
+}
+
+.selHint {
+  color: #475569;
+  font-size: 12px;
+}
+
+.clearSelBtn {
+  background: none;
+  border: none;
+  color: #64748b;
   cursor: pointer;
   font-size: 12px;
-  padding: 4px 12px;
-  transition: background 0.1s, border-color 0.1s;
+  padding: 0;
+  text-decoration: underline;
 }
-.bindCurDirBtn:hover { background: rgba(99,102,241,.2); border-color: #6366f1; }
+.clearSelBtn:hover { color: #94a3b8; }
+
+.publishSelBtn {
+  background: #6366f1;
+  border: none;
+  border-radius: 5px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 14px;
+  transition: background 0.1s;
+  white-space: nowrap;
+}
+.publishSelBtn:hover:not(:disabled) { background: #4f46e5; }
+.publishSelBtn:disabled { background: #334155; color: #475569; cursor: default; }
+
+/* ── File tree ─────────────────────────────────────────────────────────────── */
 
 .fileEntryRow {
   align-items: center;
+  border-radius: 4px;
+  cursor: pointer;
   display: flex;
-  gap: 4px;
-  margin: 1px 8px;
+  gap: 6px;
+  margin: 1px 6px;
+  padding: 2px 6px;
+  transition: background 0.1s;
+  user-select: none;
+}
+.fileEntryRow:hover { background: rgba(255,255,255,.04); }
+.fileEntrySelected { background: rgba(99,102,241,.1) !important; }
+
+.checkbox {
+  accent-color: #6366f1;
+  cursor: pointer;
+  flex-shrink: 0;
+  height: 14px;
+  width: 14px;
 }
 
 .fileEntry {
   align-items: center;
   background: none;
   border: none;
-  border-radius: 4px;
   color: #e2e8f0;
   cursor: pointer;
   display: flex;
   flex: 1;
   gap: 8px;
   min-width: 0;
-  padding: 6px 10px;
+  padding: 4px 6px;
   text-align: left;
-  transition: background 0.1s;
 }
-.fileEntry:hover { background: rgba(255,255,255,.05); }
 
 .fileIcon { flex-shrink: 0; font-size: 14px; }
 
-.fileName { color: #e2e8f0; flex: 1; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.dirArrow { color: #334155; flex-shrink: 0; font-size: 16px; }
-
-.bindDirBtn {
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  color: #475569;
-  cursor: pointer;
-  flex-shrink: 0;
-  font-size: 11px;
-  opacity: 0;
-  padding: 3px 8px;
-  transition: color 0.1s, border-color 0.1s, opacity 0.1s;
+.fileName {
+  color: #e2e8f0;
+  flex: 1;
+  font-size: 13px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.fileEntryRow:hover .bindDirBtn { opacity: 1; }
-.bindDirBtn:hover { border-color: #6366f1; color: #a5b4fc; }
+
+.dirArrow { color: #334155; flex-shrink: 0; font-size: 16px; }
 
 .boundBadge {
   background: rgba(74,222,128,.12);
@@ -473,6 +516,37 @@
   flex-shrink: 0;
   font-size: 11px;
   padding: 1px 7px;
+}
+
+/* ── Publish modal: selected summary ──────────────────────────────────────── */
+
+.selectedSummary {
+  background: #0f172a;
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.selectedLabel {
+  color: #64748b;
+  display: block;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.selectedList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.selectedChip {
+  background: rgba(99,102,241,.12);
+  border: 1px solid rgba(99,102,241,.25);
+  border-radius: 4px;
+  color: #a5b4fc;
+  font-family: monospace;
+  font-size: 11px;
+  padding: 2px 8px;
 }
 
 /* ── Bind modal ────────────────────────────────────────────────────────────── */

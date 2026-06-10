@@ -1,0 +1,14 @@
+{
+  "$schema": "https://synkord.dev/schema/contract-v1.json",
+  "pack": "bad-pack",
+  "version": "1.0.0",
+  "entities": {
+    "User": {
+      "table": "users",
+      "fields": {
+        "id":    { "type": "uuid",    "primary": true },
+        "email": { "type": "varchar" }
+      }
+    }
+  }
+}

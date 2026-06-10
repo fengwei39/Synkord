@@ -249,6 +249,21 @@ function ProjectDetail({ project, orgId }: { project: Project; orgId: string }) 
     }
   }
 
+  // Bind a sub-directory path as a virtual file entry (content = path listing)
+  async function handleBindDir(dirPath: string) {
+    try {
+      const dirEntries = await window.electronAPI.readDirTree(dirPath)
+      const fileList = dirEntries
+        .filter((e) => !e.isDir)
+        .map((e) => e.name)
+        .join('\n')
+      const content = `# 目录: ${dirPath}\n\n${fileList}`
+      setBindModal({ filePath: dirPath + '/', content })
+    } catch (err: unknown) {
+      setError(String(err))
+    }
+  }
+
   function handleBound(packName: string, filePath: string, contentType: string) {
     const src: ProjectSource = {
       projectId: project.id,
@@ -319,20 +334,43 @@ function ProjectDetail({ project, orgId }: { project: Project; orgId: string }) 
 
       {error && <p className={styles.errorHint}>{error}</p>}
 
+      {/* Quick actions for current directory */}
+      <div className={styles.dirActions}>
+        <button
+          className={styles.bindCurDirBtn}
+          onClick={() => handleBindDir(currentPath)}
+          title="将当前目录下的文件列表绑定为契约"
+        >
+          📎 绑定当前目录
+        </button>
+      </div>
+
       {/* File tree */}
       <div className={styles.fileTree}>
         {entries.map((e) => (
-          <button
-            key={e.path}
-            className={styles.fileEntry}
-            onClick={() => handleFileClick(e)}
-          >
-            <span className={styles.fileIcon}>{e.isDir ? '📁' : fileIcon(e.name)}</span>
-            <span className={styles.fileName}>{e.name}</span>
-            {!e.isDir && sources.some((s) => s.filePath === e.path) && (
-              <span className={styles.boundBadge}>✓ 已绑定</span>
+          <div key={e.path} className={styles.fileEntryRow}>
+            <button
+              className={styles.fileEntry}
+              onClick={() => handleFileClick(e)}
+              title={e.isDir ? '点击进入目录' : '点击选择此文件'}
+            >
+              <span className={styles.fileIcon}>{e.isDir ? '📁' : fileIcon(e.name)}</span>
+              <span className={styles.fileName}>{e.name}</span>
+              {!e.isDir && sources.some((s) => s.filePath === e.path) && (
+                <span className={styles.boundBadge}>✓ 已绑定</span>
+              )}
+              {e.isDir && <span className={styles.dirArrow}>›</span>}
+            </button>
+            {e.isDir && (
+              <button
+                className={styles.bindDirBtn}
+                title="选择此目录作为项目根目录"
+                onClick={() => handleBindDir(e.path)}
+              >
+                📎 选择此目录
+              </button>
             )}
-          </button>
+          </div>
         ))}
         {entries.length === 0 && (
           <p className={styles.hint} style={{ padding: 12 }}>空目录</p>

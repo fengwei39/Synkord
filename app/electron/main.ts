@@ -85,10 +85,11 @@ function registerIPC(): void {
   })
 
   // Overlay: pick directory via OS dialog
-  ipcMain.handle('overlay:pick-dir', async () => {
-    const result = await dialog.showOpenDialog({
+  ipcMain.handle('overlay:pick-dir', async (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender) ?? mainWin ?? undefined
+    const result = await dialog.showOpenDialog(win!, {
       properties: ['openDirectory'],
-      title: '选择项目目录（包含 synkord.json）',
+      title: '选择项目目录',
     })
     return result.canceled ? null : result.filePaths[0]
   })
@@ -104,8 +105,9 @@ function registerIPC(): void {
   })
 
   // File system: pick a file
-  ipcMain.handle('fs:pick-file', async (_e, filters?: { name: string; extensions: string[] }[]) => {
-    const result = await dialog.showOpenDialog({
+  ipcMain.handle('fs:pick-file', async (e, filters?: { name: string; extensions: string[] }[]) => {
+    const win = BrowserWindow.fromWebContents(e.sender) ?? mainWin ?? undefined
+    const result = await dialog.showOpenDialog(win!, {
       properties: ['openFile'],
       filters: filters ?? [{ name: 'All Files', extensions: ['*'] }],
     })

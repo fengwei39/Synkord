@@ -110,19 +110,20 @@ type RegisterDeviceRequest struct {
 }
 
 // subscriptionRecord mirrors the subscriptions DB row (internal use).
-// JSONB columns are scanned as json.RawMessage to avoid driver type issues.
+// All columns (including JSONB) are scanned as plain strings to avoid driver
+// type-conversion issues; JSON fields are manually unmarshalled afterward.
 type subscriptionRecord struct {
-	ID              string          `db:"id"`
-	UserID          string          `db:"user_id"`
-	OrgID           string          `db:"org_id"`
-	PackName        string          `db:"pack_name"`
-	PinnedVersion   string          `db:"pinned_version"`
-	DeviceInfoRaw   json.RawMessage `db:"device_info"`
-	GitInfoRaw      json.RawMessage `db:"git_info"`
-	ProjectNamesRaw string          `db:"project_names"` // read as text, then parse
-	GitEmailsRaw    string          `db:"git_emails"`    // read as text, then parse
-	UpdatedAt       time.Time       `db:"updated_at"`
-	Email           string          `db:"email"`
+	ID              string    `db:"id"`
+	UserID          string    `db:"user_id"`
+	OrgID           string    `db:"org_id"`
+	PackName        string    `db:"pack_name"`
+	PinnedVersion   string    `db:"pinned_version"`
+	DeviceInfoRaw   string    `db:"device_info"`  // JSONB cast to text in SQL
+	GitInfoRaw      string    `db:"git_info"`     // JSONB cast to text in SQL
+	ProjectNamesRaw string    `db:"project_names"`
+	GitEmailsRaw    string    `db:"git_emails"`
+	UpdatedAt       time.Time `db:"updated_at"`
+	Email           string    `db:"email"`
 }
 
 // packRecord mirrors the contract_packs DB row (internal use).

@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -151,6 +152,7 @@ func (h *Handler) ListSubscribers(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "pack not found"})
 			return
 		}
+		log.Printf("[ListSubscribers] ERROR org=%s pack=%s: %v", orgID, name, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

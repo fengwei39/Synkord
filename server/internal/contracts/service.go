@@ -264,10 +264,10 @@ func (s *Service) ListSubscribers(orgID, packName string) ([]SubscriberItem, err
 	items := make([]SubscriberItem, 0, len(rows))
 	for _, r := range rows {
 		var device DeviceInfo
-		_ = json.Unmarshal(r.DeviceInfoRaw, &device)
+		_ = json.Unmarshal([]byte(r.DeviceInfoRaw), &device)
 
 		var gi GitInfo
-		_ = json.Unmarshal(r.GitInfoRaw, &gi)
+		_ = json.Unmarshal([]byte(r.GitInfoRaw), &gi)
 
 		// Merge git emails from git_emails table
 		if r.GitEmailsRaw != "" {

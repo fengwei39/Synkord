@@ -85,6 +85,68 @@ func (h *Handler) GetInvite(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+func (h *Handler) ListMembers(c *gin.Context) {
+	members, err := h.svc.ListMembers(c.Request.Context(), c.Param("orgId"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+	c.JSON(http.StatusOK, members)
+}
+
+func (h *Handler) RemoveMember(c *gin.Context) {
+	err := h.svc.RemoveMember(
+		c.Request.Context(),
+		c.Param("orgId"),
+		auth.GetUserID(c),
+		c.Param("userId"),
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrCannotRemoveSelf):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "cannot remove yourself"})
+		case errors.Is(err, ErrNotAdmin), errors.Is(err, ErrNotMember):
+			c.JSON(http.StatusForbidden, gin.H{"error": "admin permission required"})
+		case errors.Is(err, ErrMemberNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "member not found"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		}
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (h *Handler) UpdateMemberRole(c *gin.Context) {
+	var req UpdateRoleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	resp, err := h.svc.UpdateMemberRole(
+		c.Request.Context(),
+		c.Param("orgId"),
+		auth.GetUserID(c),
+		c.Param("userId"),
+		req.Role,
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrInvalidRole):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, ErrNotAdmin), errors.Is(err, ErrNotMember):
+			c.JSON(http.StatusForbidden, gin.H{"error": "admin permission required"})
+		case errors.Is(err, ErrMemberNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "member not found"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
 func (h *Handler) AcceptInvite(c *gin.Context) {
 	resp, err := h.svc.AcceptInvite(c.Request.Context(), c.Param("token"), auth.GetUserID(c))
 	if err != nil {

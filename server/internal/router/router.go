@@ -48,12 +48,22 @@ func New(db *sqlx.DB, cfg Config) *gin.Engine {
 	orgSvc := org.NewService(db, cfg.BaseURL)
 	orgHandler := org.NewHandler(orgSvc)
 
+	adminMiddleware := org.AdminMiddleware(db)
+	memberMiddleware := org.MemberMiddleware(db)
+
 	orgsGroup := api.Group("/orgs", authMiddleware)
 	{
 		orgsGroup.POST("", orgHandler.CreateOrg)
-		orgsGroup.GET("/me", orgHandler.GetMyOrgs)       // must be before /:orgId
-		orgsGroup.GET("/:orgId", orgHandler.GetOrg)
-		orgsGroup.POST("/:orgId/invites", orgHandler.CreateInvite)
+		orgsGroup.GET("/me", orgHandler.GetMyOrgs) // must be before /:orgId
+
+		orgItem := orgsGroup.Group("/:orgId")
+		{
+			orgItem.GET("", orgHandler.GetOrg)
+			orgItem.GET("/members", memberMiddleware, orgHandler.ListMembers)
+			orgItem.POST("/invites", adminMiddleware, orgHandler.CreateInvite)
+			orgItem.DELETE("/members/:userId", adminMiddleware, orgHandler.RemoveMember)
+			orgItem.PUT("/members/:userId/role", adminMiddleware, orgHandler.UpdateMemberRole)
+		}
 	}
 
 	// Invite routes (accept requires auth, get is public)

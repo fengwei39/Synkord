@@ -7,10 +7,12 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	"synkord/server/internal/auth"
+	"synkord/server/internal/org"
 )
 
 type Config struct {
 	JWTSecret string
+	BaseURL   string
 }
 
 func New(db *sqlx.DB, cfg Config) *gin.Engine {
@@ -28,11 +30,11 @@ func New(db *sqlx.DB, cfg Config) *gin.Engine {
 	})
 
 	api := r.Group("/api")
+	authMiddleware := auth.Middleware(cfg.JWTSecret)
 
 	// Auth routes
 	authSvc := auth.NewService(db, cfg.JWTSecret)
 	authHandler := auth.NewHandler(authSvc)
-	authMiddleware := auth.Middleware(cfg.JWTSecret)
 
 	authGroup := api.Group("/auth")
 	{
@@ -40,6 +42,25 @@ func New(db *sqlx.DB, cfg Config) *gin.Engine {
 		authGroup.POST("/login", authHandler.Login)
 		authGroup.GET("/me", authMiddleware, authHandler.Me)
 		authGroup.POST("/git-email", authMiddleware, authHandler.AddGitEmail)
+	}
+
+	// Org routes (all require auth)
+	orgSvc := org.NewService(db, cfg.BaseURL)
+	orgHandler := org.NewHandler(orgSvc)
+
+	orgsGroup := api.Group("/orgs", authMiddleware)
+	{
+		orgsGroup.POST("", orgHandler.CreateOrg)
+		orgsGroup.GET("/me", orgHandler.GetMyOrgs)       // must be before /:orgId
+		orgsGroup.GET("/:orgId", orgHandler.GetOrg)
+		orgsGroup.POST("/:orgId/invites", orgHandler.CreateInvite)
+	}
+
+	// Invite routes (accept requires auth, get is public)
+	inviteGroup := api.Group("/invites")
+	{
+		inviteGroup.GET("/:token", orgHandler.GetInvite)
+		inviteGroup.POST("/:token/accept", authMiddleware, orgHandler.AcceptInvite)
 	}
 
 	return r

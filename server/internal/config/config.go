@@ -11,6 +11,7 @@ type Config struct {
 	AppPort     string
 	DatabaseURL string
 	JWTSecret   string
+	BaseURL     string
 }
 
 func Load() (*Config, error) {
@@ -21,6 +22,7 @@ func Load() (*Config, error) {
 		AppPort:     getEnv("APP_PORT", "8080"),
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		JWTSecret:   os.Getenv("JWT_SECRET"),
+		BaseURL:     getEnv("BASE_URL", "http://localhost:8080"),
 	}
 
 	if cfg.DatabaseURL == "" {

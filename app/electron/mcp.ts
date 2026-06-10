@@ -196,6 +196,16 @@ export function startMCPServer(apiBaseURL: string): void {
       res.end(JSON.stringify({ error: String(err) }))
     })
   })
+
+  mcpServer.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`[mcp] port ${MCP_PORT} already in use — skipping MCP server start`)
+      mcpServer = null
+    } else {
+      console.error('[mcp] server error:', err)
+    }
+  })
+
   mcpServer.listen(MCP_PORT, '127.0.0.1', () => {
     console.log(`[mcp] listening on http://127.0.0.1:${MCP_PORT}/mcp`)
   })

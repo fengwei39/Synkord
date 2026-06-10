@@ -151,6 +151,21 @@ function registerIPC(): void {
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 
+// Prevent multiple Electron instances from running simultaneously
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  app.quit()
+}
+
+app.on('second-instance', () => {
+  // Focus the existing main window when a second instance is launched
+  if (mainWin) {
+    if (mainWin.isMinimized()) mainWin.restore()
+    mainWin.show()
+    mainWin.focus()
+  }
+})
+
 app.whenReady().then(() => {
   registerIPC()
   createMainWindow()

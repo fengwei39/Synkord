@@ -1,6 +1,7 @@
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import LoginPage from './pages/LoginPage'
 import HomePage from './pages/HomePage'
+import OnboardingPage from './pages/OnboardingPage'
 import { getToken } from './lib/api'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -15,6 +16,14 @@ export default function AppRouter() {
     <HashRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/onboarding"
+          element={
+            <RequireAuth>
+              <OnboardingPage />
+            </RequireAuth>
+          }
+        />
         <Route
           path="/home"
           element={

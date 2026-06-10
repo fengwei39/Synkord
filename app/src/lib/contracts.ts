@@ -70,6 +70,37 @@ export async function listVersions(orgId: string, packName: string): Promise<Ver
   return res.data
 }
 
+// ─── Diff types ───────────────────────────────────────────────────────────────
+
+export type ChangeType = 'added' | 'removed' | 'modified'
+
+export interface FieldDiff {
+  change: ChangeType
+  type?: string
+  before?: unknown
+  after?: unknown
+}
+
+export interface EntityDiff {
+  change: ChangeType
+  fields?: Record<string, FieldDiff>
+  relations?: Record<string, FieldDiff>
+}
+
+export interface DiffResult {
+  from: string
+  to: string
+  entities: Record<string, EntityDiff>
+}
+
+export async function getDiff(orgId: string, packName: string, from: string, to: string): Promise<DiffResult> {
+  const res = await api.get<DiffResult>(
+    `/api/orgs/${orgId}/packs/${packName}/diff`,
+    { params: { from, to } },
+  )
+  return res.data
+}
+
 export function parseContent(detail: PackDetail): ContractContent | null {
   try {
     return JSON.parse(detail.content) as ContractContent

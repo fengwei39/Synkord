@@ -316,3 +316,271 @@
   color: #64748b;
   font-size: 12px;
 }
+
+/* ── Tabs ────────────────────────────────────────────────────── */
+
+.tabBar {
+  display: flex;
+  border-bottom: 1px solid #334155;
+  padding: 0 28px;
+}
+
+.tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 12px 4px;
+  margin-right: 20px;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.tab:hover {
+  color: #e2e8f0;
+}
+
+.tabActive {
+  border-bottom-color: #6366f1;
+  color: #a5b4fc;
+}
+
+/* ── Versions tab ────────────────────────────────────────────── */
+
+.versionsWrap {
+  padding: 20px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.versionList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.versionRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #1e293b;
+}
+
+.verBadge {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: #94a3b8;
+  font-family: monospace;
+  font-size: 12px;
+  padding: 2px 8px;
+  flex-shrink: 0;
+}
+
+.verDate {
+  color: #475569;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.verAuthor {
+  color: #64748b;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Diff panel ──────────────────────────────────────────────── */
+
+.diffPanel {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.diffPanelHeader {
+  padding: 10px 16px;
+  border-bottom: 1px solid #334155;
+}
+
+.diffPanelTitle {
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.diffSelector {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.verSelect {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: #e2e8f0;
+  font-size: 13px;
+  padding: 6px 10px;
+  flex: 1;
+  outline: none;
+  cursor: pointer;
+}
+
+.diffArrow {
+  color: #475569;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.compareBtn {
+  background: #6366f1;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 16px;
+  transition: background 0.12s, opacity 0.12s;
+  flex-shrink: 0;
+}
+
+.compareBtn:hover:not(:disabled) {
+  background: #4f46e5;
+}
+
+.compareBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Diff result ─────────────────────────────────────────────── */
+
+.noDiff {
+  padding: 16px;
+  color: #4ade80;
+  font-size: 13px;
+}
+
+.diffResult {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.diffMeta {
+  margin: 0 0 4px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.diffCard {
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #334155;
+}
+
+.diffCard_added   { border-color: rgba(74, 222, 128, 0.3); }
+.diffCard_removed { border-color: rgba(248, 113, 113, 0.3); }
+.diffCard_modified{ border-color: rgba(251, 191, 36, 0.3); }
+
+.diffCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.changeBadge {
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+}
+
+.change_added   { background: rgba(74, 222, 128, 0.15); color: #4ade80; }
+.change_removed { background: rgba(248, 113, 113, 0.15); color: #f87171; }
+.change_modified{ background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+
+.diffEntityName {
+  color: #e2e8f0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.diffTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.diffFieldRow td {
+  padding: 5px 12px;
+}
+
+.diffRow_added   { background: rgba(74, 222, 128, 0.06); }
+.diffRow_removed { background: rgba(248, 113, 113, 0.06); }
+.diffRow_modified{ background: rgba(251, 191, 36, 0.06); }
+
+.diffFieldPrefix {
+  color: #475569;
+  font-family: monospace;
+  width: 18px;
+}
+
+.diffRow_added   .diffFieldPrefix { color: #4ade80; }
+.diffRow_removed .diffFieldPrefix { color: #f87171; }
+.diffRow_modified .diffFieldPrefix{ color: #fbbf24; }
+
+.diffFieldName {
+  color: #e2e8f0;
+  font-family: monospace;
+}
+
+.relLabel {
+  color: #475569;
+  font-size: 10px;
+  margin-right: 4px;
+}
+
+.diffFieldDetail {
+  color: #94a3b8;
+}
+
+.modifiedDetail {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.beforeVal {
+  background: rgba(248, 113, 113, 0.1);
+  border-radius: 3px;
+  color: #f87171;
+  font-family: monospace;
+  font-size: 11px;
+  padding: 1px 5px;
+}
+
+.afterVal {
+  background: rgba(74, 222, 128, 0.1);
+  border-radius: 3px;
+  color: #4ade80;
+  font-family: monospace;
+  font-size: 11px;
+  padding: 1px 5px;
+}

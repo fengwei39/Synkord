@@ -1,53 +1,54 @@
 # Synkord
 
-**架构防腐与数据契约协同平台**
+以业务域为单位的契约管理工具。让每个人、每个项目、每个 AI 工具，在任何时候都基于同一份业务数据契约工作。
 
-面向 3–10 人核心开发团队的桌面端工具：通过契约库跨项目复用实体标准，强制团队内所有成员及其 AI 工具服从统一数据与接口契约。
+## 核心功能
 
-> Copilot 让 AI 写得更快，Synkord 让团队里的每个人和 AI **不敢写错**。
+- **定义契约** — 用 JSON 格式声明业务实体、字段类型、关联关系，存入 Git
+- **分发契约** — MCP Server 让 Cursor / Codex 等 AI 工具自动感知契约
+- **感知变化** — 契约版本升级时，所有依赖项目收到通知
 
-## 项目状态
+## 当前状态
 
-当前处于 **工程开发阶段**，按功能迭代推进。当前迭代：**I1 契约规范落地**。
+> P1 契约格式基础 — 进行中
+
+## 文档
+
+- [产品设计](docs/product/产品设计.md)
+- [开发计划](docs/engineering/开发计划.md)
 
 ## 仓库结构
 
 ```
 synkord/
-├── README.md
-├── .gitignore
+├── schemas/           # 契约 JSON Schema 定义
+├── examples/          # 样例契约包
+├── packages/          # 源码（待建）
+│   ├── contract-core/ # 契约校验库（TypeScript）
+│   ├── mcp-server/    # MCP Server
+│   ├── app/           # Electron 桌面 App
+│   └── cli/           # CLI 工具
 └── docs/
-    ├── product/           # 产品设计
-    │   └── 产品设计.md
-    ├── engineering/       # 工程开发（迭代任务单）
-    │   ├── I1-契约规范落地.md   ← 当前迭代
-    │   └── iterations.md
-    └── archive/           # 历史归档
+    ├── product/       # 产品文档
+    └── engineering/   # 工程文档
 ```
 
-## 文档
+## 快速体验（即将支持）
 
-| 文档 | 说明 |
-|---|---|
-| [**产品设计**](./docs/product/产品设计.md) | 产品权威版本（v1.2） |
-| [**I1 任务单**](./docs/engineering/I1-契约规范落地.md) | 当前迭代，复制给 Claude Code |
-| [迭代路线图](./docs/engineering/iterations.md) | 功能迭代 I1–I15 |
-| [文档中心](./docs/README.md) | 全部文档索引 |
-
-## 技术栈（规划）
-
-| 层 | 选型 |
-|---|---|
-| 桌面壳 | Electron + Node.js |
-| 前端 | TypeScript + React + Monaco |
-| 内核 | Rust |
-| 本地存储 | SQLite |
-| 云端协同 | MySQL + WebSocket |
-
-## 仓库地址
-
-```
-https://bitbucket.it.starmotor.tech/scm/~fengwei3/synkord.git
+```bash
+# 启动 MCP Server，指向本地契约目录
+npx synkord-mcp --dir ./contracts
 ```
 
-默认开发分支：`dev`
+在 Cursor 的 `.cursor/mcp.json` 中添加：
+
+```json
+{
+  "mcpServers": {
+    "synkord": {
+      "command": "npx",
+      "args": ["synkord-mcp", "--dir", "./contracts"]
+    }
+  }
+}
+```

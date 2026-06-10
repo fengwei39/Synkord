@@ -1,10 +1,10 @@
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
-import Placeholder from './pages/Placeholder'
+import LoginPage from './pages/LoginPage'
+import HomePage from './pages/HomePage'
+import { getToken } from './lib/api'
 
-// Route guard: redirect to /login if no token is stored
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const token = localStorage.getItem('synkord_token')
-  if (!token) {
+  if (!getToken()) {
     return <Navigate to="/login" replace />
   }
   return <>{children}</>
@@ -14,12 +14,12 @@ export default function AppRouter() {
   return (
     <HashRouter>
       <Routes>
-        <Route path="/login" element={<Placeholder title="登录" />} />
+        <Route path="/login" element={<LoginPage />} />
         <Route
           path="/home"
           element={
             <RequireAuth>
-              <Placeholder title="主界面" />
+              <HomePage />
             </RequireAuth>
           }
         />

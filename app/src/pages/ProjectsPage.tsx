@@ -5,7 +5,7 @@
  * multiple projects and combine them into a single contract pack.
  */
 import { useState, useEffect } from 'react'
-import { detectContentType, getPack } from '../lib/contracts'
+import { detectContentType, getPack, updatePinnedVersion } from '../lib/contracts'
 import {
   syncIDEFiles,
   getConsumedPackNames,
@@ -152,7 +152,12 @@ export default function ProjectsPage({ orgId, orgName, orgSlug }: Props) {
         name: d!.name, version: d!.version, contentType: d!.contentType, content: d!.content,
       }))
       const config: SynkordProjectConfig = { orgId, orgSlug, project: proj.name, consumes: packNames }
-      await syncIDEFiles(proj.localPath, config, packs).catch(() => null)
+      const result = await syncIDEFiles(proj.localPath, config, packs).catch(() => null)
+      if (result?.ok) {
+        for (const p of packs) {
+          updatePinnedVersion(orgId, p.name, p.version).catch(() => { /* ignore */ })
+        }
+      }
     }
   }
 
@@ -358,6 +363,11 @@ function ProjectFileTree({ project, orgId, orgSlug, selected, onToggle }: {
             : `✓ 无需更新（内容未变化）`
           : `⚠ ${result.error ?? '失败'}`,
       )
+      if (result.ok) {
+        for (const p of packs) {
+          updatePinnedVersion(orgId, p.name, p.version).catch(() => { /* ignore */ })
+        }
+      }
     } catch (err) { setSyncMsg(`⚠ ${String(err)}`) }
     finally {
       setSyncing(false)

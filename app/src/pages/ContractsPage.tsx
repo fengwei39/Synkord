@@ -4,6 +4,7 @@ import {
   listPacks, getPack, listVersions, getDiff,
   createPack, updatePack, deletePack,
   listSubscribers, addSubscriber, removeSubscriber,
+  updatePinnedVersion,
   bumpPatch, detectContentType,
   type PackListItem, type PackDetail,
   type VersionInfo, type DiffResult, type DiffHunk,
@@ -1214,6 +1215,13 @@ async function syncAllProjects(
     const config: SynkordProjectConfig = { orgId, orgSlug, project: project.name, consumes: packNames }
     const result = await syncIDEFiles(project.localPath, config, packs)
     filesWritten += result.files.length
+
+    // Report pinned version for each synced pack (fire-and-forget)
+    if (result.ok) {
+      for (const p of packs) {
+        updatePinnedVersion(orgId, p.name, p.version).catch(() => { /* ignore */ })
+      }
+    }
   }
 
   return { projects: linkedProjects.length, filesWritten }

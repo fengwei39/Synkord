@@ -183,6 +183,28 @@ func (h *Handler) AddSubscriber(c *gin.Context) {
 	c.JSON(http.StatusCreated, item)
 }
 
+// UpdatePinnedVersion  PATCH /api/orgs/:orgId/packs/:pack/subscribers/me
+// Called after an IDE sync so the cloud knows the user has pulled this version.
+func (h *Handler) UpdatePinnedVersion(c *gin.Context) {
+	orgID := c.Param("orgId")
+	name := c.Param("pack")
+	userID := c.GetString("userID")
+
+	var body struct {
+		Version string `json:"version"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || body.Version == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "version required"})
+		return
+	}
+
+	if err := h.svc.UpdatePinnedVersion(orgID, name, userID, body.Version); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 // RemoveSubscriber  DELETE /api/orgs/:orgId/packs/:pack/subscribers/:userId
 func (h *Handler) RemoveSubscriber(c *gin.Context) {
 	orgID := c.Param("orgId")

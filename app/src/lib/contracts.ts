@@ -158,6 +158,15 @@ export async function registerDevice(
   await api.post(`/api/orgs/${orgId}/register-device`, { device, projectNames })
 }
 
+/** Called after an IDE sync to record that the user is on this version. */
+export async function updatePinnedVersion(
+  orgId: string,
+  packName: string,
+  version: string,
+): Promise<void> {
+  await api.patch(`/api/orgs/${orgId}/packs/${packName}/subscribers/me`, { version })
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 export function detectContentType(filename: string): string {

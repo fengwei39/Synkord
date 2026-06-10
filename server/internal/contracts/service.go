@@ -341,6 +341,18 @@ func (s *Service) AddSubscriber(orgID, packName, email string) (*SubscriberItem,
 	}, nil
 }
 
+// UpdatePinnedVersion updates the pinned_version for a single subscription,
+// reflecting that the user has synced and is now tracking this version.
+func (s *Service) UpdatePinnedVersion(orgID, packName, userID, version string) error {
+	now := time.Now().UTC()
+	_, err := s.db.Exec(`
+		UPDATE subscriptions
+		SET pinned_version = $1, updated_at = $2
+		WHERE org_id = $3 AND pack_name = $4 AND user_id = $5`,
+		version, now, orgID, packName, userID)
+	return err
+}
+
 // RemoveSubscriber removes a subscription by userId.
 func (s *Service) RemoveSubscriber(orgID, packName, userID string) error {
 	_, err := s.db.Exec(`

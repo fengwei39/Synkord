@@ -119,6 +119,7 @@ func New(db *sqlx.DB, cfg Config) *gin.Engine {
 					packItem.GET("/subscribers", contractsHandler.ListSubscribers)
 					packItem.POST("/subscribers", adminMiddleware, contractsHandler.AddSubscriber)
 					packItem.DELETE("/subscribers/:userId", adminMiddleware, contractsHandler.RemoveSubscriber)
+					packItem.PATCH("/subscribers/me", contractsHandler.UpdatePinnedVersion)
 				}
 			}
 		}

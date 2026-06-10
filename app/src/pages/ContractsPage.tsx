@@ -10,12 +10,12 @@ import {
   type SubscriberItem,
 } from '../lib/contracts'
 import {
-  syncIDEFiles, getProjectsByOrg, getConsumedPackNames,
-  type SynkordProjectConfig,
+  syncIDEFiles, getProjectsByOrg, getConsumedPackNames, getProjectsConsumingPack, getProjectSources,
+  type SynkordProjectConfig, type LocalProject, type ProjectSource,
 } from '../lib/ide-sync'
 import styles from './ContractsPage.module.css'
 
-type DetailTab = 'content' | 'versions' | 'subscribers'
+type DetailTab = 'content' | 'versions' | 'subscribers' | 'projects'
 
 interface Props { orgId: string; orgSlug?: string }
 
@@ -138,6 +138,10 @@ export default function ContractsPage({ orgId, orgSlug = '' }: Props) {
                     className={`${styles.tab} ${tab === 'subscribers' ? styles.tabActive : ''}`}
                     onClick={() => setTab('subscribers')}
                   >使用者</button>
+                  <button
+                    className={`${styles.tab} ${tab === 'projects' ? styles.tabActive : ''}`}
+                    onClick={() => setTab('projects')}
+                  >关联项目</button>
                   <span style={{ flex: 1 }} />
                   <SyncButton
                     orgId={orgId}
@@ -155,6 +159,9 @@ export default function ContractsPage({ orgId, orgSlug = '' }: Props) {
                 )}
                 {tab === 'subscribers' && (
                   <SubscribersTab orgId={orgId} packName={selectedPack} latestVersion={packDetail.version} />
+                )}
+                {tab === 'projects' && (
+                  <LinkedProjectsTab orgId={orgId} packName={selectedPack} />
                 )}
               </>
             )}
@@ -582,6 +589,87 @@ function SubscriberRow({ item, latestVersion, onRemove, removing }: {
         disabled={removing}
         title="移除使用者"
       >✕</button>
+    </div>
+  )
+}
+
+// ─── Linked projects tab ──────────────────────────────────────────────────────
+
+function LinkedProjectsTab({ orgId, packName }: { orgId: string; packName: string }) {
+  // Local data only — no API call needed
+  const linked: LocalProject[] = getProjectsConsumingPack(packName, orgId)
+  const allSources: ProjectSource[] = getProjectSources()
+
+  // All projects in this org (so user can also see unlinked ones)
+  const allOrgProjects: LocalProject[] = getProjectsByOrg(orgId)
+  const linkedIds = new Set(linked.map((p) => p.id))
+  const unlinked = allOrgProjects.filter((p) => !linkedIds.has(p.id))
+
+  return (
+    <div className={styles.linkedProjectsTab}>
+      {linked.length === 0 && (
+        <p className={styles.hint}>
+          暂无关联项目。在「本地项目」页选择文件后发布为契约包，项目会自动出现在此处。
+        </p>
+      )}
+
+      {linked.length > 0 && (
+        <>
+          <p className={styles.linkedSectionTitle}>
+            <span className={styles.linkedDot} />
+            已关联 ({linked.length})
+          </p>
+          {linked.map((p) => {
+            const source = allSources.find((s) => s.projectId === p.id && s.packName === packName)
+            return (
+              <LinkedProjectRow key={p.id} project={p} source={source ?? null} linked />
+            )
+          })}
+        </>
+      )}
+
+      {unlinked.length > 0 && (
+        <>
+          <p className={styles.linkedSectionTitle} style={{ marginTop: 20 }}>
+            <span className={styles.linkedDot} style={{ background: '#334155' }} />
+            同组织其他项目 ({unlinked.length})
+          </p>
+          {unlinked.map((p) => (
+            <LinkedProjectRow key={p.id} project={p} source={null} linked={false} />
+          ))}
+        </>
+      )}
+
+      {allOrgProjects.length === 0 && (
+        <p className={styles.hint}>该组织下暂无本地项目，请前往「本地项目」页添加。</p>
+      )}
+    </div>
+  )
+}
+
+function LinkedProjectRow({ project, source, linked }: {
+  project: LocalProject
+  source: ProjectSource | null
+  linked: boolean
+}) {
+  const lastBound = source?.lastBoundAt
+    ? new Date(source.lastBoundAt).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' })
+    : null
+
+  return (
+    <div className={`${styles.linkedRow} ${linked ? styles.linkedRowActive : styles.linkedRowDim}`}>
+      <div className={styles.linkedIcon}>{linked ? '🔗' : '📁'}</div>
+      <div className={styles.linkedInfo}>
+        <span className={styles.linkedName}>{project.name}</span>
+        <span className={styles.linkedPath} title={project.localPath}>{project.localPath}</span>
+        {source && (
+          <span className={styles.linkedMeta}>
+            来源文件：<code>{source.filePath}</code>
+            {lastBound && <> · 上次同步：{lastBound}</>}
+          </span>
+        )}
+      </div>
+      {linked && <span className={styles.linkedBadge}>已绑定</span>}
     </div>
   )
 }

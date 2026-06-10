@@ -1,6 +1,8 @@
 /**
- * ProjectsPage — local project management with multi-file contract pack building.
- * Projects are stored in localStorage (local-only concept).
+ * ProjectsPage — local project management.
+ *
+ * Selection state lives at the top level so users can select files from
+ * multiple projects and combine them into a single contract pack.
  */
 import { useState, useEffect } from 'react'
 import { detectContentType, getPack } from '../lib/contracts'
@@ -10,6 +12,8 @@ import {
   type SynkordProjectConfig,
 } from '../lib/ide-sync'
 import styles from './ProjectsPage.module.css'
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Project {
   id: string
@@ -26,8 +30,18 @@ interface ProjectSource {
   lastBoundAt: string
 }
 
+interface DirEntry { name: string; isDir: boolean; path: string }
+
+// key for cross-project selection: `${projectId}::${absPath}`
+type SelectionKey = string
+function makeKey(projectId: string, absPath: string): SelectionKey {
+  return `${projectId}::${absPath}`
+}
+
+// ─── localStorage helpers ─────────────────────────────────────────────────────
+
 const LS_PROJECTS = 'synkord_projects'
-const LS_SOURCES = 'synkord_project_sources'
+const LS_SOURCES  = 'synkord_project_sources'
 
 function loadProjects(): Project[] {
   try { return JSON.parse(localStorage.getItem(LS_PROJECTS) ?? '[]') as Project[] }
@@ -40,16 +54,44 @@ function loadSources(): ProjectSource[] {
 }
 function saveSources(s: ProjectSource[]) { localStorage.setItem(LS_SOURCES, JSON.stringify(s)) }
 
+// ─── Root component ───────────────────────────────────────────────────────────
+
 interface Props { orgId: string; orgName: string; orgSlug: string }
 
 export default function ProjectsPage({ orgId, orgName, orgSlug }: Props) {
-  const [projects, setProjects] = useState<Project[]>([])
-  const [selected, setSelected] = useState<Project | null>(null)
-  const [showAdd, setShowAdd] = useState(false)
+  const [projects, setProjects]   = useState<Project[]>([])
+  const [activeId, setActiveId]   = useState<string | null>(null)
+  const [showAdd, setShowAdd]     = useState(false)
+  const [showPublish, setShowPublish] = useState(false)
+
+  // Cross-project selection: Map<projectId, Set<absPath>>
+  const [selection, setSelection] = useState<Map<string, Set<string>>>(new Map())
 
   useEffect(() => {
     setProjects(loadProjects().filter((p) => p.orgId === orgId))
+    setSelection(new Map())
+    setActiveId(null)
   }, [orgId])
+
+  // ── helpers ──
+
+  const totalSelected = [...selection.values()].reduce((n, s) => n + s.size, 0)
+
+  function togglePath(projectId: string, absPath: string) {
+    setSelection((prev) => {
+      const next = new Map(prev)
+      const set  = new Set(next.get(projectId) ?? [])
+      if (set.has(absPath)) set.delete(absPath)
+      else set.add(absPath)
+      if (set.size === 0) next.delete(projectId)
+      else next.set(projectId, set)
+      return next
+    })
+  }
+
+  function clearSelection() { setSelection(new Map()) }
+
+  // ── project CRUD ──
 
   function handleAdd(name: string, localPath: string) {
     const p: Project = { id: `${Date.now()}`, name, localPath, orgId }
@@ -57,63 +99,164 @@ export default function ProjectsPage({ orgId, orgName, orgSlug }: Props) {
     setProjects(next)
     saveProjects([...loadProjects().filter((x) => x.orgId !== orgId), ...next])
     setShowAdd(false)
-    setSelected(p)
+    setActiveId(p.id)
   }
 
   function handleDelete(id: string) {
     const next = projects.filter((p) => p.id !== id)
     setProjects(next)
     saveProjects([...loadProjects().filter((x) => x.orgId !== orgId), ...next])
-    if (selected?.id === id) setSelected(null)
+    if (activeId === id) setActiveId(null)
+    setSelection((prev) => { const n = new Map(prev); n.delete(id); return n })
   }
+
+  // ── after publish ──
+
+  function handleBound(packName: string, contentType: string) {
+    const now = new Date().toISOString()
+    const allSrc = loadSources()
+
+    // Build sources for every project that has selections
+    const newSrcs: ProjectSource[] = []
+    for (const [projectId, paths] of selection) {
+      newSrcs.push({
+        projectId,
+        packName,
+        filePath: [...paths].join(','),
+        contentType,
+        lastBoundAt: now,
+      })
+    }
+
+    // Replace existing entries for each project + pack
+    const projectIds = new Set(newSrcs.map((s) => s.projectId))
+    const filtered = allSrc.filter(
+      (s) => !(projectIds.has(s.projectId) && s.packName === packName),
+    )
+    saveSources([...filtered, ...newSrcs])
+    clearSelection()
+    setShowPublish(false)
+
+    // Sync IDE files for all affected projects
+    void triggerSyncAll([...projectIds], packName)
+  }
+
+  async function triggerSyncAll(projectIds: string[], packName: string) {
+    for (const projectId of projectIds) {
+      const proj = projects.find((p) => p.id === projectId)
+      if (!proj) continue
+      const srcs = loadSources().filter((s) => s.projectId === projectId)
+      const packNames = [...new Set(srcs.map((s) => s.packName))]
+      const packDetails = await Promise.all(packNames.map((n) => getPack(orgId, n).catch(() => null)))
+      const packs = packDetails.filter(Boolean).map((d) => ({
+        name: d!.name, version: d!.version, contentType: d!.contentType, content: d!.content,
+      }))
+      const config: SynkordProjectConfig = { orgId, orgSlug, project: proj.name, consumes: packNames }
+      await syncIDEFiles(proj.localPath, config, packs).catch(() => null)
+    }
+  }
+
+  const activeProject = projects.find((p) => p.id === activeId) ?? null
 
   return (
     <div className={styles.layout}>
+      {/* ── Sidebar: project list ── */}
       <aside className={styles.sidebar}>
         <div className={styles.sidebarHeader}>
           <span className={styles.sidebarTitle}>本地项目</span>
           <button className={styles.addBtn} onClick={() => setShowAdd(true)}>＋</button>
         </div>
+
         {projects.length === 0 && (
           <div className={styles.emptyHint}>
             <p className={styles.hint}>暂无本地项目</p>
             <button className={styles.addBtnLarge} onClick={() => setShowAdd(true)}>＋ 关联本地项目</button>
           </div>
         )}
+
         <ul className={styles.projectList}>
-          {projects.map((p) => (
-            <li
-              key={p.id}
-              className={`${styles.projectItem} ${selected?.id === p.id ? styles.projectItemSelected : ''}`}
-              onClick={() => setSelected(p)}
-            >
-              <span className={styles.projectIcon}>📁</span>
-              <span className={styles.projectName}>{p.name}</span>
-              <button
-                className={styles.deleteBtn}
-                onClick={(e) => { e.stopPropagation(); handleDelete(p.id) }}
-              >✕</button>
-            </li>
-          ))}
+          {projects.map((p) => {
+            const selCount = selection.get(p.id)?.size ?? 0
+            return (
+              <li
+                key={p.id}
+                className={`${styles.projectItem} ${activeId === p.id ? styles.projectItemSelected : ''}`}
+                onClick={() => setActiveId(p.id)}
+              >
+                <span className={styles.projectIcon}>📁</span>
+                <span className={styles.projectName}>{p.name}</span>
+                {selCount > 0 && (
+                  <span className={styles.projectSelBadge}>{selCount}</span>
+                )}
+                <button
+                  className={styles.deleteBtn}
+                  onClick={(e) => { e.stopPropagation(); handleDelete(p.id) }}
+                >✕</button>
+              </li>
+            )
+          })}
         </ul>
       </aside>
 
+      {/* ── Main ── */}
       <main className={styles.main}>
         {showAdd && <AddProjectPanel onAdd={handleAdd} onCancel={() => setShowAdd(false)} />}
 
-        {!showAdd && !selected && (
+        {!showAdd && !activeProject && (
           <div className={styles.empty}>
             <p className={styles.emptyIcon}>🗂️</p>
             <p className={styles.emptyText}>选择左侧项目，或关联一个新项目</p>
-            <p className={styles.emptyDesc}>关联本地项目目录后，可以多选文件/目录，将内容发布为「{orgName}」的契约包</p>
-            <button className={styles.addBtnLarge} onClick={() => setShowAdd(true)}>＋ 关联本地项目</button>
+            <p className={styles.emptyDesc}>
+              关联本地项目目录后，可在多个项目中选择文件/目录，组合发布为「{orgName}」的契约包
+            </p>
+            <button className={styles.addBtnLarge} onClick={() => setShowAdd(true)}>
+              ＋ 关联本地项目
+            </button>
           </div>
         )}
 
-        {!showAdd && selected && (
-          <ProjectDetail project={selected} orgId={orgId} orgSlug={orgSlug} />
+        {!showAdd && activeProject && (
+          <ProjectFileTree
+            project={activeProject}
+            orgId={orgId}
+            orgSlug={orgSlug}
+            selected={selection.get(activeProject.id) ?? new Set()}
+            onToggle={(absPath) => togglePath(activeProject.id, absPath)}
+          />
+        )}
+
+        {/* Cross-project selection footer */}
+        {totalSelected > 0 && !showPublish && (
+          <div className={styles.crossSelBar}>
+            <div className={styles.crossSelInfo}>
+              <span className={styles.crossSelCount}>📦 已跨 {selection.size} 个项目选择了 {totalSelected} 项</span>
+              {[...selection.entries()].map(([pid, paths]) => {
+                const proj = projects.find((p) => p.id === pid)
+                return proj ? (
+                  <span key={pid} className={styles.crossSelChip}>
+                    {proj.name}: {paths.size} 项
+                  </span>
+                ) : null
+              })}
+            </div>
+            <button className={styles.crossSelClear} onClick={clearSelection}>清空选择</button>
+            <button className={styles.crossSelPublish} onClick={() => setShowPublish(true)}>
+              发布为契约包 →
+            </button>
+          </div>
         )}
       </main>
+
+      {/* Publish modal (cross-project) */}
+      {showPublish && (
+        <CrossProjectPublishModal
+          orgId={orgId}
+          projects={projects}
+          selection={selection}
+          onPublished={handleBound}
+          onClose={() => setShowPublish(false)}
+        />
+      )}
     </div>
   )
 }
@@ -150,37 +293,39 @@ function AddProjectPanel({ onAdd, onCancel }: {
       </div>
       <div className={styles.addActions}>
         <button className={styles.cancelBtn} onClick={onCancel}>取消</button>
-        <button className={styles.saveBtn} disabled={!name.trim() || !path.trim()} onClick={() => onAdd(name.trim(), path.trim())}>确认关联</button>
+        <button
+          className={styles.saveBtn}
+          disabled={!name.trim() || !path.trim()}
+          onClick={() => onAdd(name.trim(), path.trim())}
+        >确认关联</button>
       </div>
     </div>
   )
 }
 
-// ─── Project detail: multi-select file tree ───────────────────────────────────
+// ─── Project file tree (single project browsing) ──────────────────────────────
 
-interface DirEntry { name: string; isDir: boolean; path: string }
-
-function ProjectDetail({ project, orgId, orgSlug }: {
-  project: Project; orgId: string; orgSlug: string
+function ProjectFileTree({ project, orgId, orgSlug, selected, onToggle }: {
+  project: Project
+  orgId: string
+  orgSlug: string
+  selected: Set<string>
+  onToggle: (absPath: string) => void
 }) {
   const [entries, setEntries] = useState<DirEntry[]>([])
   const [currentPath, setCurrentPath] = useState(project.localPath)
-  // selected: Set of file/dir paths chosen for inclusion in the pack
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [sources, setSources] = useState<ProjectSource[]>([])
   const [error, setError] = useState('')
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState('')
-  const [showPublish, setShowPublish] = useState(false)
-  const [buildingContent, setBuildingContent] = useState(false)
+
+  const sources = loadSources().filter((s) => s.projectId === project.id)
+  const consumedPacks = [...new Set(sources.map((s) => s.packName))]
 
   useEffect(() => {
     setCurrentPath(project.localPath)
-    setSources(loadSources().filter((s) => s.projectId === project.id))
-    setSelected(new Set())
   }, [project.id, project.localPath])
 
-  useEffect(() => { loadDir(currentPath) }, [currentPath])
+  useEffect(() => { void loadDir(currentPath) }, [currentPath])
 
   async function loadDir(path: string) {
     setError('')
@@ -193,50 +338,14 @@ function ProjectDetail({ project, orgId, orgSlug }: {
     } catch (err) { setError(String(err)) }
   }
 
-  function toggleSelect(entryPath: string) {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(entryPath)) next.delete(entryPath)
-      else next.add(entryPath)
-      return next
-    })
-  }
-
-  function clearSelection() { setSelected(new Set()) }
-
-  async function handlePublishSelected() {
-    if (selected.size === 0) return
-    setBuildingContent(true)
-    setShowPublish(true)
-    setBuildingContent(false)
-  }
-
-  function handleBound(packName: string, contentType: string) {
-    const src: ProjectSource = {
-      projectId: project.id,
-      packName,
-      filePath: [...selected].join(','),
-      contentType,
-      lastBoundAt: new Date().toISOString(),
-    }
-    const allSrc = loadSources()
-    const filtered = allSrc.filter((s) => !(s.projectId === project.id && s.packName === packName))
-    const next = [...filtered, src]
-    saveSources(next)
-    const updated = next.filter((s) => s.projectId === project.id)
-    setSources(updated)
-    setSelected(new Set())
-    setShowPublish(false)
-    void triggerSync(updated)
-  }
-
-  async function triggerSync(currentSources?: ProjectSource[]) {
+  async function triggerSync() {
     setSyncing(true)
     setSyncMsg('')
     try {
-      const srcs = currentSources ?? sources
-      const packNames = [...new Set(srcs.map((s) => s.packName))]
-      const packDetails = await Promise.all(packNames.map((name) => getPack(orgId, name).catch(() => null)))
+      const packNames = consumedPacks
+      const packDetails = await Promise.all(
+        packNames.map((n) => getPack(orgId, n).catch(() => null)),
+      )
       const packs = packDetails.filter(Boolean).map((d) => ({
         name: d!.name, version: d!.version, contentType: d!.contentType, content: d!.content,
       }))
@@ -250,7 +359,6 @@ function ProjectDetail({ project, orgId, orgSlug }: {
     }
   }
 
-  const consumedPacks = [...new Set(sources.map((s) => s.packName))]
   const breadcrumbs = currentPath.replace(project.localPath, project.name).split(/[\\/]/).filter(Boolean)
 
   return (
@@ -265,7 +373,7 @@ function ProjectDetail({ project, orgId, orgSlug }: {
           {syncMsg && <span className={styles.syncMsg}>{syncMsg}</span>}
           <button
             className={styles.syncBtn}
-            onClick={() => triggerSync()}
+            onClick={triggerSync}
             disabled={syncing || consumedPacks.length === 0}
             title={consumedPacks.length === 0 ? '请先绑定契约包' : '同步 IDE 配置文件'}
           >
@@ -282,39 +390,37 @@ function ProjectDetail({ project, orgId, orgSlug }: {
         </div>
       )}
 
-      {/* Selection toolbar */}
+      {/* Hint */}
       <div className={styles.selectionBar}>
-        <div className={styles.selectionInfo}>
+        <span className={styles.selHint}>
           {selected.size > 0
-            ? <><span className={styles.selCount}>{selected.size} 项已选</span><button className={styles.clearSelBtn} onClick={clearSelection}>取消选择</button></>
-            : <span className={styles.selHint}>勾选文件或目录，组合为一个契约包</span>
-          }
-        </div>
-        <button
-          className={styles.publishSelBtn}
-          disabled={selected.size === 0 || buildingContent}
-          onClick={handlePublishSelected}
-        >
-          {buildingContent ? '读取中…' : `📦 发布为契约包（${selected.size}）`}
-        </button>
+            ? `✓ 本项目已选 ${selected.size} 项（可继续在其他项目中选择后一起发布）`
+            : '勾选文件或目录，可跨多个项目组合为一个契约包'}
+        </span>
       </div>
 
       {/* Breadcrumb */}
       <div className={styles.breadcrumb}>
-        <button className={styles.breadBtn} onClick={() => setCurrentPath(project.localPath)}>{project.name}</button>
+        <button className={styles.breadBtn} onClick={() => setCurrentPath(project.localPath)}>
+          {project.name}
+        </button>
         {currentPath !== project.localPath && (
           <>
             <span className={styles.breadSep}>/</span>
-            <button className={styles.breadBtn} onClick={() => {
-              const parent = currentPath.replace(/[\\/][^\\/]+$/, '')
-              setCurrentPath(parent || project.localPath)
-            }}>
-              ..
-            </button>
+            <button
+              className={styles.breadBtn}
+              onClick={() => {
+                const parent = currentPath.replace(/[\\/][^\\/]+$/, '')
+                setCurrentPath(parent || project.localPath)
+              }}
+            >..</button>
           </>
         )}
         {breadcrumbs.slice(1).map((b, i) => (
-          <span key={i}><span className={styles.breadSep}>/</span><span className={styles.breadCurrent}>{b}</span></span>
+          <span key={i}>
+            <span className={styles.breadSep}>/</span>
+            <span className={styles.breadCurrent}>{b}</span>
+          </span>
         ))}
       </div>
 
@@ -330,7 +436,7 @@ function ProjectDetail({ project, orgId, orgSlug }: {
                 type="checkbox"
                 className={styles.checkbox}
                 checked={isSel}
-                onChange={() => toggleSelect(e.path)}
+                onChange={() => onToggle(e.path)}
               />
               <button
                 className={styles.fileEntry}
@@ -349,99 +455,86 @@ function ProjectDetail({ project, orgId, orgSlug }: {
         })}
         {entries.length === 0 && <p className={styles.hint} style={{ padding: 12 }}>空目录</p>}
       </div>
-
-      {/* Publish modal */}
-      {showPublish && (
-        <PublishModal
-          orgId={orgId}
-          projectPath={project.localPath}
-          selectedPaths={[...selected]}
-          existingSources={sources}
-          onPublished={handleBound}
-          onClose={() => setShowPublish(false)}
-        />
-      )}
     </div>
   )
 }
 
-// ─── Publish modal: builds content from selected paths ────────────────────────
+// ─── Cross-project publish modal ──────────────────────────────────────────────
 
-function PublishModal({ orgId, projectPath, selectedPaths, existingSources, onPublished, onClose }: {
+function CrossProjectPublishModal({ orgId, projects, selection, onPublished, onClose }: {
   orgId: string
-  projectPath: string
-  selectedPaths: string[]
-  existingSources: ProjectSource[]
+  projects: Project[]
+  selection: Map<string, Set<string>>
   onPublished: (packName: string, contentType: string) => void
   onClose: () => void
 }) {
-  const [packName, setPackName] = useState(existingSources[0]?.packName ?? '')
+  const [packName, setPackName]     = useState('')
   const [contentType, setContentType] = useState('text')
-  const [content, setContent] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [content, setContent]       = useState('')
+  const [loading, setLoading]       = useState(true)
+  const [saving, setSaving]         = useState(false)
+  const [error, setError]           = useState('')
 
-  // Build combined content from all selected paths
-  useEffect(() => {
-    void buildContent()
-  }, [])
+  // Flatten selection with project info
+  const selectedItems = [...selection.entries()].flatMap(([projectId, paths]) => {
+    const proj = projects.find((p) => p.id === projectId)
+    if (!proj) return []
+    return [...paths].map((absPath) => ({ projectId, projectName: proj.name, localPath: proj.localPath, absPath }))
+  })
+
+  useEffect(() => { void buildContent() }, [])
 
   async function buildContent() {
     setLoading(true)
     const sections: string[] = []
     const types = new Set<string>()
 
-    for (const selPath of selectedPaths) {
-      // Check if it's a directory or file by trying readDirTree
+    for (const item of selectedItems) {
+      const relPath = item.absPath.replace(item.localPath, '').replace(/^[\\/]+/, '')
+      const header  = `${item.projectName}/${relPath}`
+
+      // Try as directory
+      let isDir = false
       try {
-        // Try as directory first
-        const dirEntries = await window.electronAPI.readDirTree(selPath)
-        // It's a directory — collect all files recursively
-        const allFiles = await window.electronAPI.collectFiles(selPath)
-        for (const file of allFiles) {
-          const text = await window.electronAPI.readTextFile(file.path).catch(() => '(读取失败)')
-          const relPath = file.relPath
-          const selRelPath = selPath.replace(projectPath, '').replace(/^[\\/]/, '')
-          const displayPath = selRelPath ? `${selRelPath}/${relPath}` : relPath
-          sections.push(`# ${displayPath}\n\n${text}`)
-          types.add(detectContentType(file.name))
+        const dirEntries = await window.electronAPI.readDirTree(item.absPath)
+        isDir = true
+        const allFiles = await window.electronAPI.collectFiles(item.absPath)
+        for (const f of allFiles) {
+          const text = await window.electronAPI.readTextFile(f.path).catch(() => '(读取失败)')
+          sections.push(`# ${header}/${f.relPath}\n\n${text}`)
+          types.add(detectContentType(f.name))
         }
-        if (dirEntries.length === 0) {
-          sections.push(`# ${selPath.replace(projectPath, '').replace(/^[\\/]/, '') || selPath}\n\n(空目录)`)
+        if (allFiles.length === 0) {
+          sections.push(`# ${header}\n\n(空目录)`)
         }
-      } catch {
-        // It's a file
-        const text = await window.electronAPI.readTextFile(selPath).catch(() => '(读取失败)')
-        const displayPath = selPath.replace(projectPath, '').replace(/^[\\/]/, '') || selPath
-        sections.push(`# ${displayPath}\n\n${text}`)
-        types.add(detectContentType(selPath.split(/[\\/]/).pop() ?? ''))
+        void dirEntries // used only to check type
+      } catch { /* file */ }
+
+      if (!isDir) {
+        const text = await window.electronAPI.readTextFile(item.absPath).catch(() => '(读取失败)')
+        sections.push(`# ${header}\n\n${text}`)
+        types.add(detectContentType(item.absPath.split(/[\\/]/).pop() ?? ''))
       }
     }
 
-    const combined = sections.join('\n\n---\n\n')
-    setContent(combined)
+    setContent(sections.join('\n\n---\n\n'))
 
-    // Auto-detect content type from majority
     if (types.size === 1) {
       const t = [...types][0]
       if (t !== 'text') setContentType(t)
     }
 
-    // Auto-suggest pack name from first selected path's name
     if (!packName) {
-      const firstName = selectedPaths[0]?.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, '') ?? ''
+      const firstName = selectedItems[0]?.absPath.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, '') ?? ''
       setPackName(firstName.replace(/\s/g, '-'))
     }
-
     setLoading(false)
   }
 
   async function handlePublish(mode: 'create' | 'update') {
     if (!packName.trim()) { setError('请输入契约包名称'); return }
-    if (!content.trim()) { setError('内容为空'); return }
-    setSaving(true)
-    setError('')
+    if (!content.trim())  { setError('内容为空'); return }
+    setSaving(true); setError('')
     try {
       const { createPack, updatePack, listPacks, bumpPatch } = await import('../lib/contracts')
       const existing = (await listPacks(orgId)).find((p) => p.name === packName.trim())
@@ -457,6 +550,9 @@ function PublishModal({ orgId, projectPath, selectedPaths, existingSources, onPu
     } finally { setSaving(false) }
   }
 
+  const totalCount = selectedItems.length
+  const projectCount = selection.size
+
   return (
     <div className={styles.modalOverlay}>
       <div className={styles.modal}>
@@ -466,15 +562,26 @@ function PublishModal({ orgId, projectPath, selectedPaths, existingSources, onPu
         </div>
 
         <div className={styles.modalBody}>
-          {/* Selected items summary */}
+          {/* Cross-project selection summary */}
           <div className={styles.selectedSummary}>
-            <span className={styles.selectedLabel}>已选 {selectedPaths.length} 项：</span>
+            <span className={styles.selectedLabel}>
+              来自 {projectCount} 个项目，共 {totalCount} 项：
+            </span>
             <div className={styles.selectedList}>
-              {selectedPaths.map((p) => (
-                <span key={p} className={styles.selectedChip}>
-                  {p.replace(new RegExp(`.*[\\\\/]`), '') || p}
-                </span>
-              ))}
+              {[...selection.entries()].map(([projectId, paths]) => {
+                const proj = projects.find((p) => p.id === projectId)
+                return proj ? (
+                  <div key={projectId} className={styles.selectedProjectGroup}>
+                    <span className={styles.selectedProjectLabel}>📁 {proj.name}</span>
+                    <div className={styles.selectedChips}>
+                      {[...paths].map((absPath) => {
+                        const rel = absPath.replace(proj.localPath, '').replace(/^[\\/]+/, '')
+                        return <span key={absPath} className={styles.selectedChip}>{rel || absPath}</span>
+                      })}
+                    </div>
+                  </div>
+                ) : null
+              })}
             </div>
           </div>
 
@@ -498,7 +605,6 @@ function PublishModal({ orgId, projectPath, selectedPaths, existingSources, onPu
             </select>
           </div>
 
-          {/* Content preview */}
           <div className={styles.field}>
             <label className={styles.fieldLabel}>
               内容预览 {loading ? '（读取中…）' : `（${content.split('\n').length} 行）`}
@@ -506,7 +612,7 @@ function PublishModal({ orgId, projectPath, selectedPaths, existingSources, onPu
             <div className={styles.previewWrap}>
               {loading
                 ? <p className={styles.preview} style={{ color: '#475569' }}>正在读取文件内容…</p>
-                : <pre className={styles.preview}>{content.slice(0, 1000)}{content.length > 1000 ? '\n…（更多内容已省略）' : ''}</pre>
+                : <pre className={styles.preview}>{content.slice(0, 1200)}{content.length > 1200 ? '\n…（更多内容已省略）' : ''}</pre>
               }
             </div>
           </div>
@@ -516,12 +622,16 @@ function PublishModal({ orgId, projectPath, selectedPaths, existingSources, onPu
 
         <div className={styles.modalActions}>
           <button className={styles.cancelBtn} onClick={onClose}>取消</button>
-          <button className={styles.saveBtn} disabled={saving || loading} onClick={() => handlePublish('update')}>
-            {saving ? '发布中…' : '发布为新版本'}
-          </button>
-          <button className={`${styles.saveBtn} ${styles.saveBtnAlt}`} disabled={saving || loading} onClick={() => handlePublish('create')}>
-            创建为新契约包
-          </button>
+          <button
+            className={styles.saveBtn}
+            disabled={saving || loading}
+            onClick={() => handlePublish('update')}
+          >{saving ? '发布中…' : '发布为新版本'}</button>
+          <button
+            className={`${styles.saveBtn} ${styles.saveBtnAlt}`}
+            disabled={saving || loading}
+            onClick={() => handlePublish('create')}
+          >创建为新契约包</button>
         </div>
       </div>
     </div>

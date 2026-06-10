@@ -650,3 +650,110 @@
   justify-content: flex-end;
   padding: 12px 18px;
 }
+
+/* ── Project sidebar: selection count badge ─────────────────────────────── */
+
+.projectSelBadge {
+  background: #6366f1;
+  border-radius: 10px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: auto;
+  min-width: 18px;
+  padding: 1px 5px;
+  text-align: center;
+}
+
+/* ── Cross-project selection footer bar ─────────────────────────────────── */
+
+.crossSelBar {
+  align-items: center;
+  background: #0f172a;
+  border-top: 1px solid #1e293b;
+  bottom: 0;
+  display: flex;
+  flex-shrink: 0;
+  gap: 10px;
+  left: 200px; /* sidebar width */
+  padding: 10px 16px;
+  position: absolute;
+  right: 0;
+  z-index: 10;
+}
+
+.crossSelInfo {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.crossSelCount {
+  color: #e2e8f0;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.crossSelChip {
+  background: rgba(99,102,241,.15);
+  border-radius: 4px;
+  color: #a5b4fc;
+  font-size: 11px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.crossSelClear {
+  background: none;
+  border: 1px solid #334155;
+  border-radius: 5px;
+  color: #64748b;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 5px 12px;
+  transition: color 0.1s;
+  white-space: nowrap;
+}
+.crossSelClear:hover { color: #f87171; border-color: #f87171; }
+
+.crossSelPublish {
+  background: #6366f1;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 18px;
+  transition: background 0.1s;
+  white-space: nowrap;
+}
+.crossSelPublish:hover { background: #4f46e5; }
+
+/* ── Cross-project publish modal: project groups ────────────────────────── */
+
+.selectedProjectGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.selectedProjectLabel {
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.selectedChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-left: 4px;
+}

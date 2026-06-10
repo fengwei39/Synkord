@@ -10,6 +10,7 @@ import (
 	"synkord/server/internal/contracts"
 	"synkord/server/internal/diff"
 	"synkord/server/internal/gitstore"
+	"synkord/server/internal/notify"
 	"synkord/server/internal/org"
 )
 
@@ -53,7 +54,13 @@ func New(db *sqlx.DB, cfg Config) *gin.Engine {
 	orgSvc := org.NewService(db, cfg.BaseURL, gs)
 	orgHandler := org.NewHandler(orgSvc)
 
+	// Notify: WebSocket hub + service + wire to contracts
+	wsHub := notify.NewHub()
+	notifySvc := notify.NewService(db, wsHub)
+	notifyHandler := notify.NewHandler(notifySvc, wsHub)
+
 	contractsSvc := contracts.NewService(db, gs)
+	contractsSvc.SetNotifier(notify.NewContractsNotifier(notifySvc))
 	contractsHandler := contracts.NewHandler(contractsSvc)
 	diffHandler := diff.NewHandler(contractsSvc)
 
@@ -86,11 +93,24 @@ func New(db *sqlx.DB, cfg Config) *gin.Engine {
 					packItem.DELETE("", adminMiddleware, contractsHandler.DeletePack)
 					packItem.GET("/versions", contractsHandler.ListVersions)
 					packItem.GET("/versions/:version", contractsHandler.GetVersion)
-					packItem.GET("/diff", diffHandler.GetDiff)
+				packItem.GET("/diff", diffHandler.GetDiff)
+					packItem.POST("/subscribe", notifyHandler.Subscribe)
+					packItem.DELETE("/subscribe", notifyHandler.Unsubscribe)
 				}
 			}
 		}
 	}
+
+	// Notifications REST
+	notifGroup := api.Group("/notifications", authMiddleware)
+	{
+		notifGroup.GET("", notifyHandler.ListNotifications)
+		notifGroup.PUT("/:id/read", notifyHandler.MarkRead)
+	}
+
+	// WebSocket: token passed as ?token= query param, validated via auth middleware
+	wsAuthMiddleware := auth.WsTokenMiddleware(cfg.JWTSecret)
+	r.GET("/ws", wsAuthMiddleware, notifyHandler.ServeWS)
 
 	// Invite routes (accept requires auth, get is public)
 	inviteGroup := api.Group("/invites")

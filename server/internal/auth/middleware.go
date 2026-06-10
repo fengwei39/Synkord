@@ -37,6 +37,30 @@ func GetUserID(c *gin.Context) string {
 	return s
 }
 
+// WsTokenMiddleware validates the JWT from the ?token= query parameter.
+// Used for WebSocket connections where setting an Authorization header is not possible.
+func WsTokenMiddleware(jwtSecret string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tokenStr := c.Query("token")
+		if tokenStr == "" {
+			// Fallback: also accept Authorization header
+			header := c.GetHeader("Authorization")
+			tokenStr = strings.TrimPrefix(header, "Bearer ")
+		}
+		if tokenStr == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		userID, err := validateToken(tokenStr, jwtSecret)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		c.Set(ContextUserID, userID)
+		c.Next()
+	}
+}
+
 // EmailMiddleware enriches the context with userEmail after auth middleware runs.
 func EmailMiddleware(db *sqlx.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {

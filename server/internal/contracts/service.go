@@ -21,14 +21,34 @@ var ErrPackNotFound = errors.New("contract pack not found")
 // ErrVersionNotGreater is returned when the new version is not greater than the current one.
 var ErrVersionNotGreater = errors.New("new version must be greater than current version")
 
+// PublishEvent contains the context of a newly published pack version.
+type PublishEvent struct {
+	OrgID       string
+	PackName    string
+	OldVersion  string
+	NewVersion  string
+	DiffSummary interface{}
+}
+
+// Notifier is implemented by the notify.Service to receive publish events.
+type Notifier interface {
+	OnPublish(ev PublishEvent)
+}
+
 // Service handles contract pack business logic.
 type Service struct {
-	db    *sqlx.DB
-	store *gitstore.Store
+	db       *sqlx.DB
+	store    *gitstore.Store
+	notifier Notifier // optional
 }
 
 func NewService(db *sqlx.DB, store *gitstore.Store) *Service {
 	return &Service{db: db, store: store}
+}
+
+// SetNotifier registers a publish event listener.
+func (s *Service) SetNotifier(n Notifier) {
+	s.notifier = n
 }
 
 // ListPacks returns all packs for an organisation.
@@ -153,6 +173,15 @@ func (s *Service) UpdatePack(orgID, name, content, authorEmail string) (*PackLis
 		newVersion, authorEmail, now, orgID, name)
 	if err != nil {
 		return nil, fmt.Errorf("update pack: %w", err)
+	}
+
+	if s.notifier != nil {
+		s.notifier.OnPublish(PublishEvent{
+			OrgID:      orgID,
+			PackName:   name,
+			OldVersion: rec.Version,
+			NewVersion: newVersion,
+		})
 	}
 
 	return &PackListItem{

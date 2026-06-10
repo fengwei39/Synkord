@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   pickFile: (filters?: { name: string; extensions: string[] }[]) =>
     ipcRenderer.invoke('fs:pick-file', filters),
   readTextFile: (path: string) => ipcRenderer.invoke('fs:read-text', path),
+  writeFile: (path: string, content: string) => ipcRenderer.invoke('fs:write-file', path, content),
   readDirTree: (path: string) => ipcRenderer.invoke('fs:read-dir-tree', path),
 
   // MCP: pass auth token to main process

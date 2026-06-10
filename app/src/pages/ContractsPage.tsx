@@ -7,13 +7,17 @@ import {
   type PackListItem, type PackDetail,
   type VersionInfo, type DiffResult, type DiffHunk,
 } from '../lib/contracts'
+import {
+  syncIDEFiles, getProjectsConsumingPack, getConsumedPackNames,
+  type SynkordProjectConfig,
+} from '../lib/ide-sync'
 import styles from './ContractsPage.module.css'
 
 type DetailTab = 'content' | 'versions'
 
-interface Props { orgId: string }
+interface Props { orgId: string; orgSlug?: string }
 
-export default function ContractsPage({ orgId }: Props) {
+export default function ContractsPage({ orgId, orgSlug = '' }: Props) {
   const [selectedPack, setSelectedPack] = useState<string | null>(null)
   const [tab, setTab] = useState<DetailTab>('content')
   const [showEditor, setShowEditor] = useState(false)
@@ -96,6 +100,7 @@ export default function ContractsPage({ orgId }: Props) {
         {showEditor && (
           <PackEditor
             orgId={orgId}
+            orgSlug={orgSlug}
             mode={editorMode}
             existing={editorMode === 'edit' ? packDetail : undefined}
             onSaved={handleSaved}
@@ -310,9 +315,10 @@ function DiffHunkBlock({ hunk }: { hunk: DiffHunk }) {
 // ─── Pack editor ──────────────────────────────────────────────────────────────
 
 function PackEditor({
-  orgId, mode, existing, onSaved, onCancel,
+  orgId, orgSlug, mode, existing, onSaved, onCancel,
 }: {
   orgId: string
+  orgSlug: string
   mode: 'create' | 'edit'
   existing?: PackDetail
   onSaved: (name: string) => void
@@ -341,13 +347,15 @@ function PackEditor({
     if (!content.trim()) { setError('内容不能为空'); return }
     setSaving(true)
     try {
+      const packName = mode === 'create' ? name.trim() : existing!.name
       if (mode === 'create') {
-        await createPack(orgId, name.trim(), version.trim(), content, contentType)
-        onSaved(name.trim())
+        await createPack(orgId, packName, version.trim(), content, contentType)
       } else {
-        await updatePack(orgId, existing!.name, version.trim(), content, contentType)
-        onSaved(existing!.name)
+        await updatePack(orgId, packName, version.trim(), content, contentType)
       }
+      onSaved(packName)
+      // Async: sync IDE files for all projects consuming this pack
+      void syncLinkedProjects(orgId, orgSlug, packName, version.trim(), content, contentType)
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: string } }; message?: string }
       setError(e.response?.data?.error ?? e.message ?? '保存失败')
@@ -427,4 +435,52 @@ function PackEditor({
       </div>
     </div>
   )
+}
+
+// ─── IDE sync (triggered after pack publish) ──────────────────────────────────
+
+async function syncLinkedProjects(
+  orgId: string,
+  orgSlug: string,
+  publishedPackName: string,
+  publishedVersion: string,
+  publishedContent: string,
+  publishedContentType: string,
+) {
+  const linkedProjects = getProjectsConsumingPack(publishedPackName, orgId)
+  if (linkedProjects.length === 0) return
+
+  for (const project of linkedProjects) {
+    const packNames = getConsumedPackNames(project.id)
+    const packDetails = await Promise.all(
+      packNames.map(async (name) => {
+        if (name === publishedPackName) {
+          return {
+            name: publishedPackName,
+            version: publishedVersion,
+            contentType: publishedContentType,
+            content: publishedContent,
+          }
+        }
+        try { return await getPack(orgId, name) }
+        catch { return null }
+      }),
+    )
+
+    const packs = packDetails.filter(Boolean).map((d) => ({
+      name: d!.name,
+      version: d!.version,
+      contentType: d!.contentType || 'text',
+      content: d!.content,
+    }))
+
+    const config: SynkordProjectConfig = {
+      orgId,
+      orgSlug,
+      project: project.name,
+      consumes: packNames,
+    }
+
+    await syncIDEFiles(project.localPath, config, packs)
+  }
 }

@@ -99,10 +99,10 @@ export default function HomePage() {
       {/* Body */}
       <div className={styles.body}>
         {activeOrgId && mainTab === 'contracts' && (
-          <ContractsPage orgId={activeOrgId} />
+          <ContractsPage orgId={activeOrgId} orgSlug={activeOrg?.slug ?? ''} />
         )}
         {activeOrgId && mainTab === 'projects' && activeOrg && (
-          <ProjectsPage orgId={activeOrgId} orgName={activeOrg.name} />
+          <ProjectsPage orgId={activeOrgId} orgName={activeOrg.name} orgSlug={activeOrg.slug} />
         )}
       </div>
     </div>

@@ -18,6 +18,7 @@ interface Window {
     // File system
     pickFile: (filters?: { name: string; extensions: string[] }[]) => Promise<string | null>
     readTextFile: (path: string) => Promise<string>
+    writeFile: (path: string, content: string) => Promise<void>
     readDirTree: (path: string) => Promise<DirEntry[]>
 
     // MCP

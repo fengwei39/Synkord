@@ -1,6 +1,7 @@
 import { app, BrowserWindow, shell, ipcMain, dialog } from 'electron'
 import { join } from 'path'
-import { readFileSync, readdirSync, statSync } from 'fs'
+import { readFileSync, writeFileSync, readdirSync, mkdirSync } from 'fs'
+import { dirname } from 'path'
 import { watchDirectory, stopWatcher } from './watcher'
 import { startMCPServer, setMCPToken, stopMCPServer } from './mcp'
 import { createTray, updateTrayBadge } from './tray'
@@ -112,6 +113,16 @@ function registerIPC(): void {
       filters: filters ?? [{ name: 'All Files', extensions: ['*'] }],
     })
     return result.canceled ? null : result.filePaths[0]
+  })
+
+  // File system: write text file (creates parent directories automatically)
+  ipcMain.handle('fs:write-file', (_e, filePath: string, content: string) => {
+    try {
+      mkdirSync(dirname(filePath), { recursive: true })
+      writeFileSync(filePath, content, 'utf8')
+    } catch (err) {
+      throw new Error(`Cannot write file: ${String(err)}`)
+    }
   })
 
   // File system: read text file

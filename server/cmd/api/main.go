@@ -21,7 +21,7 @@ func main() {
 	}
 	defer database.Close()
 
-	r := router.New(database)
+	r := router.New(database, router.Config{JWTSecret: cfg.JWTSecret})
 
 	addr := fmt.Sprintf(":%s", cfg.AppPort)
 	log.Printf("server listening on %s", addr)

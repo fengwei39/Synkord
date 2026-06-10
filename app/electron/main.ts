@@ -21,7 +21,7 @@ function createMainWindow(): void {
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: join(__dirname, '../preload/index.cjs'),
       sandbox: false,
     },
   })
@@ -53,7 +53,7 @@ function createOverlayWindow(): void {
     show: false,
     skipTaskbar: true,
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: join(__dirname, '../preload/index.cjs'),
       sandbox: false,
     },
   })

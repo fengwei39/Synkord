@@ -8,6 +8,7 @@ import (
 
 	"synkord/server/internal/auth"
 	"synkord/server/internal/contracts"
+	"synkord/server/internal/diff"
 	"synkord/server/internal/gitstore"
 	"synkord/server/internal/org"
 )
@@ -54,6 +55,7 @@ func New(db *sqlx.DB, cfg Config) *gin.Engine {
 
 	contractsSvc := contracts.NewService(db, gs)
 	contractsHandler := contracts.NewHandler(contractsSvc)
+	diffHandler := diff.NewHandler(contractsSvc)
 
 	adminMiddleware := org.AdminMiddleware(db)
 	memberMiddleware := org.MemberMiddleware(db)
@@ -84,6 +86,7 @@ func New(db *sqlx.DB, cfg Config) *gin.Engine {
 					packItem.DELETE("", adminMiddleware, contractsHandler.DeletePack)
 					packItem.GET("/versions", contractsHandler.ListVersions)
 					packItem.GET("/versions/:version", contractsHandler.GetVersion)
+					packItem.GET("/diff", diffHandler.GetDiff)
 				}
 			}
 		}

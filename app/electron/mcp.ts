@@ -38,7 +38,8 @@ async function apiFetch<T>(path: string): Promise<T> {
 const TOOLS = [
   {
     name: 'list_packs',
-    description: '列出指定组织的所有契约包',
+    description:
+      '列出指定组织下所有契约包的名称、版本和类型。契约包可以是任意文本（Markdown、YAML、JSON、TypeScript 接口、Go 结构体、SQL 等）。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -49,38 +50,26 @@ const TOOLS = [
   },
   {
     name: 'get_pack',
-    description: '获取某契约包完整定义（JSON Schema）',
+    description:
+      '获取某契约包的完整原始内容。内容可以是任意文本格式（md/yaml/json/ts/go/sql…），请根据 contentType 字段判断格式后使用。',
     inputSchema: {
       type: 'object',
       properties: {
-        org_id: { type: 'string' },
+        org_id: { type: 'string', description: '组织 ID' },
         pack_name: { type: 'string', description: '契约包名称' },
       },
       required: ['org_id', 'pack_name'],
     },
   },
   {
-    name: 'get_entity',
-    description: '获取某实体的字段和关联关系定义',
+    name: 'search_pack',
+    description: '在指定契约包的原始内容中全文搜索关键字，返回匹配的行及行号。',
     inputSchema: {
       type: 'object',
       properties: {
         org_id: { type: 'string' },
-        pack_name: { type: 'string' },
-        entity_name: { type: 'string', description: '实体名称' },
-      },
-      required: ['org_id', 'pack_name', 'entity_name'],
-    },
-  },
-  {
-    name: 'search_entity',
-    description: '按名称模糊搜索某契约包内的实体',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        org_id: { type: 'string' },
-        pack_name: { type: 'string' },
-        query: { type: 'string', description: '搜索关键词' },
+        pack_name: { type: 'string', description: '契约包名称' },
+        query: { type: 'string', description: '搜索关键词（大小写不敏感）' },
       },
       required: ['org_id', 'pack_name', 'query'],
     },
@@ -89,35 +78,35 @@ const TOOLS = [
 
 // ─── Tool handlers ────────────────────────────────────────────────────────────
 
-interface PackListItem { name: string; version: string }
-interface PackDetail { content: string }
-interface PackContent { entities: Record<string, { fields: Record<string, unknown>; relations?: Record<string, unknown> }> }
+interface PackListItem { name: string; version: string; contentType: string }
+interface PackDetail { name: string; version: string; contentType: string; content: string }
 
 async function callTool(name: string, args: Record<string, string>): Promise<string> {
   switch (name) {
     case 'list_packs': {
       const packs = await apiFetch<PackListItem[]>(`/api/orgs/${args.org_id}/packs`)
-      return JSON.stringify(packs, null, 2)
+      const summary = packs.map((p) => `- ${p.name}  v${p.version}  [${p.contentType}]`).join('\n')
+      return `组织 ${args.org_id} 共 ${packs.length} 个契约包：\n\n${summary}`
     }
     case 'get_pack': {
       const detail = await apiFetch<PackDetail>(`/api/orgs/${args.org_id}/packs/${args.pack_name}`)
-      return detail.content
+      return [
+        `# ${detail.name}  v${detail.version}  (${detail.contentType})`,
+        '',
+        detail.content,
+      ].join('\n')
     }
-    case 'get_entity': {
+    case 'search_pack': {
       const detail = await apiFetch<PackDetail>(`/api/orgs/${args.org_id}/packs/${args.pack_name}`)
-      const pack = JSON.parse(detail.content) as PackContent
-      const entity = pack.entities[args.entity_name]
-      if (!entity) return `实体 "${args.entity_name}" 不存在`
-      return JSON.stringify({ name: args.entity_name, ...entity }, null, 2)
-    }
-    case 'search_entity': {
-      const detail = await apiFetch<PackDetail>(`/api/orgs/${args.org_id}/packs/${args.pack_name}`)
-      const pack = JSON.parse(detail.content) as PackContent
       const q = args.query.toLowerCase()
-      const matches = Object.entries(pack.entities)
-        .filter(([name]) => name.toLowerCase().includes(q))
-        .map(([name, entity]) => ({ name, fieldCount: Object.keys(entity.fields).length }))
-      return JSON.stringify(matches, null, 2)
+      const lines = detail.content.split('\n')
+      const hits = lines
+        .map((line, i) => ({ num: i + 1, line }))
+        .filter(({ line }) => line.toLowerCase().includes(q))
+        .slice(0, 30)
+
+      if (hits.length === 0) return `在 ${args.pack_name} 中未找到 "${args.query}"`
+      return hits.map(({ num, line }) => `L${num}: ${line}`).join('\n')
     }
     default:
       throw new Error(`未知工具: ${name}`)

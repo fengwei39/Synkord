@@ -73,6 +73,7 @@ func (s *Store) WriteFile(orgID, filePath, content, authorEmail, message string)
 	}
 
 	_, err = w.Commit(message, &git.CommitOptions{
+		AllowEmptyCommits: true,
 		Author: &object.Signature{
 			Name:  authorEmail,
 			Email: authorEmail,
@@ -273,6 +274,7 @@ func (s *Store) DeleteFile(orgID, filePath, authorEmail, message string) error {
 	}
 
 	_, err = w.Commit(message, &git.CommitOptions{
+		AllowEmptyCommits: true,
 		Author: &object.Signature{
 			Name:  authorEmail,
 			Email: authorEmail,

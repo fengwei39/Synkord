@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getMe, logout, type AuthUser } from '../lib/auth'
 import { getMyOrgs, type Org } from '../lib/orgs'
+import ContractsPage from './ContractsPage'
 import styles from './HomePage.module.css'
 
 export default function HomePage() {
   const navigate = useNavigate()
   const [user, setUser] = useState<AuthUser | null>(null)
   const [orgs, setOrgs] = useState<Org[]>([])
+  const [activeOrgId, setActiveOrgId] = useState<string>('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -18,7 +20,9 @@ export default function HomePage() {
         setOrgs(myOrgs)
         if (myOrgs.length === 0) {
           navigate('/onboarding', { replace: true })
+          return
         }
+        setActiveOrgId(myOrgs[0].id)
       } catch {
         logout()
         navigate('/login', { replace: true })
@@ -37,20 +41,38 @@ export default function HomePage() {
     )
   }
 
+  const activeOrg = orgs.find((o) => o.id === activeOrgId)
+
   return (
     <div className={styles.container}>
+      {/* Top bar */}
       <div className={styles.header}>
         <span className={styles.logo}>🔗 Synkord</span>
+
+        <div className={styles.orgSwitcher}>
+          {orgs.map((org) => (
+            <button
+              key={org.id}
+              className={`${styles.orgTab} ${activeOrgId === org.id ? styles.orgTabActive : ''}`}
+              onClick={() => setActiveOrgId(org.id)}
+            >
+              {org.name}
+            </button>
+          ))}
+        </div>
+
         <div className={styles.headerRight}>
-          {orgs[0] && <span className={styles.orgBadge}>{orgs[0].name}</span>}
+          {activeOrg && <span className={styles.orgBadge}>{activeOrg.name}</span>}
+          <span className={styles.userEmail}>{user?.email}</span>
           <button className={styles.logoutBtn} onClick={logout}>
             退出
           </button>
         </div>
       </div>
+
+      {/* Body: contracts browser */}
       <div className={styles.body}>
-        <p className={styles.welcome}>欢迎，{user?.email}</p>
-        <p className={styles.hint}>契约浏览器即将上线</p>
+        {activeOrgId && <ContractsPage orgId={activeOrgId} />}
       </div>
     </div>
   )

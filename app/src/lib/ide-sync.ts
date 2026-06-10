@@ -1,14 +1,19 @@
 /**
  * ide-sync.ts
  *
- * Generates all IDE-specific configuration files for a linked project:
+ * Generates IDE-specific configuration files for a linked project.
+ * Strategy: only write a file when (a) its target IDE/tool is detected in the
+ * project, and (b) the content has actually changed since the last sync.
  *
- *  .synkord/config.json           ← unified Synkord project config
- *  .cursor/rules/synkord.md       ← Cursor rules (always-apply context)
- *  .cursor/mcp.json               ← Cursor MCP server config
- *  .vscode/mcp.json               ← VS Code Copilot MCP config
- *  CLAUDE.md                      ← Claude Code context section
- *  AGENTS.md                      ← Codex/OpenAI agents context section
+ * Always written (Synkord's own config):
+ *   .synkord/config.json
+ *
+ * Written only when the IDE directory / marker file already exists:
+ *   .cursor/rules/synkord.md   ← requires .cursor/ directory
+ *   .cursor/mcp.json           ← requires .cursor/ directory
+ *   .vscode/mcp.json           ← requires .vscode/ directory
+ *   CLAUDE.md                  ← requires CLAUDE.md already present
+ *   AGENTS.md                  ← requires AGENTS.md already present
  */
 
 const MCP_URL = 'http://localhost:3742/mcp'
@@ -34,15 +39,17 @@ export interface SyncPack {
 
 export interface SyncResult {
   ok: boolean
-  files: string[]
+  files: string[]       // files actually written
+  skipped: string[]     // files skipped (unchanged or IDE not detected)
   error?: string
 }
 
 // ─── Main entry ───────────────────────────────────────────────────────────────
 
 /**
- * Writes/updates all IDE config files for a linked project.
- * Returns the list of files written.
+ * Writes/updates IDE config files for a linked project.
+ * - Skips files whose IDE is not detected in the project directory.
+ * - Skips files whose content has not changed.
  */
 export async function syncIDEFiles(
   projectPath: string,
@@ -50,48 +57,71 @@ export async function syncIDEFiles(
   packs: SyncPack[],
 ): Promise<SyncResult> {
   const written: string[] = []
+  const skipped: string[] = []
 
-  const write = async (rel: string, content: string) => {
-    const abs = joinPath(projectPath, rel)
-    await window.electronAPI.writeFile(abs, content)
+  const read = async (rel: string): Promise<string | null> => {
+    try { return await window.electronAPI.readTextFile(joinPath(projectPath, rel)) }
+    catch { return null }
+  }
+
+  // Write only if content changed; create parent dirs automatically.
+  const writeIfChanged = async (rel: string, newContent: string) => {
+    const existing = await read(rel)
+    if (existing === newContent) {
+      skipped.push(rel)
+      return
+    }
+    await window.electronAPI.writeFile(joinPath(projectPath, rel), newContent)
     written.push(rel)
   }
 
-  const readOrEmpty = async (rel: string): Promise<string> => {
+  // Check if a directory exists by trying to read one level.
+  const dirExists = async (rel: string): Promise<boolean> => {
     try {
-      return await window.electronAPI.readTextFile(joinPath(projectPath, rel))
-    } catch {
-      return ''
-    }
+      await window.electronAPI.readDirTree(joinPath(projectPath, rel))
+      return true
+    } catch { return false }
+  }
+
+  // Check if a file exists.
+  const fileExists = async (rel: string): Promise<boolean> => {
+    return (await read(rel)) !== null
   }
 
   try {
-    // 1. .synkord/config.json
     const cfg: SynkordProjectConfig = { ...config, lastSyncedAt: new Date().toISOString() }
-    await write('.synkord/config.json', JSON.stringify(cfg, null, 2) + '\n')
 
-    // 2. .cursor/rules/synkord.md  (always-apply Cursor rule)
-    await write('.cursor/rules/synkord.md', buildCursorRules(cfg, packs))
+    // 1. .synkord/config.json  — always write (our own config)
+    await writeIfChanged('.synkord/config.json', JSON.stringify(cfg, null, 2) + '\n')
 
-    // 3. .cursor/mcp.json
-    const cursorMcp = await readOrEmpty('.cursor/mcp.json')
-    await write('.cursor/mcp.json', mergeMCPConfig(cursorMcp))
+    // 2–3. Cursor  — only if .cursor/ exists
+    if (await dirExists('.cursor')) {
+      await writeIfChanged('.cursor/rules/synkord.md', buildCursorRules(cfg, packs))
+      const cursorMcp = (await read('.cursor/mcp.json')) ?? ''
+      await writeIfChanged('.cursor/mcp.json', mergeMCPConfig(cursorMcp))
+    }
 
-    // 4. .vscode/mcp.json
-    const vscodeMcp = await readOrEmpty('.vscode/mcp.json')
-    await write('.vscode/mcp.json', mergeMCPConfig(vscodeMcp))
+    // 4. VS Code  — only if .vscode/ exists
+    if (await dirExists('.vscode')) {
+      const vscodeMcp = (await read('.vscode/mcp.json')) ?? ''
+      await writeIfChanged('.vscode/mcp.json', mergeMCPConfig(vscodeMcp))
+    }
 
-    // 5. CLAUDE.md
-    const claudeMd = await readOrEmpty('CLAUDE.md')
-    await write('CLAUDE.md', updateMarkdownSection(claudeMd, cfg, packs))
+    // 5. CLAUDE.md  — only if the file already exists
+    if (await fileExists('CLAUDE.md')) {
+      const claudeMd = (await read('CLAUDE.md')) ?? ''
+      await writeIfChanged('CLAUDE.md', updateMarkdownSection(claudeMd, cfg, packs))
+    }
 
-    // 6. AGENTS.md
-    const agentsMd = await readOrEmpty('AGENTS.md')
-    await write('AGENTS.md', updateMarkdownSection(agentsMd, cfg, packs))
+    // 6. AGENTS.md  — only if the file already exists
+    if (await fileExists('AGENTS.md')) {
+      const agentsMd = (await read('AGENTS.md')) ?? ''
+      await writeIfChanged('AGENTS.md', updateMarkdownSection(agentsMd, cfg, packs))
+    }
 
-    return { ok: true, files: written }
+    return { ok: true, files: written, skipped }
   } catch (err: unknown) {
-    return { ok: false, files: written, error: String(err) }
+    return { ok: false, files: written, skipped, error: String(err) }
   }
 }
 

@@ -351,7 +351,13 @@ function ProjectFileTree({ project, orgId, orgSlug, selected, onToggle }: {
       }))
       const config: SynkordProjectConfig = { orgId, orgSlug, project: project.name, consumes: packNames }
       const result = await syncIDEFiles(project.localPath, config, packs)
-      setSyncMsg(result.ok ? `✓ 已同步 ${result.files.length} 个文件` : `⚠ ${result.error ?? '失败'}`)
+      setSyncMsg(
+        result.ok
+          ? result.files.length > 0
+            ? `✓ 已更新 ${result.files.length} 个文件${result.skipped.length > 0 ? `，跳过 ${result.skipped.length} 个（无变化或未检测到对应 IDE）` : ''}`
+            : `✓ 无需更新（内容未变化）`
+          : `⚠ ${result.error ?? '失败'}`,
+      )
     } catch (err) { setSyncMsg(`⚠ ${String(err)}`) }
     finally {
       setSyncing(false)

@@ -1139,7 +1139,11 @@ function SyncButton({ orgId, orgSlug, pack }: {
       if (result.projects === 0) {
         setMsg('暂无关联项目')
       } else {
-        setMsg(`✓ 已同步 ${result.projects} 个项目`)
+        setMsg(
+          result.filesWritten > 0
+            ? `✓ 更新了 ${result.filesWritten} 个文件（${result.projects} 个项目）`
+            : `✓ 无变化（${result.projects} 个项目已是最新）`,
+        )
       }
     } catch {
       setMsg('同步失败')
@@ -1167,27 +1171,25 @@ function SyncButton({ orgId, orgSlug, pack }: {
 // ─── IDE sync helpers ─────────────────────────────────────────────────────────
 
 /**
- * Sync all org-linked local projects with the given packs (or fetch all packs if not provided).
- * Returns the number of projects synced.
+ * Sync all org-linked local projects with the given packs.
+ * Returns the number of projects touched and total files written.
  */
 async function syncAllProjects(
   orgId: string,
   orgSlug: string,
   knownPacks?: PackDetail[],
-): Promise<{ projects: number }> {
+): Promise<{ projects: number; filesWritten: number }> {
   const linkedProjects = getProjectsByOrg(orgId)
-  if (linkedProjects.length === 0) return { projects: 0 }
+  if (linkedProjects.length === 0) return { projects: 0, filesWritten: 0 }
 
-  // Build a pack cache to avoid redundant fetches
   const packCache = new Map<string, PackDetail>()
   if (knownPacks) {
     for (const p of knownPacks) packCache.set(p.name, p)
   }
 
+  let filesWritten = 0
   for (const project of linkedProjects) {
-    // Determine which packs this project consumes
     const boundNames = getConsumedPackNames(project.id)
-    // If no bindings, include all known packs passed in
     const packNames = boundNames.length > 0 ? boundNames : (knownPacks?.map((p) => p.name) ?? [])
     if (packNames.length === 0) continue
 
@@ -1209,17 +1211,12 @@ async function syncAllProjects(
       content: d!.content,
     }))
 
-    const config: SynkordProjectConfig = {
-      orgId,
-      orgSlug,
-      project: project.name,
-      consumes: packNames,
-    }
-
-    await syncIDEFiles(project.localPath, config, packs)
+    const config: SynkordProjectConfig = { orgId, orgSlug, project: project.name, consumes: packNames }
+    const result = await syncIDEFiles(project.localPath, config, packs)
+    filesWritten += result.files.length
   }
 
-  return { projects: linkedProjects.length }
+  return { projects: linkedProjects.length, filesWritten }
 }
 
 async function syncLinkedProjects(

@@ -17,3 +17,5 @@ target/
 # Environment
 .env
 .env.*
+
+server/data/

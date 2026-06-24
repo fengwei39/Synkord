@@ -1,2 +1,0 @@
-ALTER TABLE contract_packs
-  ADD COLUMN IF NOT EXISTS content_type VARCHAR(50) NOT NULL DEFAULT 'text';

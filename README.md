@@ -1,78 +1,152 @@
-# Synkord
+Synkord 内网 MCP 规范协同平台需求文档
 
-以业务域为单位的契约管理工具。让每个人、每个项目、每个 AI 工具，在任何时候都基于同一份业务数据契约工作。
+1. 项目概述
+   1.1 背景
+   当前团队存在多项目、多角色、多IDE、多AI工具协同开发场景，具体现状如下：
 
-## 解决什么问题
+- 项目架构：包含多后端Server微服务、Web前端、App移动端三类项目，服务间存在大量数据实体、API接口互相依赖约束关系
+- 人员分工：开发人员B负责所有后端Server、Web项目（使用PyCharm、VSCode + Codex/Copilot）；开发人员A负责App项目（使用Cursor AI）
+- 核心痛点：原有YApi长期停更（2021年后无迭代），不支持OpenAPI3、无MCP能力、无法实现跨服务实体依赖校验、接口/实体变更无主动通知，导致多项目数据实体定义混乱、AI生成代码不统一、跨服务兼容风险高、协同同步成本大
+- 环境要求：全程内网私有化部署，数据不出内网、零付费开源方案
 
-在多人、多项目的团队中，业务数据定义会悄悄漂移：
+   1.2 建设目标
+   自建轻量级 MCP 协同平台（Git 仓库名称：synkord），以 MCP Server 为唯一集成总线，实现零成本、全内网、AI 联动、跨项目强约束的开发规范体系：
 
-- AI 工具生成代码时不知道数据契约，字段名和类型随意
-- 某人修改了共享数据结构，依赖方不知道，联调才发现
-- 多个项目对同一实体各自理解不同（`userId` vs `user_id` vs `uid`）
+1. 统一托管所有微服务API接口、全局数据实体（DTO、枚举、分页模型、统一返回体），实现跨服务实体复用与强约束校验
+2. 平台内置 MCP Server，打通 Cursor、PyCharm、VSCode 全 IDE / 全 AI 工具，AI 生成代码强制遵循统一实体与 API 约束
+3. 后端 B 修改 API / 数据实体后，自动识别破坏性变更，主动推送消息通知前端 A
+4. 构建「AI 前置约束 + IDE 实时校验 + 变更主动通知 + 提交兜底拦截」的全链路规范闭环
 
-## 产品形态
+   1.3 适用范围
+- 项目：所有后端微服务、Web前端、App移动端项目
+- 人员：全员研发人员（跨IDE、跨AI工具协同）
+- 约束对象：API接口规范、全局数据实体、跨服务依赖关系、接口变更兼容性
 
-安装后自动启动，独立悬浮窗常驻桌面：
+2. 部署需求
+1. 部署方式：Docker Compose 一键部署，全程内网离线运行，数据全部存储在内网服务器
+2. 技术栈：Python 3.12+ / FastAPI / MCP Python SDK / SQLite（单机）或 PostgreSQL（扩展）/ React 18 + Ant Design 5 + Vite
+3. 基础环境：内网 Linux 服务器，最低 2 核 4G，单机部署
 
-- **首次**：登录 → 加入项目组织
-- **日常**：查看当前项目的契约内容、订阅的契约版本状态、变更通知
+3. 技术架构
 
-同时在本地运行 MCP Server，Cursor / Claude Code / Windsurf 等 AI 工具接入后，AI 写代码时自动感知契约。
+   synkord-core 采用单体分层架构，MCP Server 作为唯一对外集成面：
 
-## 工作原理
+   ```
+                       ┌──────────────────────────────────┐
+                       │         synkord-core              │
+                       │                                   │
+     Cursor ──────────▶│  ┌─────────────────────────────┐ │
+     VSCode+Codex ────▶│  │      MCP Server (核心)       │ │
+     PyCharm+Copilot ─▶│  │                             │ │
+                       │  │  get_global_entities         │ │
+     CI Pipeline ─────▶│  │  get_service_entities        │ │
+     Git Hook ────────▶│  │  get_entity_dependencies     │ │
+                       │  │  detect_breaking_changes     │ │
+     管理员浏览器 ────▶│  │  validate_entity_usage       │ │
+                       │  └─────────────┬───────────────┘ │
+                       │                │                  │
+                       │  ┌─────────────┴───────────────┐ │
+                       │  │      核心引擎                │ │
+                       │  │                             │ │
+                       │  │  Entity Store (JSON Schema)  │ │
+                       │  │  Dependency Graph            │ │
+                       │  │  Diff Engine (字段级)        │ │
+                       │  │  Notify Service (Webhook)    │ │
+                       │  └─────────────────────────────┘ │
+                       │                                   │
+                       │  存储: SQLite (单机) / PG (扩展)  │
+                       └──────────────────────────────────┘
+   ```
 
-```
-Synkord App（后台常驻）
-├── 悬浮看板（alwaysOnTop 窗口）
-├── MCP Server（localhost:3742/mcp）  ← AI 工具接入
-└── 文件监听（项目根目录 synkord.json）← 自动感知项目切换
-```
+4. 详细功能需求
+   4.1 项目与实体分层管理
 
-## 接入 AI 工具（一次性配置）
+1. 全局公共模型库
+   - 统一维护团队通用约束：标准API返回体（code/msg/data）、全局分页DTO、公共状态枚举、基础字段规范
+   - 强制所有微服务、Web、App项目引用，禁止本地重复定义
+   - 实体以 JSON Schema 格式存储，兼容 OpenAPI 3.x Schema Object
 
-**Cursor** — 在 `.cursor/mcp.json` 中添加：
+2. 多服务独立项目管理
+   - 按业务拆分多个后端服务项目（用户、订单、支付等），独立管理各服务私有API、私有数据实体
+   - 支持跨项目实体引用，通过解析 OpenAPI 文档中的 `$ref` 自动建立依赖关系
 
-```json
-{
-  "mcpServers": {
-    "synkord": {
-      "url": "http://localhost:3742/mcp"
-    }
-  }
-}
-```
+3. 前端应用项目管理
+   - 单独创建Web、App项目，仅允许引用后端标准化实体与API，禁止自定义核心数据结构
+   - 后端变更自动关联前端项目校验
 
-**Claude Code**：
+4. 变更依赖分析：修改任意服务 API / 实体后，自动检索所有依赖的服务、Web、App 项目，精准识别影响范围
 
-```bash
-claude mcp add synkord http://localhost:3742/mcp
-```
+   4.2 MCP 服务能力（核心）
 
-## 接入项目（每个项目）
+   部署完成后默认启用内网 MCP 服务，对外暴露以下 5 个核心工具：
 
-在项目根目录创建 `synkord.json`：
+   - `get_global_entities`：获取全局公共实体定义（统一返回体、分页 DTO、枚举等）
+   - `get_service_entities`：获取指定服务的私有实体及引用的公共实体
+   - `get_entity_dependencies`：查询实体被哪些服务引用、完整依赖链路
+   - `detect_breaking_changes`：对比新旧 OpenAPI 规范，输出字段级破坏性变更清单及影响范围
+   - `validate_entity_usage`：校验代码片段中的实体使用是否符合平台规范
 
-```json
-{
-  "project": "user-service",
-  "consumes": ["auth-pack@^1.x", "order-pack@^2.x"]
-}
-```
+   各 IDE 通过 `.mcp.json` 配置内网地址接入，AI 编码助手（Codex / Copilot / Cursor AI）通过 MCP 协议原生消费约束，不依赖专用 IDE 插件。
 
-之后打开项目，悬浮窗自动切换显示对应契约。
+   4.3 自动变更通知
 
-## IDE 支持
+1. Webhook 消息推送：支持配置内网钉钉/飞书机器人，API、数据实体发生修改时自动触发
+2. 差异化告警：仅对破坏性变更推送告警，非兼容变更静默记录。破坏性变更判定矩阵：
+   - 删除字段
+   - 修改字段类型（含泛型参数变更）
+   - 变更枚举值（新增/删除/重命名枚举项）
+   - 可选字段变必填
+   - 调整接口入参/出参结构
+   - 嵌套实体变更传播（如 UserDTO 内的 AddressDTO 字段变更）
+3. 消息内容：变更人、变更服务、变更内容、受影响项目、兼容风险提示
+4. 精准触达：后端服务变更，精准通知对应前端/App 开发人员
 
-| 功能 | 支持范围 |
-|---|---|
-| 悬浮看板 | 所有 IDE（IDE 无关） |
-| MCP 契约注入 | Cursor、Claude Code、Windsurf、VS Code Copilot、Zed |
+   4.4 实体版本管理
 
-## 文档
+1. 每次实体变更自动生成版本快照，支持语义化版本号
+2. 消费方可锁定引用的实体主版本，避免意外升级
+3. 平台标准化实体更新后，AI 编码助手通过 MCP 实时拉取最新规范
 
-- [产品设计](docs/product/产品设计.md)
-- [开发计划](docs/engineering/开发计划.md)
+   4.5 兜底校验
 
-## 契约格式
+1. Git Pre-Commit：提交时自动调用 MCP 服务校验实体、API 规范性，冲突阻断提交。MCP 不可用时离线降级（本地缓存 + 审计日志），超时阈值 3 秒
+2. CI 流水线：分支合并前全量扫描，校验跨服务实体一致性、API 规范合规性，拦截违规代码合入主干
 
-契约包为 JSON 文件，样例见 [examples/auth-pack.json](examples/auth-pack.json)，格式规范见 [schemas/contract-v1.json](schemas/contract-v1.json)。
+   4.6 基础运维
+
+1. 内网离线运行：全程无公网依赖
+2. 权限管理：RBAC 模型（管理员 / 编辑者 / 只读者），规范修改留痕可追溯
+3. 数据备份：SQLite 单文件备份，或 PostgreSQL 原生备份策略
+
+5. 非功能需求
+   5.1 性能
+- MCP 服务响应耗时 ≤ 500ms（单次查询）
+- 支持多项目、多实体批量管理，无卡顿
+
+   5.2 安全
+- 全内网部署，数据不对外暴露
+- 平台账号密码登录，禁止匿名访问
+- MCP 服务需 Token 鉴权
+
+   5.3 兼容性
+- 兼容 OpenAPI 3.x 最新规范，支持复杂泛型、嵌套实体、枚举定义
+- 全 IDE 兼容：Cursor、PyCharm、VSCode、WebStorm
+- 全 AI 工具兼容：Cursor AI、GitHub Codex、JetBrains AI
+
+6. 部署步骤
+
+1. 服务器安装 Docker 与 Docker Compose
+2. 拉取 synkord-core 仓库，执行 `docker compose up -d`
+3. 初始化平台账号、权限，创建全局公共模型库、各业务服务项目
+4. MCP 服务默认启用，配置内网访问地址及 Token 鉴权
+5. 配置钉钉/飞书 Webhook 消息推送机器人
+6. 各 IDE 配置 `.mcp.json` 对接参数
+
+7. 验收标准
+
+1. 平台内网私有化部署，可正常访问，无公网依赖
+2. 全局公共实体库、多服务独立项目正常运行，支持跨服务实体引用与依赖溯源
+3. 内置 MCP Server 正常运行，Cursor、PyCharm、VSCode 均可对接调用
+4. 后端修改破坏性实体/接口，自动推送消息至前端开发人员
+5. AI 生成代码强制遵循平台统一约束，违规代码 IDE 实时标红、提交自动拦截
+6. 彻底替代 YApi，实现全链路规范闭环

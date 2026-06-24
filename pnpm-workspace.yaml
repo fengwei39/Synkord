@@ -1,8 +1,0 @@
-packages:
-  - "packages/*"
-  - "app"
-allowBuilds:
-  electron: set this to true or false
-onlyBuiltDependencies:
-  - esbuild
-  - electron

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Typography, Card, Spin } from 'antd';
-import { G6 } from '@antv/g6';
+import { Graph } from '@antv/g6';
 import apiClient from '../api/client';
 
 const { Title } = Typography;
@@ -24,7 +24,7 @@ export default function DependencyGraph() {
 
           const colors: Record<string, string> = { backend: '#1677ff', web: '#52c41a', app: '#fa8c16' };
 
-          const graph = new G6.Graph({
+          const graph = new Graph({
             container: containerRef.current,
             width: containerRef.current.clientWidth,
             height: 500,

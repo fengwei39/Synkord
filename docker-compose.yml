@@ -1,0 +1,18 @@
+services:
+  synkord-core:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - SYNKORD_PORT=8000
+      - SYNKORD_DB_PATH=/app/data/synkord.db
+      - SYNKORD_JWT_SECRET=change-me-in-production
+      - SYNKORD_MCP_TOKEN=change-me-mcp-token
+    volumes:
+      - synkord_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  synkord_data:

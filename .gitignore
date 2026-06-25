@@ -1,0 +1,10 @@
+.go-cache/
+backend/data/
+backend/synkord-core
+backend/*.db
+frontend/node_modules/
+frontend/dist/
+frontend/release/
+*.log
+.env
+.DS_Store

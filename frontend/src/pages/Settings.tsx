@@ -90,7 +90,7 @@ export default function Settings() {
           </div>
           <div>
             <span>接入地址: </span>
-            <code>http://&lt;内网IP&gt;:8100/mcp</code>
+            <code>http://&lt;host&gt;:8000/mcp/sse?token=&lt;token&gt;</code>
           </div>
           <div style={{ marginTop: 8 }}>
             <span>各 IDE 在项目根目录创建 </span>

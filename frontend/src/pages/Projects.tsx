@@ -1,12 +1,20 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Modal, Form, Input, Select, Space, Tag, Typography, message, Popconfirm } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Button, Empty, Modal, Form, Input, Select, Space, Typography, message, Popconfirm } from 'antd';
+import {
+  AppstoreOutlined,
+  BarsOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  ImportOutlined,
+  PlusOutlined,
+  ProjectOutlined,
+  SortAscendingOutlined,
+} from '@ant-design/icons';
 import apiClient from '../api/client';
 
-const { Title } = Typography;
+const { Text } = Typography;
 
-const typeColors: Record<string, string> = { backend: 'blue', web: 'green', app: 'orange' };
-const typeLabels: Record<string, string> = { backend: '后端', web: 'Web', app: 'App' };
+const typeLabels: Record<string, string> = { backend: 'HTTP', web: 'WEB', app: 'APP' };
 
 export default function Projects() {
   const [projects, setProjects] = useState<any[]>([]);
@@ -52,42 +60,75 @@ export default function Projects() {
     load();
   };
 
-  const columns = [
-    { title: '名称', dataIndex: 'name', key: 'name' },
-    {
-      title: '类型', dataIndex: 'project_type', key: 'type',
-      render: (t: string) => <Tag color={typeColors[t]}>{typeLabels[t] || t}</Tag>,
-    },
-    { title: '描述', dataIndex: 'description', key: 'desc', ellipsis: true },
-    {
-      title: '操作', key: 'actions',
-      render: (_: any, record: any) => (
-        <Space>
-          <Button type="link" icon={<EditOutlined />} onClick={() => {
-            setEditing(record);
-            form.setFieldsValue(record);
-            setModalOpen(true);
-          }}>编辑</Button>
-          <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id)}>
-            <Button type="link" danger icon={<DeleteOutlined />}>删除</Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ];
+  const openCreate = () => {
+    setEditing(null);
+    form.resetFields();
+    setModalOpen(true);
+  };
+
+  const openEdit = (project: any) => {
+    setEditing(project);
+    form.setFieldsValue(project);
+    setModalOpen(true);
+  };
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>项目管理</Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => {
-          setEditing(null);
-          form.resetFields();
-          setModalOpen(true);
-        }}>新建项目</Button>
+    <div className="project-page">
+      <header className="page-header">
+        <div className="page-title-row">
+          <h1>默认工作空间</h1>
+          <span className="owner-badge">自托管实例</span>
+        </div>
+        <div className="page-tabs">
+          <button className="page-tab active">项目</button>
+          <button className="page-tab">API 规范</button>
+          <button className="page-tab">实体模型</button>
+          <button className="page-tab">依赖关系</button>
+          <button className="page-tab">变更记录</button>
+          <button className="page-tab">访问控制</button>
+        </div>
+      </header>
+
+      <div className="content-toolbar">
+        <div className="toolbar-left">
+          <div className="segmented-icon">
+            <button className="active" aria-label="网格视图"><AppstoreOutlined /></button>
+            <button aria-label="列表视图"><BarsOutlined /></button>
+          </div>
+          <Button type="text" icon={<SortAscendingOutlined />} />
+        </div>
+        <div className="toolbar-right">
+          <Button icon={<ImportOutlined />}>导入 OpenAPI</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建项目</Button>
+        </div>
       </div>
 
-      <Table columns={columns} dataSource={projects} rowKey="id" loading={loading} />
+      {projects.length === 0 && !loading ? (
+        <Empty description="暂无项目">
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建项目</Button>
+        </Empty>
+      ) : (
+        <div className="project-grid">
+          {projects.map((project) => (
+            <article className="project-card" key={project.id}>
+              <div className="project-icon"><ProjectOutlined /></div>
+              <div className="project-name">{project.name}</div>
+              <div className="project-desc">{project.description || '暂无描述'}</div>
+              <div className="project-card-footer">
+                <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                  <span className="type-pill">{typeLabels[project.project_type] || project.project_type}</span>
+                  <Space size={4}>
+                    <Button type="text" size="small" icon={<EditOutlined />} onClick={() => openEdit(project)} />
+                    <Popconfirm title="确定删除？" onConfirm={() => handleDelete(project.id)}>
+                      <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+                    </Popconfirm>
+                  </Space>
+                </Space>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
 
       <Modal
         title={editing ? '编辑项目' : '新建项目'}
@@ -109,9 +150,13 @@ export default function Projects() {
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={3} />
           </Form.Item>
-          <Form.Item name="openapi_spec" label="OpenAPI 规范 (JSON/YAML)">
-            <Input.TextArea rows={6} placeholder="粘贴 OpenAPI 规范内容..." />
+          <Form.Item name="owner" label="负责人">
+            <Input />
           </Form.Item>
+          <Form.Item name="repo_url" label="仓库地址">
+            <Input />
+          </Form.Item>
+          <Text type="secondary">OpenAPI 文档建议在 API 管理中导入。</Text>
         </Form>
       </Modal>
     </div>

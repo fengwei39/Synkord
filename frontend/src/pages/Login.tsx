@@ -35,7 +35,7 @@ export default function Login() {
       <Card style={{ width: 400, borderRadius: 8 }}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <Title level={2} style={{ marginBottom: 4 }}>Synkord</Title>
-          <Text type="secondary">内网 MCP 规范协同平台</Text>
+          <Text type="secondary">开源 MCP 规范协同平台</Text>
         </div>
         <Form onFinish={onFinish} size="large">
           <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>

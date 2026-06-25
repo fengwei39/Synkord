@@ -35,6 +35,8 @@ async function createWindow() {
     minWidth: 1024,
     minHeight: 680,
     title: 'Synkord',
+    frame: false,
+    backgroundColor: '#f5f7fb',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -71,6 +73,19 @@ pnpm dev</pre>
 app.whenReady().then(() => {
   ipcMain.handle('synkord:get-api-base', () => {
     return process.env.SYNKORD_API_BASE || 'http://127.0.0.1:8000/api';
+  });
+  ipcMain.on('synkord:window-control', (event, action) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return;
+    if (action === 'minimize') win.minimize();
+    if (action === 'maximize') {
+      if (win.isMaximized()) {
+        win.unmaximize();
+      } else {
+        win.maximize();
+      }
+    }
+    if (action === 'close') win.close();
   });
 
   createWindow();

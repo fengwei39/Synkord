@@ -1,4 +1,4 @@
-Synkord 内网 MCP 规范协同平台需求文档
+Synkord 开源 MCP 规范协同平台需求文档
 
 1. 项目概述
 
@@ -9,17 +9,18 @@ Synkord 内网 MCP 规范协同平台需求文档
 - 项目架构：包含多个后端 Server 微服务、Web 前端、App 移动端项目，服务间存在大量数据实体、API 接口和跨项目依赖关系。
 - 人员分工：开发人员 B 负责后端 Server 与 Web 项目，主要使用 PyCharm、VSCode、Codex、Copilot；开发人员 A 负责 App 项目，主要使用 Cursor AI。
 - 核心痛点：原有 YApi 长期停更，不支持 OpenAPI 3.x、MCP、跨服务实体依赖校验和主动变更通知，导致实体定义分散、AI 生成代码不统一、接口兼容风险高、协同同步成本高。
-- 环境要求：全程内网私有化部署，数据不出内网，优先采用零付费开源技术栈。
+- 产品要求：作为开源、自托管产品发布，支持团队在本地、内网或私有云环境部署，核心能力不依赖商业 SaaS。
 
    1.2 建设目标
 
-   Synkord 是一个轻量级内网 MCP 规范协同平台，用于统一管理 API、实体、依赖和变更规则，并向 IDE、AI 工具、Git Hook、CI 和桌面管理端提供一致的规范来源。
+   Synkord 是一个开源、自托管的 MCP 规范协同平台，用于统一管理 API、实体、依赖和变更规则，并向 IDE、AI 工具、Git Hook、CI 和桌面管理端提供一致的规范来源。
 
 1. 统一托管所有微服务 API 接口、全局数据实体、服务私有实体、枚举、分页模型和统一返回体。
 2. 通过 MCP Server 为 IDE、AI 编码助手、Git Hook、CI 提供统一规范消费接口。
 3. 通过 REST API 为 Electron 管理端提供登录、管理、检索、变更检测和配置能力。
 4. 后端修改 API 或数据实体后，自动识别破坏性变更，定位影响范围，并主动通知相关前端/App 开发人员。
 5. 构建“AI 前置提示 + MCP 规范查询 + Git Hook/CI 兜底拦截 + 变更主动通知”的规范闭环。
+6. 以开源项目方式提供清晰的安装、配置、扩展和二次开发路径。
 
    1.3 边界说明
 
@@ -27,6 +28,7 @@ Synkord 内网 MCP 规范协同平台需求文档
 - REST API 是 Electron 管理端的管理接口，不作为 AI/IDE 集成入口。
 - MCP 不能天然强制 AI 输出正确代码，强约束依赖 Git Hook、CI 和规则校验共同完成。
 - MVP 阶段优先支持 OpenAPI 3.x 与 JSON Schema，不覆盖 Swagger 2.0、GraphQL、gRPC 和私有 RPC 协议。
+- 产品默认面向开源自托管场景，内网私有化部署是支持的部署形态之一，不作为唯一产品定位。
 
    1.4 适用范围
 
@@ -48,7 +50,7 @@ Synkord 内网 MCP 规范协同平台需求文档
 8. 变更检测：对比新旧 OpenAPI/JSON Schema，识别 info、warning、breaking 三类变更。
 9. MCP Server：提供规范查询、依赖查询、变更检测、代码片段校验能力。
 10. Webhook 通知：支持钉钉/飞书机器人通知破坏性变更。
-11. Docker Compose 部署后端，Electron 客户端连接内网后端。
+11. Docker Compose 部署后端，Electron 客户端连接自托管后端实例。
 
    2.2 第一阶段暂不交付
 
@@ -64,17 +66,17 @@ Synkord 内网 MCP 规范协同平台需求文档
 
 1. 后端：Go 1.25+、Gin、GORM、SQLite、PostgreSQL 可选扩展、mark3labs mcp-go。
 2. 前端：Electron、React 18、Ant Design 5、Vite、TypeScript。
-3. 部署方式：后端通过 Docker Compose 部署在内网服务器；Electron 管理端在内网桌面机器安装运行。
+3. 部署方式：后端通过 Docker Compose 部署在本地、内网服务器或私有云主机；Electron 管理端在桌面机器安装运行。
 4. 基础环境：
-   - 后端：内网 Linux 服务器，最低 2 核 4G。
+   - 后端：Linux 服务器或本地开发环境，最低 2 核 4G。
    - 管理端：Windows、macOS、Linux 桌面环境。
 5. 数据存储：
    - MVP 默认 SQLite 单文件存储。
    - 团队规模扩大后可切换 PostgreSQL。
 6. 网络要求：
-   - 全程内网访问。
+   - 支持本地、自托管、内网和私有云访问。
    - 后端暴露 REST API 与 MCP Server。
-   - Electron 客户端支持配置 synkord-core 内网地址。
+   - Electron 客户端支持配置 synkord-core 服务地址。
 
 4. 技术架构
 
@@ -178,7 +180,7 @@ Synkord 内网 MCP 规范协同平台需求文档
 
    6.3 MCP 服务能力
 
-   后端部署完成后默认启用内网 MCP 服务，对外暴露以下 MVP 工具：
+   后端部署完成后默认启用 MCP 服务，对外暴露以下 MVP 工具：
 
 - `get_global_entities`：获取全局公共实体定义。
 - `get_service_entities`：获取指定服务的私有实体及引用的公共实体。
@@ -239,9 +241,9 @@ Synkord 内网 MCP 规范协同平台需求文档
 2. 支持账号密码登录，保存登录态。
 3. Token 需要存储在系统安全存储能力中，避免明文落盘。
 4. 支持项目管理、API 管理、实体管理、依赖拓扑、变更检测、系统设置。
-5. 支持切换后端地址，用于连接不同内网环境。
+5. 支持切换后端地址，用于连接本地、内网或私有云中的不同 synkord-core 实例。
 6. 支持显示后端健康状态、MCP 服务状态、当前登录用户和权限。
-7. MVP 不要求自动更新，安装包通过内网手动分发。
+7. MVP 不要求自动更新，安装包可通过 GitHub Release、内部分发或离线包方式发布。
 
 7. 权限模型
 
@@ -280,7 +282,7 @@ Synkord 内网 MCP 规范协同平台需求文档
 
    8.2 安全
 
-1. 全内网部署，数据不对外暴露。
+1. 支持完全自托管部署，数据由部署方自行控制。
 2. 禁止匿名访问管理端 API。
 3. REST API 使用 JWT 鉴权。
 4. MCP Server 使用 Token 鉴权。
@@ -299,8 +301,8 @@ Synkord 内网 MCP 规范协同平台需求文档
 1. 服务器安装 Docker 与 Docker Compose。
 2. 拉取 synkord 仓库，在后端部署目录执行 `docker compose up -d` 启动 synkord-core。
 3. 初始化管理员账号、JWT Secret、MCP Token、数据库路径。
-4. 在内网机器安装 Electron 管理端。
-5. 首次启动管理端，配置 synkord-core 内网地址。
+4. 安装 Electron 管理端。
+5. 首次启动管理端，配置 synkord-core 服务地址。
 6. 登录管理端，创建项目、导入 OpenAPI、维护全局实体。
 7. 配置钉钉/飞书 Webhook。
 8. 各 IDE 或项目仓库配置 `.mcp.json`、Git Hook、CI 调用参数。
@@ -309,7 +311,7 @@ Synkord 内网 MCP 规范协同平台需求文档
 
    10.1 后端与部署
 
-1. Go 后端可通过 Docker Compose 在内网服务器启动。
+1. Go 后端可通过 Docker Compose 在本地、内网服务器或私有云主机启动。
 2. `/health` 返回正常状态。
 3. REST API 需要登录后访问，未登录请求返回 401。
 4. MCP Server 能通过 Token 鉴权调用工具。

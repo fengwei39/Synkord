@@ -1,5 +1,7 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { MouseEvent } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Avatar, Button, Tooltip } from 'antd';
+import { Avatar, Badge, Button, Drawer, Dropdown, Empty, List, Tag, Tooltip } from 'antd';
 import {
   ApiOutlined,
   ApartmentOutlined,
@@ -7,53 +9,103 @@ import {
   BorderOutlined,
   ClockCircleOutlined,
   CloseOutlined,
-  CompassOutlined,
   DashboardOutlined,
   DiffOutlined,
-  HistoryOutlined,
   HomeOutlined,
   MinusOutlined,
   MoreOutlined,
   NodeIndexOutlined,
   ProjectOutlined,
   PushpinOutlined,
+  SafetyCertificateOutlined,
   SettingOutlined,
   SyncOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../api/auth';
-
-const primaryNav = [
-  { key: '/', icon: <DashboardOutlined />, label: '工作台' },
-  { key: '/projects', icon: <ProjectOutlined />, label: '项目空间' },
-  { key: '/apis', icon: <ApiOutlined />, label: 'API 规范' },
-  { key: '/entities', icon: <ApartmentOutlined />, label: '实体模型' },
-  { key: '/dependencies', icon: <NodeIndexOutlined />, label: '依赖拓扑' },
-  { key: '/diff', icon: <DiffOutlined />, label: '变更检测' },
-  { key: '/changesets', icon: <HistoryOutlined />, label: '变更记录' },
-];
+import { getTeamMCPOverview } from '../api/mcp';
+import { listNotifications, markNotificationRead, retryNotificationDelivery, type TeamNotification } from '../api/notifications';
+import { useTeam } from '../contexts/TeamContext';
 
 const workspaceLinks = [
-  { key: '/projects', icon: <TeamOutlined />, label: '默认工作空间' },
-  { key: '/apis', icon: <ApiOutlined />, label: 'API 规范库', hint: 'OpenAPI 资产' },
+  { key: '/team', icon: <DashboardOutlined />, label: '团队首页' },
+  { key: '/projects', icon: <ProjectOutlined />, label: '项目管理' },
+  { key: '/apis', icon: <ApiOutlined />, label: '接口管理', hint: 'Swagger / Postman' },
+  { key: '/models', icon: <ApartmentOutlined />, label: '数据模型' },
+  { key: '/mcp', icon: <SafetyCertificateOutlined />, label: 'MCP 管理' },
+  { key: '/dependencies', icon: <NodeIndexOutlined />, label: '依赖拓扑' },
+  { key: '/diff', icon: <DiffOutlined />, label: '变更检测' },
   { key: '/changesets', icon: <ClockCircleOutlined />, label: '变更记录' },
-  { key: '/settings', icon: <SettingOutlined />, label: '系统配置' },
+  { key: '/members', icon: <TeamOutlined />, label: '团队成员与权限' },
 ];
 
 export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
+  const { teams, currentTeam, currentTeamId, switchTeam } = useTeam();
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  const [notifications, setNotifications] = useState<TeamNotification[]>([]);
+  const [notificationLoading, setNotificationLoading] = useState(false);
+  const [mcpStatus, setMcpStatus] = useState<'enabled' | 'disabled' | 'not_configured'>('not_configured');
   const selectedTopKey = location.pathname === '/' ? '/' : '/' + location.pathname.split('/')[1];
-  const selectedWorkspaceKey = workspaceLinks.find((item) => selectedTopKey === item.key)?.key || '/projects';
+  const selectedWorkspaceKey = workspaceLinks.find((item) => selectedTopKey === item.key)?.key || selectedTopKey;
+  const isPlatformAdmin = user?.role === 'admin' || user?.role === 'platform_admin';
+  const isWorkbenchRoute = selectedTopKey === '/' || selectedTopKey === '/teams';
+  const projectSpaceActive = !isWorkbenchRoute && selectedTopKey !== '/admin';
+  const unreadCount = useMemo(
+    () => notifications.filter((item) => item.read_status === 'unread').length,
+    [notifications],
+  );
+
+  const loadNotifications = useCallback(async () => {
+    if (!currentTeamId) {
+      setNotifications([]);
+      return;
+    }
+    setNotificationLoading(true);
+    try {
+      setNotifications(await listNotifications(currentTeamId));
+    } finally {
+      setNotificationLoading(false);
+    }
+  }, [currentTeamId]);
+
+  useEffect(() => {
+    loadNotifications();
+  }, [loadNotifications]);
+
+  useEffect(() => {
+    if (!currentTeamId) {
+      setMcpStatus('not_configured');
+      return;
+    }
+    getTeamMCPOverview(currentTeamId)
+      .then((overview) => {
+        setMcpStatus(overview.global_enabled && overview.enabled ? 'enabled' : 'disabled');
+      })
+      .catch(() => setMcpStatus('disabled'));
+  }, [currentTeamId]);
 
   const handleWindow = (action: 'minimize' | 'maximize' | 'close') => {
     window.synkord?.windowControl(action);
   };
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
+  const handleNotificationClick = async (item: TeamNotification) => {
+    if (!currentTeamId) return;
+    if (item.read_status === 'unread') {
+      const updated = await markNotificationRead(currentTeamId, item.id);
+      setNotifications((items) => items.map((next) => (next.id === item.id ? updated : next)));
+    }
+    setNotificationOpen(false);
+    navigate('/changesets');
+  };
+
+  const handleRetryNotification = async (event: MouseEvent<HTMLElement>, item: TeamNotification) => {
+    event.stopPropagation();
+    if (!currentTeamId) return;
+    const updated = await retryNotificationDelivery(currentTeamId, item.id);
+    setNotifications((items) => items.map((next) => (next.id === item.id ? updated : next)));
   };
 
   return (
@@ -64,26 +116,62 @@ export default function AppLayout() {
           <span>Synkord</span>
         </div>
         <nav className="synkord-top-tabs">
-          <button className="synkord-top-tab active" onClick={() => navigate('/')}>
+          <button className={selectedTopKey === '/' || selectedTopKey === '/teams' ? 'synkord-top-tab active' : 'synkord-top-tab'} onClick={() => navigate('/')}>
             <HomeOutlined />
             工作台
           </button>
-          <button className="synkord-top-tab" onClick={() => navigate('/projects')}>项目空间</button>
+          <button className={projectSpaceActive ? 'synkord-top-tab active' : 'synkord-top-tab'} onClick={() => navigate(currentTeam ? '/team' : '/teams/new')}>团队空间</button>
           <button className="synkord-top-tab icon-only" aria-label="更多">
             <MoreOutlined />
           </button>
         </nav>
         <div className="synkord-title-actions">
+          <Tooltip title="MCP 服务状态">
+            <button className={`mcp-status-chip ${mcpStatus}`} onClick={() => navigate(currentTeam ? '/mcp' : '/teams/new')}>
+              <SafetyCertificateOutlined />
+              {mcpStatusLabel[mcpStatus]}
+            </button>
+          </Tooltip>
           <Tooltip title="同步">
             <Button type="text" icon={<SyncOutlined />} />
           </Tooltip>
-          <Tooltip title="设置">
-            <Button type="text" icon={<SettingOutlined />} onClick={() => navigate('/settings')} />
-          </Tooltip>
+          {isPlatformAdmin && (
+            <Tooltip title="全局 MCP 服务器管理">
+              <Button type="text" icon={<SettingOutlined />} onClick={() => navigate('/admin/mcp-server')} />
+            </Tooltip>
+          )}
           <Tooltip title="通知">
-            <Button type="text" icon={<BellOutlined />} />
+            <Button
+              type="text"
+              disabled={!currentTeam}
+              icon={<Badge count={unreadCount} size="small" offset={[3, -3]}><BellOutlined /></Badge>}
+              onClick={() => {
+                setNotificationOpen(true);
+                loadNotifications();
+              }}
+            />
           </Tooltip>
-          <Avatar size={24} className="synkord-user-avatar">{user?.username?.[0]?.toUpperCase() || 'S'}</Avatar>
+          <Dropdown
+            menu={{
+              items: [
+                { key: 'user', label: user?.username || '当前用户', disabled: true },
+                ...(isPlatformAdmin ? [{ key: 'global-mcp', label: '全局 MCP 服务器管理' }] : []),
+                { key: 'logout', label: '退出登录' },
+              ],
+              onClick: ({ key }) => {
+                if (key === 'global-mcp') {
+                  navigate('/admin/mcp-server');
+                }
+                if (key === 'logout') {
+                  logout();
+                  navigate('/login', { replace: true });
+                }
+              },
+            }}
+            trigger={['click']}
+          >
+            <Avatar size={24} className="synkord-user-avatar">{user?.username?.[0]?.toUpperCase() || 'S'}</Avatar>
+          </Dropdown>
           <Tooltip title="置顶">
             <Button type="text" icon={<PushpinOutlined />} />
           </Tooltip>
@@ -97,60 +185,136 @@ export default function AppLayout() {
         <aside className="synkord-sidebar">
           <section className="workspace-section">
             <div className="workspace-title">
-              <span><TeamOutlined /> 工作空间</span>
+              <span><TeamOutlined /> 我的团队</span>
               <span className="workspace-caret">▾</span>
             </div>
-            <button
-              className={selectedWorkspaceKey === '/projects' ? 'workspace-item active' : 'workspace-item'}
-              onClick={() => navigate('/projects')}
-            >
-              默认工作空间
-            </button>
-            <button className="workspace-item plain" onClick={() => navigate('/apis')}>API 规范库</button>
-            <button className="workspace-create">+ 新建空间</button>
-          </section>
-
-          <section className="workspace-section separated">
-            <div className="workspace-group-label">规范资产</div>
-            {workspaceLinks.slice(1).map((item) => (
+            {teams.map((team) => (
               <button
-                key={item.key}
-                className={selectedWorkspaceKey === item.key ? 'workspace-link active' : 'workspace-link'}
-                onClick={() => navigate(item.key)}
+                key={team.id}
+                className={currentTeam?.id === team.id ? 'workspace-item active' : 'workspace-item'}
+                onClick={() => {
+                  switchTeam(team.id);
+                  navigate('/team');
+                }}
               >
-                {item.icon}
-                <span>{item.label}</span>
-                {item.hint && <small>{item.hint}</small>}
+                {team.name}
               </button>
             ))}
+            <button className="workspace-create" onClick={() => navigate('/teams/new')}>+ 新建团队</button>
           </section>
 
-          <section className="workspace-section separated">
-            <div className="workspace-group-label">质量控制</div>
-            {primaryNav.slice(2, 7).map((item) => (
-              <button
-                key={item.key}
-                className={selectedTopKey === item.key ? 'workspace-link active' : 'workspace-link'}
-                onClick={() => navigate(item.key)}
-              >
-                {item.icon}
-                <span>{item.label}</span>
+          {currentTeam && !isWorkbenchRoute && (
+            <section className="workspace-section separated">
+              {workspaceLinks.map((item) => (
+                <button
+                  key={item.key}
+                  className={selectedWorkspaceKey === item.key ? 'workspace-link active' : 'workspace-link'}
+                  onClick={() => navigate(item.key)}
+                >
+                  {item.icon}
+                  <span>{item.label}</span>
+                  {item.hint && <small>{item.hint}</small>}
+                </button>
+              ))}
+            </section>
+          )}
+
+          {isPlatformAdmin && (
+            <div className="sidebar-footer">
+              <button className="org-button" onClick={() => navigate('/admin/mcp-server')}>
+                <SettingOutlined />
+                全局 MCP
               </button>
-            ))}
-          </section>
-
-          <div className="sidebar-footer">
-            <button className="org-button" onClick={handleLogout}>
-              <CompassOutlined />
-              {user?.username || '组织'}
-            </button>
-          </div>
+            </div>
+          )}
         </aside>
 
         <main className="synkord-main">
           <Outlet />
         </main>
       </div>
+
+      <Drawer
+        title={currentTeam ? `${currentTeam.name} 通知` : '团队通知'}
+        open={notificationOpen}
+        onClose={() => setNotificationOpen(false)}
+        width={420}
+      >
+        <List
+          loading={notificationLoading}
+          dataSource={notifications}
+          locale={{ emptyText: <Empty description="暂无通知" /> }}
+          renderItem={(item) => (
+            <List.Item
+              className={item.read_status === 'unread' ? 'notification-item unread' : 'notification-item'}
+              onClick={() => handleNotificationClick(item)}
+              actions={[
+                item.delivery_status === 'failed' ? (
+                  <Button key="retry" size="small" onClick={(event) => handleRetryNotification(event, item)}>
+                    重试
+                  </Button>
+                ) : (
+                  <Tag key="delivery" color={deliveryStatusColor[item.delivery_status]}>
+                    {deliveryStatusLabel[item.delivery_status]}
+                  </Tag>
+                ),
+              ]}
+            >
+              <List.Item.Meta
+                title={(
+                  <div className="notification-title">
+                    <Tag color={severityColor[item.severity]}>{severityLabel[item.severity]}</Tag>
+                    <span>{item.title}</span>
+                  </div>
+                )}
+                description={(
+                  <div className="notification-summary">
+                    <span>{item.summary}</span>
+                    <time>{formatNotificationTime(item.created_at)}</time>
+                  </div>
+                )}
+              />
+            </List.Item>
+          )}
+        />
+      </Drawer>
     </div>
   );
 }
+
+const severityLabel: Record<TeamNotification['severity'], string> = {
+  info: '普通',
+  warning: '警告',
+  breaking: '破坏',
+};
+
+const severityColor: Record<TeamNotification['severity'], string> = {
+  info: 'blue',
+  warning: 'gold',
+  breaking: 'red',
+};
+
+const deliveryStatusLabel: Record<TeamNotification['delivery_status'], string> = {
+  not_configured: '未配置 Webhook',
+  pending: '待发送',
+  sent: '已发送',
+  failed: '发送失败',
+};
+
+const deliveryStatusColor: Record<TeamNotification['delivery_status'], string> = {
+  not_configured: 'default',
+  pending: 'processing',
+  sent: 'success',
+  failed: 'error',
+};
+
+function formatNotificationTime(value: string) {
+  if (!value) return '';
+  return new Date(value).toLocaleString();
+}
+
+const mcpStatusLabel = {
+  enabled: 'MCP 已启用',
+  disabled: 'MCP 已关闭',
+  not_configured: 'MCP 未配置',
+};

@@ -69,6 +69,25 @@ func GetProjectDependencies(db *gorm.DB, projectID string) (*ProjectDeps, error)
 	return &ProjectDeps{Outgoing: outgoing, Incoming: incoming}, nil
 }
 
+func GetTeamProjectDependencies(db *gorm.DB, teamID, projectID string) (*ProjectDeps, error) {
+	var outgoing, incoming []models.Dependency
+
+	if err := db.Preload("TargetProject").
+		Joins("JOIN projects source_projects ON source_projects.id = dependencies.source_project_id").
+		Where("dependencies.source_project_id = ? AND source_projects.team_id = ?", projectID, teamID).
+		Find(&outgoing).Error; err != nil {
+		return nil, err
+	}
+	if err := db.Preload("SourceProject").
+		Joins("JOIN projects target_projects ON target_projects.id = dependencies.target_project_id").
+		Where("dependencies.target_project_id = ? AND target_projects.team_id = ?", projectID, teamID).
+		Find(&incoming).Error; err != nil {
+		return nil, err
+	}
+
+	return &ProjectDeps{Outgoing: outgoing, Incoming: incoming}, nil
+}
+
 type GraphNode struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -110,9 +129,57 @@ func GetFullDependencyGraph(db *gorm.DB) (*DependencyGraph, error) {
 	return &DependencyGraph{Nodes: nodes, Edges: edges}, nil
 }
 
+func GetTeamDependencyGraph(db *gorm.DB, teamID string) (*DependencyGraph, error) {
+	var projects []models.Project
+	if err := db.Where("team_id = ?", teamID).Find(&projects).Error; err != nil {
+		return nil, err
+	}
+
+	nodes := make([]GraphNode, len(projects))
+	for i, p := range projects {
+		nodes[i] = GraphNode{ID: p.ID, Name: p.Name, ProjectType: string(p.ProjectType)}
+	}
+
+	var deps []models.Dependency
+	if err := db.
+		Joins("JOIN projects source_projects ON source_projects.id = dependencies.source_project_id").
+		Joins("JOIN projects target_projects ON target_projects.id = dependencies.target_project_id").
+		Where("source_projects.team_id = ? AND target_projects.team_id = ?", teamID, teamID).
+		Find(&deps).Error; err != nil {
+		return nil, err
+	}
+
+	edges := make([]GraphEdge, len(deps))
+	for i, d := range deps {
+		edges[i] = GraphEdge{Source: d.SourceProjectID, Target: d.TargetProjectID, EntityName: d.EntityName}
+	}
+
+	return &DependencyGraph{Nodes: nodes, Edges: edges}, nil
+}
+
 func FindAffectedProjects(db *gorm.DB, projectID string) ([]string, error) {
 	var deps []models.Dependency
 	if err := db.Where("target_project_id = ?", projectID).Find(&deps).Error; err != nil {
+		return nil, err
+	}
+	affected := make([]string, 0, len(deps))
+	seen := make(map[string]bool)
+	for _, d := range deps {
+		if !seen[d.SourceProjectID] {
+			affected = append(affected, d.SourceProjectID)
+			seen[d.SourceProjectID] = true
+		}
+	}
+	return affected, nil
+}
+
+func FindTeamAffectedProjects(db *gorm.DB, teamID, projectID string) ([]string, error) {
+	var deps []models.Dependency
+	if err := db.
+		Joins("JOIN projects target_projects ON target_projects.id = dependencies.target_project_id").
+		Joins("JOIN projects source_projects ON source_projects.id = dependencies.source_project_id").
+		Where("dependencies.target_project_id = ? AND target_projects.team_id = ? AND source_projects.team_id = ?", projectID, teamID, teamID).
+		Find(&deps).Error; err != nil {
 		return nil, err
 	}
 	affected := make([]string, 0, len(deps))

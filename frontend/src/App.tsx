@@ -1,15 +1,21 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import AppLayout from './components/AppLayout';
-import Dashboard from './pages/Dashboard';
+import WorkspaceHome from './pages/WorkspaceHome';
+import TeamHome from './pages/TeamHome';
 import Projects from './pages/Projects';
 import APIs from './pages/APIs';
-import Entities from './pages/Entities';
+import DataModels from './pages/Entities';
+import MCPManagement from './pages/MCPManagement';
 import DependencyGraph from './pages/DependencyGraph';
 import DiffChecker from './pages/DiffChecker';
 import ChangeSets from './pages/ChangeSets';
+import Members from './pages/Members';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
 import { AuthProvider, useAuth } from './api/auth';
+import { TeamProvider } from './contexts/TeamContext';
+import TeamRequiredRoute from './components/TeamRequiredRoute';
+import CreateTeam from './pages/CreateTeam';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -26,18 +32,26 @@ export default function App() {
           path="/*"
           element={
             <ProtectedRoute>
-              <AppLayout />
+              <TeamProvider>
+                <AppLayout />
+              </TeamProvider>
             </ProtectedRoute>
           }
         >
-          <Route index element={<Dashboard />} />
-          <Route path="projects" element={<Projects />} />
-          <Route path="apis" element={<APIs />} />
-          <Route path="entities" element={<Entities />} />
-          <Route path="dependencies" element={<DependencyGraph />} />
-          <Route path="diff" element={<DiffChecker />} />
-          <Route path="changesets" element={<ChangeSets />} />
-          <Route path="settings" element={<Settings />} />
+          <Route index element={<WorkspaceHome />} />
+          <Route path="teams/new" element={<CreateTeam />} />
+          <Route path="team" element={<TeamRequiredRoute><TeamHome /></TeamRequiredRoute>} />
+          <Route path="projects" element={<TeamRequiredRoute><Projects /></TeamRequiredRoute>} />
+          <Route path="apis" element={<TeamRequiredRoute><APIs /></TeamRequiredRoute>} />
+          <Route path="models" element={<TeamRequiredRoute><DataModels /></TeamRequiredRoute>} />
+          <Route path="mcp" element={<TeamRequiredRoute><MCPManagement /></TeamRequiredRoute>} />
+          <Route path="dependencies" element={<TeamRequiredRoute><DependencyGraph /></TeamRequiredRoute>} />
+          <Route path="diff" element={<TeamRequiredRoute><DiffChecker /></TeamRequiredRoute>} />
+          <Route path="changesets" element={<TeamRequiredRoute><ChangeSets /></TeamRequiredRoute>} />
+          <Route path="members" element={<TeamRequiredRoute><Members /></TeamRequiredRoute>} />
+          <Route path="admin/mcp-server" element={<Settings />} />
+          <Route path="entities" element={<Navigate to="/models" replace />} />
+          <Route path="settings" element={<Navigate to="/admin/mcp-server" replace />} />
         </Route>
       </Routes>
     </AuthProvider>

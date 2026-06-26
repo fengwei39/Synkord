@@ -1,23 +1,27 @@
 import { useState, useEffect, useRef } from 'react';
-import { Typography, Card, Spin } from 'antd';
+import { Typography, Card, Empty, Spin } from 'antd';
 import { Graph } from '@antv/g6';
-import apiClient from '../api/client';
+import { getDependencyGraph } from '../api/dependencies';
+import { useTeam } from '../contexts/TeamContext';
 
-const { Title } = Typography;
+const { Text } = Typography;
 
 export default function DependencyGraph() {
+  const { currentTeam, currentTeamId } = useTeam();
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(false);
+  const [empty, setEmpty] = useState(false);
   const graphRef = useRef<any>(null);
 
   useEffect(() => {
     async function load() {
+      if (!currentTeamId) return;
       setLoading(true);
       try {
-        const resp = await apiClient.get('/dependencies/graph');
-        const { nodes, edges } = resp.data;
+        const { nodes, edges } = await getDependencyGraph(currentTeamId);
+        setEmpty(!nodes?.length);
 
-        if (containerRef.current) {
+        if (containerRef.current && nodes?.length) {
           if (graphRef.current) {
             graphRef.current.destroy();
           }
@@ -77,14 +81,22 @@ export default function DependencyGraph() {
         graphRef.current.destroy();
       }
     };
-  }, []);
+  }, [currentTeamId]);
 
   return (
-    <div>
-      <Title level={4} style={{ marginBottom: 16 }}>依赖拓扑</Title>
+    <div className="project-page">
+      <header className="page-header">
+        <div className="page-title-row">
+          <h1>依赖拓扑</h1>
+          <span className="owner-badge">{currentTeam?.name || '当前团队'}</span>
+        </div>
+        <Text type="secondary">查看当前团队内项目、接口和数据模型之间的依赖关系。</Text>
+      </header>
       <Card>
         {loading ? (
           <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>
+        ) : empty ? (
+          <Empty description="当前团队暂无项目依赖关系" />
         ) : (
           <div ref={containerRef} style={{ width: '100%', height: 500 }} />
         )}

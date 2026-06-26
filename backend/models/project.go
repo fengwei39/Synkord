@@ -16,7 +16,8 @@ const (
 
 type Project struct {
 	ID             string      `json:"id" gorm:"primaryKey;size:36"`
-	Name           string      `json:"name" gorm:"uniqueIndex;size:128;not null"`
+	TeamID         string      `json:"team_id" gorm:"size:36;index;uniqueIndex:idx_team_project_name"`
+	Name           string      `json:"name" gorm:"size:128;not null;uniqueIndex:idx_team_project_name"`
 	Description    string      `json:"description" gorm:"size:512"`
 	ProjectType    ProjectType `json:"project_type" gorm:"size:16;not null"`
 	Owner          string      `json:"owner" gorm:"size:128"`
@@ -26,6 +27,7 @@ type Project struct {
 	CreatedAt      time.Time   `json:"created_at"`
 	UpdatedAt      time.Time   `json:"updated_at"`
 
+	Team                 *Team         `json:"team,omitempty" gorm:"foreignKey:TeamID"`
 	Entities             []Entity      `json:"-" gorm:"foreignKey:ProjectID"`
 	APIEndpoints         []APIEndpoint `json:"-" gorm:"foreignKey:ProjectID"`
 	DependenciesAsSource []Dependency  `json:"-" gorm:"foreignKey:SourceProjectID"`

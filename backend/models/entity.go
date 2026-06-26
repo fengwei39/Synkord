@@ -8,6 +8,7 @@ import (
 
 type Entity struct {
 	ID             string    `json:"id" gorm:"primaryKey;size:36"`
+	TeamID         string    `json:"team_id" gorm:"size:36;index;uniqueIndex:idx_team_entity_name"`
 	Name           string    `json:"name" gorm:"size:256;not null"`
 	Description    string    `json:"description" gorm:"size:512"`
 	IsGlobal       bool      `json:"is_global" gorm:"default:false"`
@@ -19,6 +20,7 @@ type Entity struct {
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 
+	Team     *Team           `json:"team,omitempty" gorm:"foreignKey:TeamID"`
 	Project  *Project        `json:"project,omitempty" gorm:"foreignKey:ProjectID"`
 	Versions []EntityVersion `json:"versions,omitempty" gorm:"foreignKey:EntityID"`
 }

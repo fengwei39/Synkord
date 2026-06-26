@@ -1,12 +1,10 @@
-//go:build cgo
-
 package services
 
 import (
 	"testing"
 
+	"github.com/glebarez/sqlite"
 	"github.com/synkord/core/models"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -17,13 +15,20 @@ func testDB(t *testing.T) *gorm.DB {
 		t.Fatalf("open db: %v", err)
 	}
 	if err := db.AutoMigrate(
+		&models.User{},
+		&models.Team{},
+		&models.TeamMember{},
 		&models.Project{},
 		&models.APIEndpoint{},
 		&models.Entity{},
 		&models.EntityVersion{},
 		&models.Dependency{},
 		&models.ChangeSet{},
-		&models.User{},
+		&models.Notification{},
+		&models.TeamMCPSetting{},
+		&models.MCPConfig{},
+		&models.MCPAuditLog{},
+		&models.GlobalMCPServerConfig{},
 	); err != nil {
 		t.Fatalf("migrate db: %v", err)
 	}

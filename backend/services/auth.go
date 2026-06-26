@@ -56,12 +56,17 @@ func ParseToken(cfg *config.Config, tokenStr string) (*Claims, error) {
 }
 
 func CreateUser(db *gorm.DB, username, password, role string) (*models.User, error) {
+	return CreateUserWithEmail(db, username, "", password, role)
+}
+
+func CreateUserWithEmail(db *gorm.DB, username, email, password, role string) (*models.User, error) {
 	hash, err := HashPassword(password)
 	if err != nil {
 		return nil, err
 	}
 	user := &models.User{
 		Username:       username,
+		Email:          email,
 		HashedPassword: hash,
 		Role:           models.UserRole(role),
 		IsActive:       true,

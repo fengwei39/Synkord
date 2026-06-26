@@ -4,9 +4,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/glebarez/sqlite"
 	"github.com/synkord/core/config"
 	"github.com/synkord/core/models"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 )
@@ -28,12 +28,19 @@ func Init(cfg *config.Config) error {
 	}
 
 	return DB.AutoMigrate(
+		&models.User{},
+		&models.Team{},
+		&models.TeamMember{},
 		&models.Project{},
 		&models.APIEndpoint{},
 		&models.Entity{},
 		&models.EntityVersion{},
 		&models.Dependency{},
 		&models.ChangeSet{},
-		&models.User{},
+		&models.Notification{},
+		&models.TeamMCPSetting{},
+		&models.MCPConfig{},
+		&models.MCPAuditLog{},
+		&models.GlobalMCPServerConfig{},
 	)
 }

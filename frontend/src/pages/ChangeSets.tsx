@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Card, Table, Tag, Typography } from 'antd';
-import apiClient from '../api/client';
+import { listChangeSets } from '../api/changesets';
+import { useTeam } from '../contexts/TeamContext';
 
-const { Title } = Typography;
+const { Text } = Typography;
 
 const severityColors: Record<string, string> = {
   info: 'green',
@@ -11,14 +12,16 @@ const severityColors: Record<string, string> = {
 };
 
 export default function ChangeSets() {
+  const { currentTeam, currentTeamId } = useTeam();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
   const load = async () => {
+    if (!currentTeamId) return;
     setLoading(true);
     try {
-      const resp = await apiClient.get('/diff/changesets?limit=200');
-      setItems(resp.data.items || []);
+      const data = await listChangeSets(currentTeamId);
+      setItems(data);
     } finally {
       setLoading(false);
     }
@@ -26,11 +29,17 @@ export default function ChangeSets() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [currentTeamId]);
 
   return (
-    <div>
-      <Title level={4} style={{ marginBottom: 16 }}>变更历史</Title>
+    <div className="project-page">
+      <header className="page-header">
+        <div className="page-title-row">
+          <h1>变更记录</h1>
+          <span className="owner-badge">{currentTeam?.name || '当前团队'}</span>
+        </div>
+        <Text type="secondary">查看当前团队的接口和数据模型变更检测记录。</Text>
+      </header>
       <Card>
         <Table
           rowKey="id"

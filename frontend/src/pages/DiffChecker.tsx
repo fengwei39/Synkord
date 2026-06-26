@@ -1,22 +1,35 @@
-import { useState } from 'react';
-import { Typography, Card, Form, Input, Button, Table, Tag, Alert, message } from 'antd';
+import { useEffect, useState } from 'react';
+import { Typography, Card, Form, Input, Button, Table, Tag, Alert, Select, message } from 'antd';
 import { DiffOutlined } from '@ant-design/icons';
-import apiClient from '../api/client';
+import { detectChanges } from '../api/changesets';
+import { listProjects } from '../api/projects';
+import { useTeam } from '../contexts/TeamContext';
 
-const { Title } = Typography;
+const { Text } = Typography;
 const { TextArea } = Input;
 
 export default function DiffChecker() {
+  const { currentTeam, currentTeamId } = useTeam();
   const [form] = Form.useForm();
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [projects, setProjects] = useState<any[]>([]);
+
+  useEffect(() => {
+    async function loadProjects() {
+      if (!currentTeamId) return;
+      const items = await listProjects(currentTeamId);
+      setProjects(items.filter((item: any) => item.project_type === 'backend'));
+    }
+    loadProjects();
+  }, [currentTeamId]);
 
   const handleDetect = async () => {
     const values = await form.validateFields();
     setLoading(true);
     try {
-      const resp = await apiClient.post('/diff/detect', values);
-      setResult(resp.data.result || resp.data);
+      const data = await detectChanges(currentTeamId!, values);
+      setResult(data.result || data);
     } catch (e: any) {
       message.error(e.response?.data?.detail || '检测失败');
     } finally {
@@ -34,16 +47,29 @@ export default function DiffChecker() {
   };
 
   return (
-    <div>
-      <Title level={4} style={{ marginBottom: 16 }}>变更检测</Title>
+    <div className="project-page">
+      <header className="page-header">
+        <div className="page-title-row">
+          <h1>变更检测</h1>
+          <span className="owner-badge">{currentTeam?.name || '当前团队'}</span>
+        </div>
+        <Text type="secondary">对比新旧 JSON Schema，识别破坏性变更和受影响项目。</Text>
+      </header>
 
       <Card style={{ marginBottom: 16 }}>
         <Form form={form} layout="vertical">
-          <Form.Item name="service_name" label="服务名称" rules={[{ required: true }]}>
-            <Input placeholder="例如: user-service" />
-          </Form.Item>
           <Form.Item name="project_id" label="项目 ID" rules={[{ required: true }]}>
-            <Input placeholder="项目唯一标识" />
+            <Select
+              placeholder="选择后端项目"
+              options={projects.map((project) => ({ value: project.id, label: project.name }))}
+              onChange={(projectId) => {
+                const project = projects.find((item) => item.id === projectId);
+                form.setFieldValue('service_name', project?.name);
+              }}
+            />
+          </Form.Item>
+          <Form.Item name="service_name" label="服务名称">
+            <Input placeholder="默认使用项目名称" />
           </Form.Item>
           <Form.Item name="old_version" label="旧版本号">
             <Input placeholder="例如: 1.0.0" />

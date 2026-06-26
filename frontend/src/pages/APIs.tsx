@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Button, Card, Form, Input, Select, Space, Table, Tag, Typography, message } from 'antd';
 import { CloudUploadOutlined, ReloadOutlined } from '@ant-design/icons';
-import apiClient from '../api/client';
+import { importOpenAPI, listAPIs } from '../api/apis';
+import { listProjects } from '../api/projects';
+import { useTeam } from '../contexts/TeamContext';
 
-const { Title } = Typography;
 const { TextArea } = Input;
 
 export default function APIs() {
+  const { currentTeam, currentTeamId } = useTeam();
   const [apis, setApis] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -14,11 +16,13 @@ export default function APIs() {
   const [filterForm] = Form.useForm();
 
   const loadProjects = async () => {
-    const resp = await apiClient.get('/projects?limit=200&project_type=backend');
-    setProjects(resp.data.items || []);
+    if (!currentTeamId) return;
+    const items = await listProjects(currentTeamId);
+    setProjects(items.filter((item: any) => item.project_type === 'backend'));
   };
 
   const loadAPIs = async () => {
+    if (!currentTeamId) return;
     setLoading(true);
     try {
       const values = filterForm.getFieldsValue();
@@ -26,8 +30,8 @@ export default function APIs() {
       params.set('limit', '200');
       if (values.project_id) params.set('project_id', values.project_id);
       if (values.q) params.set('q', values.q);
-      const resp = await apiClient.get('/apis?' + params.toString());
-      setApis(resp.data.items || []);
+      const items = await listAPIs(currentTeamId, params);
+      setApis(items);
     } finally {
       setLoading(false);
     }
@@ -36,13 +40,13 @@ export default function APIs() {
   useEffect(() => {
     loadProjects();
     loadAPIs();
-  }, []);
+  }, [currentTeamId]);
 
   const handleImport = async () => {
     const values = await form.validateFields();
     try {
-      const resp = await apiClient.post('/apis/import', values);
-      message.success(`导入完成：${resp.data.api_count} 个 API，${resp.data.dependency_count} 条依赖`);
+      const result = await importOpenAPI(currentTeamId!, values);
+      message.success(`导入完成：${result.api_count} 个 API，${result.dependency_count} 条依赖`);
       form.resetFields(['spec']);
       filterForm.setFieldValue('project_id', values.project_id);
       loadAPIs();
@@ -52,8 +56,14 @@ export default function APIs() {
   };
 
   return (
-    <div>
-      <Title level={4} style={{ marginBottom: 16 }}>API 管理</Title>
+    <div className="project-page">
+      <header className="page-header">
+        <div className="page-title-row">
+          <h1>接口管理</h1>
+          <span className="owner-badge">{currentTeam?.name || '当前团队'}</span>
+        </div>
+        <Typography.Text type="secondary">导入和查询当前团队后端项目的 Swagger / OpenAPI 接口规范。</Typography.Text>
+      </header>
 
       <Card style={{ marginBottom: 16 }}>
         <Form form={form} layout="vertical">

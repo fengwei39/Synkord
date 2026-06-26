@@ -43,6 +43,7 @@ const (
 
 type ChangeSet struct {
 	ID               string         `json:"id" gorm:"primaryKey;size:36"`
+	TeamID           string         `json:"team_id" gorm:"size:36;index"`
 	ProjectID        string         `json:"project_id" gorm:"size:36;not null;index"`
 	ServiceName      string         `json:"service_name" gorm:"size:128;not null"`
 	OldVersion       string         `json:"old_version" gorm:"size:32"`
@@ -54,6 +55,7 @@ type ChangeSet struct {
 	NotificationJSON string         `json:"notification_json" gorm:"type:text"`
 	CreatedAt        time.Time      `json:"created_at"`
 
+	Team    *Team    `json:"team,omitempty" gorm:"foreignKey:TeamID"`
 	Project *Project `json:"project,omitempty" gorm:"foreignKey:ProjectID"`
 }
 

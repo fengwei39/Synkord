@@ -30,7 +30,7 @@ func main() {
 	r := gin.Default()
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		AllowCredentials: true,
 	}))
@@ -40,6 +40,15 @@ func main() {
 	api.RegisterAuthRoutes(apiGroup, cfg)
 	protectedAPI := apiGroup.Group("")
 	protectedAPI.Use(middleware.RequireAuthenticated())
+	api.RegisterTeamRoutes(protectedAPI)
+	api.RegisterTeamProjectRoutes(protectedAPI)
+	api.RegisterTeamAPIRoutes(protectedAPI)
+	api.RegisterTeamModelRoutes(protectedAPI)
+	api.RegisterTeamDependencyRoutes(protectedAPI)
+	api.RegisterTeamDiffRoutes(protectedAPI)
+	api.RegisterTeamNotificationRoutes(protectedAPI)
+	api.RegisterTeamMCPRoutes(protectedAPI)
+	api.RegisterAdminMCPRoutes(protectedAPI)
 	api.RegisterProjectRoutes(protectedAPI)
 	api.RegisterAPIRoutes(protectedAPI)
 	api.RegisterEntityRoutes(protectedAPI)
@@ -69,8 +78,11 @@ func main() {
 
 func requireMCPToken(cfg *config.Config, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if cfg.MCPToken == "" {
-			next.ServeHTTP(w, r)
+		global, err := services.GetGlobalMCPConfig(database.DB)
+		if err != nil || !global.Enabled {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"detail":"MCP server disabled"}`))
 			return
 		}
 		token := r.URL.Query().Get("token")
@@ -80,7 +92,11 @@ func requireMCPToken(cfg *config.Config, next http.Handler) http.Handler {
 				token = auth[len(prefix):]
 			}
 		}
-		if token != cfg.MCPToken {
+		if cfg.MCPToken != "" && token == cfg.MCPToken {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if _, err := services.ValidateMCPAccessToken(database.DB, token); err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			_, _ = w.Write([]byte(`{"detail":"MCP token required"}`))

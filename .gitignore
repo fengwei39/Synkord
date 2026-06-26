@@ -1,4 +1,5 @@
 .go-cache/
+.cache/
 backend/data/
 backend/synkord-core
 backend/*.db

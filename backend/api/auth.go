@@ -34,6 +34,7 @@ func RegisterAuthRoutes(r *gin.RouterGroup, cfg *config.Config) {
 			c.JSON(200, gin.H{
 				"access_token": token,
 				"token_type":   "bearer",
+				"id":           user.ID,
 				"username":     user.Username,
 				"role":         user.Role,
 			})
@@ -42,6 +43,7 @@ func RegisterAuthRoutes(r *gin.RouterGroup, cfg *config.Config) {
 		auth.POST("/register", middleware.RequireAdmin(), func(c *gin.Context) {
 			var req struct {
 				Username string `json:"username" binding:"required"`
+				Email    string `json:"email"`
 				Password string `json:"password" binding:"required,min=6"`
 				Role     string `json:"role"`
 			}
@@ -52,7 +54,7 @@ func RegisterAuthRoutes(r *gin.RouterGroup, cfg *config.Config) {
 			if req.Role == "" {
 				req.Role = "viewer"
 			}
-			user, err := services.CreateUser(database.DB, req.Username, req.Password, req.Role)
+			user, err := services.CreateUserWithEmail(database.DB, req.Username, req.Email, req.Password, req.Role)
 			if err != nil {
 				c.JSON(400, gin.H{"detail": err.Error()})
 				return

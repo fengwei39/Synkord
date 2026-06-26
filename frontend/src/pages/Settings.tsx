@@ -1,132 +1,145 @@
-import { useState, useEffect } from 'react';
-import { Typography, Card, Form, Input, Button, Space, Table, Tag, message } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
-import apiClient from '../api/client';
+import { useEffect, useState } from 'react';
+import { Button, Card, Form, InputNumber, Modal, Select, Space, Switch, Tag, Typography, message } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
+import { getGlobalMCPServer, updateGlobalMCPServer, type GlobalMCPServerConfig } from '../api/mcp';
 import { useAuth } from '../api/auth';
 
-const { Title } = Typography;
+const { Text, Title } = Typography;
+
+const mcpToolOptions = [
+  'get_team_entities',
+  'get_project_entities',
+  'get_project_apis',
+  'get_api_dependencies',
+  'detect_breaking_changes',
+  'validate_entity_usage',
+].map((tool) => ({ value: tool, label: tool }));
 
 export default function Settings() {
   const { user } = useAuth();
-  const [users, setUsers] = useState<any[]>([]);
-  const [apiBase, setApiBase] = useState(localStorage.getItem('synkord_api_base') || '');
-  const [webhookUrl, setWebhookUrl] = useState('');
+  const [config, setConfig] = useState<GlobalMCPServerConfig | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [form] = Form.useForm();
+  const isAdmin = user?.role === 'admin' || user?.role === 'platform_admin';
 
-  const loadUsers = async () => {
+  const load = async () => {
+    if (!isAdmin) return;
+    setLoading(true);
     try {
-      const resp = await apiClient.get('/auth/users');
-      setUsers(resp.data || []);
-    } catch {}
-  };
-
-  useEffect(() => { if (user?.role === 'admin') loadUsers(); }, [user]);
-
-  const handleRegister = async (values: any) => {
-    try {
-      await apiClient.post('/auth/register', values);
-      message.success('用户创建成功');
-      loadUsers();
-    } catch (e: any) {
-      message.error(e.response?.data?.detail || '创建失败');
+      const next = await getGlobalMCPServer();
+      setConfig(next);
+      form.setFieldsValue({
+        enabled: next.enabled,
+        tools: next.tools,
+        rate_limit_per_minute: next.rate_limit_per_minute,
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
-  const roleLabels: Record<string, string> = { admin: '管理员', editor: '编辑者', viewer: '只读者' };
-  const roleColors: Record<string, string> = { admin: 'red', editor: 'blue', viewer: 'default' };
+  useEffect(() => { load(); }, [isAdmin]);
 
-  const saveAPIBase = () => {
-    const value = apiBase.trim();
-    if (value) {
-      localStorage.setItem('synkord_api_base', value);
-      apiClient.defaults.baseURL = value;
-    } else {
-      localStorage.removeItem('synkord_api_base');
-      apiClient.defaults.baseURL = '/api';
-    }
-    message.success('后端地址已保存');
+  const save = async () => {
+    const values = await form.validateFields();
+    const next = await updateGlobalMCPServer({
+      enabled: values.enabled,
+      tools: values.tools || [],
+      rate_limit_per_minute: values.rate_limit_per_minute,
+    });
+    setConfig(next);
+    message.success('全局 MCP 配置已保存');
   };
+
+  const toggleGlobal = (checked: boolean) => {
+    Modal.confirm({
+      title: checked ? '开启全局 MCP Server？' : '关闭全局 MCP Server？',
+      content: checked
+        ? '开启后，团队 MCP 开关和 Token 启用的情况下可访问 MCP 服务。'
+        : '关闭后，所有团队 MCP Token 会立即不可用，但不会删除配置和审计记录。',
+      onOk: () => {
+        form.setFieldValue('enabled', checked);
+        return save();
+      },
+    });
+  };
+
+  if (!isAdmin) {
+    return (
+      <div className="project-page">
+        <Card>
+          <Title level={4}>无权限访问</Title>
+          <Text type="secondary">全局 MCP 服务器管理仅平台管理员可用。</Text>
+        </Card>
+      </div>
+    );
+  }
 
   return (
-    <div>
-      <Title level={4} style={{ marginBottom: 16 }}>系统设置</Title>
+    <div className="project-page">
+      <header className="page-header">
+        <div className="page-title-row">
+          <h1>全局 MCP 服务器管理</h1>
+          <span className="owner-badge">平台管理员</span>
+        </div>
+        <Text type="secondary">全局开关只控制 MCP Server 能力，不承载团队资产、Webhook 或后端连接配置。</Text>
+      </header>
 
-      <Card title="后端连接" style={{ marginBottom: 16 }}>
-        <Form layout="inline">
-          <Form.Item label="synkord-core API 地址">
-            <Input
-              value={apiBase}
-              onChange={(e) => setApiBase(e.target.value)}
-              placeholder="http://127.0.0.1:8000/api"
-              style={{ width: 420 }}
+      <Card
+        loading={loading}
+        title="MCP Server"
+        extra={<Button icon={<ReloadOutlined />} onClick={load}>刷新状态</Button>}
+      >
+        <Form form={form} layout="vertical">
+          <div className="mcp-status-row">
+            <div>
+              <Title level={5}>全局 MCP 服务开关</Title>
+              <Space>
+                <Tag color={config?.enabled ? 'green' : 'red'}>{config?.enabled ? '运行中' : '已关闭'}</Tag>
+                <Text type="secondary">关闭后 `/mcp/sse` 与 `/mcp/message` 返回不可用。</Text>
+              </Space>
+            </div>
+            <Form.Item name="enabled" valuePropName="checked" style={{ margin: 0 }}>
+              <Switch
+                checkedChildren="已开启"
+                unCheckedChildren="已关闭"
+                onChange={toggleGlobal}
+              />
+            </Form.Item>
+          </div>
+
+          <div className="mcp-url-row">
+            <Text type="secondary">SSE 端点</Text>
+            <code>{config?.sse_endpoint || '/mcp/sse'}</code>
+          </div>
+          <div className="mcp-url-row">
+            <Text type="secondary">Message 端点</Text>
+            <code>{config?.message_endpoint || '/mcp/message'}</code>
+          </div>
+
+          <Form.Item
+            name="tools"
+            label="全局工具开关"
+            rules={[{ required: true, message: '至少保留一个 MCP 工具' }]}
+            style={{ marginTop: 18 }}
+          >
+            <Select
+              mode="multiple"
+              options={mcpToolOptions}
             />
           </Form.Item>
-          <Form.Item>
-            <Button type="primary" onClick={saveAPIBase}>保存</Button>
+
+          <Form.Item
+            name="rate_limit_per_minute"
+            label="调用限流（次 / 分钟）"
+            rules={[{ required: true, message: '请输入限流值' }]}
+          >
+            <InputNumber min={1} max={10000} style={{ width: 220 }} />
           </Form.Item>
+
+          <Button type="primary" onClick={save}>保存配置</Button>
         </Form>
       </Card>
-
-      <Card title="Webhook 通知配置" style={{ marginBottom: 16 }}>
-        <Form layout="inline">
-          <Form.Item label="钉钉/飞书 Webhook URL">
-            <Input
-              value={webhookUrl}
-              onChange={(e) => setWebhookUrl(e.target.value)}
-              placeholder="https://oapi.dingtalk.com/robot/send?access_token=..."
-              style={{ width: 500 }}
-            />
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" onClick={() => message.info('配置已保存（演示）')}>保存</Button>
-          </Form.Item>
-        </Form>
-      </Card>
-
-      <Card title="MCP 服务状态">
-        <Space direction="vertical">
-          <div>
-            <Tag color="green">运行中</Tag>
-            <span>MCP Server 端口: 8100</span>
-          </div>
-          <div>
-            <span>接入地址: </span>
-            <code>http://&lt;host&gt;:8000/mcp/sse?token=&lt;token&gt;</code>
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <span>各 IDE 在项目根目录创建 </span>
-            <code>.mcp.json</code>
-            <span> 文件即可接入</span>
-          </div>
-        </Space>
-      </Card>
-
-      {user?.role === 'admin' && (
-        <Card title="用户管理" style={{ marginTop: 16 }}>
-          <Form onFinish={handleRegister} layout="inline" style={{ marginBottom: 16 }}>
-            <Form.Item name="username" rules={[{ required: true }]}>
-              <Input placeholder="用户名" />
-            </Form.Item>
-            <Form.Item name="password" rules={[{ required: true, min: 6 }]}>
-              <Input.Password placeholder="密码" />
-            </Form.Item>
-            <Form.Item>
-              <Button type="primary" htmlType="submit" icon={<PlusOutlined />}>创建用户</Button>
-            </Form.Item>
-          </Form>
-
-          <Table
-            dataSource={users}
-            rowKey="id"
-            columns={[
-              { title: '用户名', dataIndex: 'username' },
-              { title: '角色', dataIndex: 'role', render: (r: string) => <Tag color={roleColors[r]}>{roleLabels[r]}</Tag> },
-              { title: '状态', dataIndex: 'is_active', render: (a: boolean) => a ? <Tag color="green">正常</Tag> : <Tag color="red">禁用</Tag> },
-            ]}
-            pagination={false}
-            size="small"
-          />
-        </Card>
-      )}
     </div>
   );
 }

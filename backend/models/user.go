@@ -17,6 +17,7 @@ const (
 type User struct {
 	ID             string    `json:"id" gorm:"primaryKey;size:36"`
 	Username       string    `json:"username" gorm:"uniqueIndex;size:64;not null"`
+	Email          string    `json:"email" gorm:"size:128;index"`
 	HashedPassword string    `json:"-" gorm:"size:256;not null"`
 	Role           UserRole  `json:"role" gorm:"size:16;default:viewer"`
 	IsActive       bool      `json:"is_active" gorm:"default:true"`

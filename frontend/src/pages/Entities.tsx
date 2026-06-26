@@ -1,12 +1,16 @@
 import { useState, useEffect } from 'react';
 import { Table, Button, Modal, Form, Input, Select, Switch, Space, Tag, Typography, message, Popconfirm } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, HistoryOutlined } from '@ant-design/icons';
-import apiClient from '../api/client';
+import { createModel, deleteModel, listModels, listModelVersions, updateModel } from '../api/models';
+import { listProjects } from '../api/projects';
+import { useTeam } from '../contexts/TeamContext';
 
-const { Title } = Typography;
+const { Text } = Typography;
 
 export default function Entities() {
+  const { currentTeam, currentTeamId } = useTeam();
   const [entities, setEntities] = useState<any[]>([]);
+  const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [versionModal, setVersionModal] = useState(false);
@@ -15,25 +19,35 @@ export default function Entities() {
   const [form] = Form.useForm();
 
   const load = async () => {
+    if (!currentTeamId) return;
     setLoading(true);
     try {
-      const resp = await apiClient.get('/entities?limit=200');
-      setEntities(resp.data.items || []);
+      const items = await listModels(currentTeamId);
+      setEntities(items);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { load(); }, []);
+  const loadProjects = async () => {
+    if (!currentTeamId) return;
+    const items = await listProjects(currentTeamId);
+    setProjects(items);
+  };
+
+  useEffect(() => {
+    load();
+    loadProjects();
+  }, [currentTeamId]);
 
   const handleSave = async () => {
     const values = await form.validateFields();
     try {
       if (editing) {
-        await apiClient.put('/entities/' + editing.id, values);
+        await updateModel(currentTeamId!, editing.id, values);
         message.success('更新成功');
       } else {
-        await apiClient.post('/entities', values);
+        await createModel(currentTeamId!, values);
         message.success('创建成功');
       }
       setModalOpen(false);
@@ -46,15 +60,15 @@ export default function Entities() {
   };
 
   const handleDelete = async (id: string) => {
-    await apiClient.delete('/entities/' + id);
+    await deleteModel(currentTeamId!, id);
     message.success('删除成功');
     load();
   };
 
   const showVersions = async (entityId: string) => {
     try {
-      const resp = await apiClient.get('/entities/' + entityId + '/versions');
-      setVersions(resp.data || []);
+      const items = await listModelVersions(currentTeamId!, entityId);
+      setVersions(items);
       setVersionModal(true);
     } catch {
       message.error('获取版本历史失败');
@@ -65,7 +79,7 @@ export default function Entities() {
     { title: '名称', dataIndex: 'name', key: 'name' },
     {
       title: '类型', dataIndex: 'is_global', key: 'type',
-      render: (g: boolean) => <Tag color={g ? 'purple' : 'blue'}>{g ? '全局' : '服务'}</Tag>,
+      render: (g: boolean) => <Tag color={g ? 'purple' : 'blue'}>{g ? '团队模型' : '项目模型'}</Tag>,
     },
     { title: '版本', dataIndex: 'current_version', key: 'version', width: 100 },
     { title: '描述', dataIndex: 'description', key: 'desc', ellipsis: true },
@@ -76,7 +90,7 @@ export default function Entities() {
           <Button type="link" icon={<HistoryOutlined />} onClick={() => showVersions(record.id)}>版本</Button>
           <Button type="link" icon={<EditOutlined />} onClick={() => {
             setEditing(record);
-            form.setFieldsValue(record);
+            form.setFieldsValue({ ...record, is_team_model: record.is_global });
             setModalOpen(true);
           }}>编辑</Button>
           <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id)}>
@@ -88,20 +102,27 @@ export default function Entities() {
   ];
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>实体管理</Title>
+    <div className="project-page">
+      <header className="page-header">
+        <div className="page-title-row">
+          <h1>数据模型</h1>
+          <span className="owner-badge">{currentTeam?.name || '当前团队'}</span>
+        </div>
+        <Text type="secondary">维护当前团队的团队模型和项目私有模型。</Text>
+      </header>
+      <div className="content-toolbar">
+        <div />
         <Button type="primary" icon={<PlusOutlined />} onClick={() => {
           setEditing(null);
           form.resetFields();
           setModalOpen(true);
-        }}>新建实体</Button>
+        }}>新建模型</Button>
       </div>
 
       <Table columns={columns} dataSource={entities} rowKey="id" loading={loading} />
 
       <Modal
-        title={editing ? '编辑实体' : '新建实体'}
+        title={editing ? '编辑模型' : '新建模型'}
         open={modalOpen}
         onOk={handleSave}
         onCancel={() => { setModalOpen(false); setEditing(null); form.resetFields(); }}
@@ -114,11 +135,15 @@ export default function Entities() {
           <Form.Item name="description" label="描述">
             <Input />
           </Form.Item>
-          <Form.Item name="is_global" label="全局实体" valuePropName="checked">
+          <Form.Item name="is_team_model" label="团队模型" valuePropName="checked" initialValue={true}>
             <Switch />
           </Form.Item>
           <Form.Item name="project_id" label="所属项目">
-            <Input placeholder="项目 ID（全局实体可不填）" />
+            <Select
+              allowClear
+              placeholder="团队模型可不选择项目"
+              options={projects.map((project) => ({ value: project.id, label: project.name }))}
+            />
           </Form.Item>
           <Form.Item name="schema_content" label="JSON Schema 定义" rules={[{ required: true }]}>
             <Input.TextArea rows={10} placeholder='{"type": "object", "properties": {...}}' />

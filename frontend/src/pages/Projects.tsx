@@ -10,13 +10,15 @@ import {
   ProjectOutlined,
   SortAscendingOutlined,
 } from '@ant-design/icons';
-import apiClient from '../api/client';
+import { createProject, deleteProject, listProjects, updateProject } from '../api/projects';
+import { useTeam } from '../contexts/TeamContext';
 
 const { Text } = Typography;
 
 const typeLabels: Record<string, string> = { backend: 'HTTP', web: 'WEB', app: 'APP' };
 
 export default function Projects() {
+  const { currentTeam, currentTeamId } = useTeam();
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -24,25 +26,26 @@ export default function Projects() {
   const [form] = Form.useForm();
 
   const load = async () => {
+    if (!currentTeamId) return;
     setLoading(true);
     try {
-      const resp = await apiClient.get('/projects?limit=200');
-      setProjects(resp.data.items || []);
+      const items = await listProjects(currentTeamId);
+      setProjects(items);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [currentTeamId]);
 
   const handleSave = async () => {
     const values = await form.validateFields();
     try {
       if (editing) {
-        await apiClient.put('/projects/' + editing.id, values);
+        await updateProject(currentTeamId!, editing.id, values);
         message.success('更新成功');
       } else {
-        await apiClient.post('/projects', values);
+        await createProject(currentTeamId!, values);
         message.success('创建成功');
       }
       setModalOpen(false);
@@ -55,7 +58,7 @@ export default function Projects() {
   };
 
   const handleDelete = async (id: string) => {
-    await apiClient.delete('/projects/' + id);
+    await deleteProject(currentTeamId!, id);
     message.success('删除成功');
     load();
   };
@@ -76,17 +79,10 @@ export default function Projects() {
     <div className="project-page">
       <header className="page-header">
         <div className="page-title-row">
-          <h1>默认工作空间</h1>
-          <span className="owner-badge">自托管实例</span>
+          <h1>项目管理</h1>
+          <span className="owner-badge">{currentTeam?.name || '当前团队'}</span>
         </div>
-        <div className="page-tabs">
-          <button className="page-tab active">项目</button>
-          <button className="page-tab">API 规范</button>
-          <button className="page-tab">实体模型</button>
-          <button className="page-tab">依赖关系</button>
-          <button className="page-tab">变更记录</button>
-          <button className="page-tab">访问控制</button>
-        </div>
+        <Text type="secondary">维护当前团队下的后端服务、Web、App 项目和仓库元数据。</Text>
       </header>
 
       <div className="content-toolbar">
@@ -98,7 +94,7 @@ export default function Projects() {
           <Button type="text" icon={<SortAscendingOutlined />} />
         </div>
         <div className="toolbar-right">
-          <Button icon={<ImportOutlined />}>导入 OpenAPI</Button>
+          <Button icon={<ImportOutlined />}>导入 Swagger / Postman</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建项目</Button>
         </div>
       </div>
@@ -156,7 +152,7 @@ export default function Projects() {
           <Form.Item name="repo_url" label="仓库地址">
             <Input />
           </Form.Item>
-          <Text type="secondary">OpenAPI 文档建议在 API 管理中导入。</Text>
+          <Text type="secondary">Swagger/OpenAPI 与 Postman Collection 建议在团队资产页签中导入。</Text>
         </Form>
       </Modal>
     </div>

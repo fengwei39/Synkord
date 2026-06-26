@@ -37,9 +37,84 @@ func CreateEntity(db *gorm.DB, name, description, schemaContent string, isGlobal
 	return e, nil
 }
 
+func CreateTeamEntity(db *gorm.DB, teamID, name, description, schemaContent string, isTeamModel bool, projectID, userID *string) (*models.Entity, error) {
+	e := &models.Entity{
+		TeamID:         teamID,
+		Name:           name,
+		Description:    description,
+		IsGlobal:       isTeamModel,
+		SchemaContent:  schemaContent,
+		CurrentVersion: "1.0.0",
+		VersionCount:   1,
+		ProjectID:      projectID,
+		CreatedBy:      userID,
+	}
+	if err := db.Create(e).Error; err != nil {
+		return nil, err
+	}
+
+	v := &models.EntityVersion{
+		EntityID:      e.ID,
+		VersionNumber: "1.0.0",
+		SchemaContent: schemaContent,
+		ChangeSummary: "Initial version",
+		CreatedBy:     userID,
+	}
+	db.Create(v)
+
+	return e, nil
+}
+
 func UpdateEntity(db *gorm.DB, entityID string, name, description, schemaContent, changeSummary *string, userID *string) (*models.Entity, error) {
 	var e models.Entity
 	if err := db.First(&e, "id = ?", entityID).Error; err != nil {
+		return nil, err
+	}
+
+	oldSchema := e.SchemaContent
+	newSchema := oldSchema
+	if schemaContent != nil {
+		newSchema = *schemaContent
+		e.SchemaContent = *schemaContent
+	}
+	if name != nil {
+		e.Name = *name
+	}
+	if description != nil {
+		e.Description = *description
+	}
+
+	isBreaking := detectBreaking(oldSchema, newSchema)
+	newVersion := bumpVersion(e.CurrentVersion, isBreaking)
+
+	e.CurrentVersion = newVersion
+	e.VersionCount++
+
+	summary := "Update"
+	if changeSummary != nil && *changeSummary != "" {
+		summary = *changeSummary
+	} else if isBreaking {
+		summary = "Breaking change"
+	}
+
+	v := &models.EntityVersion{
+		EntityID:      e.ID,
+		VersionNumber: newVersion,
+		SchemaContent: newSchema,
+		ChangeSummary: summary,
+		CreatedBy:     userID,
+	}
+	db.Create(v)
+
+	if err := db.Save(&e).Error; err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+func UpdateTeamEntity(db *gorm.DB, teamID, entityID string, name, description, schemaContent, changeSummary *string, userID *string) (*models.Entity, error) {
+	var e models.Entity
+	if err := db.First(&e, "id = ? AND team_id = ?", entityID, teamID).Error; err != nil {
 		return nil, err
 	}
 
@@ -92,6 +167,14 @@ func GetEntity(db *gorm.DB, entityID string) (*models.Entity, error) {
 	return &e, nil
 }
 
+func GetTeamEntity(db *gorm.DB, teamID, entityID string) (*models.Entity, error) {
+	var e models.Entity
+	if err := db.Preload("Project").First(&e, "id = ? AND team_id = ?", entityID, teamID).Error; err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
 func GetGlobalEntities(db *gorm.DB) ([]models.Entity, error) {
 	var entities []models.Entity
 	if err := db.Where("is_global = ?", true).Order("name").Find(&entities).Error; err != nil {
@@ -127,6 +210,25 @@ func ListEntities(db *gorm.DB, projectID *string, isGlobal *bool, offset, limit 
 	return entities, total, nil
 }
 
+func ListTeamEntities(db *gorm.DB, teamID string, projectID *string, isTeamModel *bool, offset, limit int) ([]models.Entity, int64, error) {
+	var entities []models.Entity
+	var total int64
+
+	query := db.Model(&models.Entity{}).Where("team_id = ?", teamID)
+	if projectID != nil {
+		query = query.Where("project_id = ?", *projectID)
+	}
+	if isTeamModel != nil {
+		query = query.Where("is_global = ?", *isTeamModel)
+	}
+
+	query.Count(&total)
+	if err := query.Order("name").Offset(offset).Limit(limit).Find(&entities).Error; err != nil {
+		return nil, 0, err
+	}
+	return entities, total, nil
+}
+
 func GetEntityVersions(db *gorm.DB, entityID string) ([]models.EntityVersion, error) {
 	var versions []models.EntityVersion
 	if err := db.Where("entity_id = ?", entityID).Order("created_at desc").Find(&versions).Error; err != nil {
@@ -137,6 +239,10 @@ func GetEntityVersions(db *gorm.DB, entityID string) ([]models.EntityVersion, er
 
 func DeleteEntity(db *gorm.DB, entityID string) error {
 	return db.Delete(&models.Entity{}, "id = ?", entityID).Error
+}
+
+func DeleteTeamEntity(db *gorm.DB, teamID, entityID string) error {
+	return db.Delete(&models.Entity{}, "id = ? AND team_id = ?", entityID, teamID).Error
 }
 
 func bumpVersion(current string, isBreaking bool) string {

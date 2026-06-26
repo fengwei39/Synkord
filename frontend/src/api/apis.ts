@@ -5,7 +5,7 @@ export async function listAPIs(teamId: string, params: URLSearchParams) {
   return resp.data.items || [];
 }
 
-export async function importOpenAPI(teamId: string, values: { project_id: string; spec: string }) {
+export async function importAPISpec(teamId: string, values: { project_id: string; spec: string; format?: 'openapi' | 'postman' }) {
   const resp = await apiClient.post(`/teams/${teamId}/apis/import`, values);
   return resp.data;
 }

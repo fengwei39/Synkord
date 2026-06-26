@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Typography, Card, Form, Input, Button, Table, Tag, Alert, Select, message } from 'antd';
+import { App as AntApp, Typography, Card, Form, Input, Button, Table, Tag, Alert, Select } from 'antd';
 import { DiffOutlined } from '@ant-design/icons';
 import { detectChanges } from '../api/changesets';
 import { listProjects } from '../api/projects';
@@ -10,6 +10,7 @@ const { TextArea } = Input;
 
 export default function DiffChecker() {
   const { currentTeam, currentTeamId } = useTeam();
+  const { message } = AntApp.useApp();
   const [form] = Form.useForm();
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Modal, Form, Input, Select, Switch, Space, Tag, Typography, message, Popconfirm } from 'antd';
+import { App as AntApp, Table, Button, Modal, Form, Input, Select, Switch, Space, Tag, Typography, Popconfirm } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, HistoryOutlined } from '@ant-design/icons';
 import { createModel, deleteModel, listModels, listModelVersions, updateModel } from '../api/models';
 import { listProjects } from '../api/projects';
@@ -9,7 +9,9 @@ const { Text } = Typography;
 
 export default function Entities() {
   const { currentTeam, currentTeamId } = useTeam();
+  const { message } = AntApp.useApp();
   const [entities, setEntities] = useState<any[]>([]);
+  const [scopes, setScopes] = useState<'all' | 'team' | 'project'>('all');
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -110,8 +112,20 @@ export default function Entities() {
         </div>
         <Text type="secondary">维护当前团队的团队模型和项目私有模型。</Text>
       </header>
-      <div className="content-toolbar">
-        <div />
+      <div className="filter-panel">
+        <Space>
+          <span>范围：</span>
+          <Select
+            value={scopes}
+            style={{ width: 140 }}
+            onChange={setScopes}
+            options={[
+              { value: 'all', label: '全部模型' },
+              { value: 'team', label: '团队模型' },
+              { value: 'project', label: '项目模型' },
+            ]}
+          />
+        </Space>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => {
           setEditing(null);
           form.resetFields();
@@ -119,7 +133,17 @@ export default function Entities() {
         }}>新建模型</Button>
       </div>
 
-      <Table columns={columns} dataSource={entities} rowKey="id" loading={loading} />
+      <Table
+        rowKey="id"
+        loading={loading}
+        dataSource={entities.filter((entity) => {
+          if (scopes === 'team') return !!entity.is_team_model;
+          if (scopes === 'project') return !entity.is_team_model;
+          return true;
+        })}
+        columns={columns}
+        pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `共 ${total} 个模型` }}
+      />
 
       <Modal
         title={editing ? '编辑模型' : '新建模型'}

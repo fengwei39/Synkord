@@ -10,6 +10,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   token: string | null;
+  bootstrapping: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
 }
@@ -17,6 +18,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({
   user: null,
   token: null,
+  bootstrapping: false,
   login: async () => {},
   logout: () => {},
 });
@@ -29,6 +31,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(() =>
     localStorage.getItem('synkord_token')
   );
+  const [bootstrapping, setBootstrapping] = useState<boolean>(!!localStorage.getItem('synkord_token'));
 
   const login = useCallback(async (username: string, password: string) => {
     const resp = await apiClient.post('/auth/login', { username, password });
@@ -44,10 +47,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem('synkord_user');
     setToken(null);
     setUser(null);
+    localStorage.removeItem('synkord_current_team_id');
+    setBootstrapping(false);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!token) {
+      setBootstrapping(false);
+      return;
+    }
+    apiClient.get('/auth/me')
+      .then((resp) => {
+        if (cancelled) return;
+        const userData = resp.data as any;
+        if (userData && userData.id) {
+          setUser(userData);
+          localStorage.setItem('synkord_user', JSON.stringify(userData));
+        }
+        setBootstrapping(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        logout();
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, logout]);
+
   return (
-    <AuthContext.Provider value={{ user, token, login, logout }}>
+    <AuthContext.Provider value={{ user, token, login, logout, bootstrapping }}>
       {children}
     </AuthContext.Provider>
   );

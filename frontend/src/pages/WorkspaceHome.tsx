@@ -1,4 +1,4 @@
-import { Button, List, Tag } from 'antd';
+import { Button, Tag } from 'antd';
 import { ProjectOutlined, PlusOutlined, TeamOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useTeam } from '../contexts/TeamContext';
@@ -19,33 +19,30 @@ export default function WorkspaceHome() {
             新建团队
           </Button>
         </div>
-        <List
-          loading={loading}
-          className="team-list-panel"
-          dataSource={teams}
-          renderItem={(team) => (
-            <List.Item
-              actions={[
-                <Button
-                  key="enter"
-                  type={currentTeam?.id === team.id ? 'primary' : 'default'}
+        <div className={loading ? 'team-list-panel loading' : 'team-list-panel'}>
+          {teams.map((team) => (
+            <div className="team-list-row" key={team.id}>
+              <div className="team-list-meta">
+                <div className="team-list-avatar"><TeamOutlined /></div>
+                <div>
+                  <div className="team-list-name">
+                    {team.name} {currentTeam?.id === team.id && <Tag color="blue">当前团队</Tag>}
+                  </div>
+                  <div className="team-list-description">{team.description || '暂无描述'}</div>
+                </div>
+              </div>
+              <Button
+                type={currentTeam?.id === team.id ? 'primary' : 'default'}
                 onClick={() => {
                   switchTeam(team.id);
                   navigate('/team');
                 }}
               >
-                  进入团队空间
-                </Button>,
-              ]}
-            >
-              <List.Item.Meta
-                avatar={<div className="team-list-avatar"><TeamOutlined /></div>}
-                title={<span>{team.name} {currentTeam?.id === team.id && <Tag color="blue">当前团队</Tag>}</span>}
-                description={team.description || '暂无描述'}
-              />
-            </List.Item>
-          )}
-        />
+                进入团队空间
+              </Button>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

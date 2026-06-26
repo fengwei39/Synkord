@@ -11,6 +11,7 @@ export default function DependencyGraph() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(false);
   const [empty, setEmpty] = useState(false);
+  const [stats, setStats] = useState<{ nodes: number; edges: number }>({ nodes: 0, edges: 0 });
   const graphRef = useRef<any>(null);
 
   useEffect(() => {
@@ -19,7 +20,8 @@ export default function DependencyGraph() {
       setLoading(true);
       try {
         const { nodes, edges } = await getDependencyGraph(currentTeamId);
-        setEmpty(!nodes?.length);
+        setStats({ nodes: nodes?.length || 0, edges: edges?.length || 0 });
+        setEmpty(!(nodes?.length || edges?.length));
 
         if (containerRef.current && nodes?.length) {
           if (graphRef.current) {
@@ -92,7 +94,16 @@ export default function DependencyGraph() {
         </div>
         <Text type="secondary">查看当前团队内项目、接口和数据模型之间的依赖关系。</Text>
       </header>
-      <Card>
+      <Card
+        title={(
+          <div className="mcp-status-row">
+            <div>
+              <strong>依赖关系</strong>
+              <div style={{ color: '#64748b', fontSize: 12 }}>项目 {stats.nodes} · 依赖 {stats.edges}</div>
+            </div>
+          </div>
+        )}
+      >
         {loading ? (
           <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>
         ) : empty ? (

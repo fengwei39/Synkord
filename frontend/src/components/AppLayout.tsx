@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Avatar, Badge, Button, Drawer, Dropdown, Empty, List, Tag, Tooltip } from 'antd';
+import { Avatar, Badge, Button, Drawer, Dropdown, Empty, Spin, Tag, Tooltip } from 'antd';
 import {
   ApiOutlined,
   ApartmentOutlined,
@@ -238,45 +238,47 @@ export default function AppLayout() {
         title={currentTeam ? `${currentTeam.name} 通知` : '团队通知'}
         open={notificationOpen}
         onClose={() => setNotificationOpen(false)}
-        width={420}
+        size="default"
       >
-        <List
-          loading={notificationLoading}
-          dataSource={notifications}
-          locale={{ emptyText: <Empty description="暂无通知" /> }}
-          renderItem={(item) => (
-            <List.Item
-              className={item.read_status === 'unread' ? 'notification-item unread' : 'notification-item'}
-              onClick={() => handleNotificationClick(item)}
-              actions={[
-                item.delivery_status === 'failed' ? (
-                  <Button key="retry" size="small" onClick={(event) => handleRetryNotification(event, item)}>
-                    重试
-                  </Button>
-                ) : (
-                  <Tag key="delivery" color={deliveryStatusColor[item.delivery_status]}>
-                    {deliveryStatusLabel[item.delivery_status]}
-                  </Tag>
-                ),
-              ]}
-            >
-              <List.Item.Meta
-                title={(
+        {notificationLoading ? (
+          <div className="notification-loading">
+            <Spin />
+          </div>
+        ) : notifications.length === 0 ? (
+          <Empty description="暂无通知" />
+        ) : (
+          <div className="notification-list">
+            {notifications.map((item) => (
+              <button
+                key={item.id}
+                className={item.read_status === 'unread' ? 'notification-item unread' : 'notification-item'}
+                onClick={() => handleNotificationClick(item)}
+              >
+                <div className="notification-content">
                   <div className="notification-title">
                     <Tag color={severityColor[item.severity]}>{severityLabel[item.severity]}</Tag>
                     <span>{item.title}</span>
                   </div>
-                )}
-                description={(
                   <div className="notification-summary">
                     <span>{item.summary}</span>
                     <time>{formatNotificationTime(item.created_at)}</time>
                   </div>
-                )}
-              />
-            </List.Item>
-          )}
-        />
+                </div>
+                <div className="notification-action">
+                  {item.delivery_status === 'failed' ? (
+                    <Button size="small" onClick={(event) => handleRetryNotification(event, item)}>
+                      重试
+                    </Button>
+                  ) : (
+                    <Tag color={deliveryStatusColor[item.delivery_status]}>
+                      {deliveryStatusLabel[item.delivery_status]}
+                    </Tag>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </Drawer>
     </div>
   );

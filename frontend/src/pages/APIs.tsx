@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, Form, Input, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { App as AntApp, Button, Card, Form, Input, Radio, Select, Space, Table, Tag, Typography } from 'antd';
 import { CloudUploadOutlined, ReloadOutlined } from '@ant-design/icons';
-import { importOpenAPI, listAPIs } from '../api/apis';
+import { importAPISpec, listAPIs } from '../api/apis';
 import { listProjects } from '../api/projects';
 import { useTeam } from '../contexts/TeamContext';
 
@@ -9,11 +9,13 @@ const { TextArea } = Input;
 
 export default function APIs() {
   const { currentTeam, currentTeamId } = useTeam();
+  const { message } = AntApp.useApp();
   const [apis, setApis] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [form] = Form.useForm();
   const [filterForm] = Form.useForm();
+  const importFormat = Form.useWatch('format', form) || 'openapi';
 
   const loadProjects = async () => {
     if (!currentTeamId) return;
@@ -45,7 +47,7 @@ export default function APIs() {
   const handleImport = async () => {
     const values = await form.validateFields();
     try {
-      const result = await importOpenAPI(currentTeamId!, values);
+      const result = await importAPISpec(currentTeamId!, values);
       message.success(`导入完成：${result.api_count} 个 API，${result.dependency_count} 条依赖`);
       form.resetFields(['spec']);
       filterForm.setFieldValue('project_id', values.project_id);
@@ -62,22 +64,39 @@ export default function APIs() {
           <h1>接口管理</h1>
           <span className="owner-badge">{currentTeam?.name || '当前团队'}</span>
         </div>
-        <Typography.Text type="secondary">导入和查询当前团队后端项目的 Swagger / OpenAPI 接口规范。</Typography.Text>
+        <Typography.Text type="secondary">导入和查询当前团队后端项目的 Swagger / OpenAPI 或 Postman 接口规范。</Typography.Text>
       </header>
 
       <Card style={{ marginBottom: 16 }}>
-        <Form form={form} layout="vertical">
+        <Form form={form} layout="vertical" initialValues={{ format: 'openapi' }}>
+          <Form.Item name="format" label="导入格式">
+            <Radio.Group
+              optionType="button"
+              buttonStyle="solid"
+              options={[
+                { value: 'openapi', label: 'Swagger / OpenAPI' },
+                { value: 'postman', label: 'Postman Collection' },
+              ]}
+            />
+          </Form.Item>
           <Form.Item name="project_id" label="后端项目" rules={[{ required: true }]}>
             <Select
               placeholder="选择后端项目"
               options={projects.map((p) => ({ value: p.id, label: p.name }))}
             />
           </Form.Item>
-          <Form.Item name="spec" label="OpenAPI 3.x JSON/YAML" rules={[{ required: true }]}>
-            <TextArea rows={8} placeholder="粘贴 OpenAPI 3.x 文档..." />
+          <Form.Item
+            name="spec"
+            label={importFormat === 'postman' ? 'Postman Collection JSON' : 'OpenAPI 3.x JSON/YAML'}
+            rules={[{ required: true }]}
+          >
+            <TextArea
+              rows={8}
+              placeholder={importFormat === 'postman' ? '粘贴 Postman Collection v2.1 JSON...' : '粘贴 OpenAPI 3.x 文档...'}
+            />
           </Form.Item>
           <Button type="primary" icon={<CloudUploadOutlined />} onClick={handleImport}>
-            导入 OpenAPI
+            导入规范
           </Button>
         </Form>
       </Card>

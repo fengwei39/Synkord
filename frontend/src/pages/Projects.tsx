@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Button, Empty, Modal, Form, Input, Select, Space, Typography, message, Popconfirm } from 'antd';
+import { App as AntApp, Button, Empty, Modal, Form, Input, Select, Space, Table, Typography, Popconfirm } from 'antd';
 import {
   AppstoreOutlined,
   BarsOutlined,
@@ -10,6 +10,7 @@ import {
   ProjectOutlined,
   SortAscendingOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { createProject, deleteProject, listProjects, updateProject } from '../api/projects';
 import { useTeam } from '../contexts/TeamContext';
 
@@ -18,11 +19,14 @@ const { Text } = Typography;
 const typeLabels: Record<string, string> = { backend: 'HTTP', web: 'WEB', app: 'APP' };
 
 export default function Projects() {
+  const navigate = useNavigate();
   const { currentTeam, currentTeamId } = useTeam();
+  const { message } = AntApp.useApp();
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
+  const [view, setView] = useState<'grid' | 'list'>('grid');
   const [form] = Form.useForm();
 
   const load = async () => {
@@ -88,22 +92,22 @@ export default function Projects() {
       <div className="content-toolbar">
         <div className="toolbar-left">
           <div className="segmented-icon">
-            <button className="active" aria-label="网格视图"><AppstoreOutlined /></button>
-            <button aria-label="列表视图"><BarsOutlined /></button>
+            <button className={view === 'grid' ? 'active' : ''} aria-label="网格视图" onClick={() => setView('grid')}><AppstoreOutlined /></button>
+            <button className={view === 'list' ? 'active' : ''} aria-label="列表视图" onClick={() => setView('list')}><BarsOutlined /></button>
           </div>
           <Button type="text" icon={<SortAscendingOutlined />} />
         </div>
         <div className="toolbar-right">
-          <Button icon={<ImportOutlined />}>导入 Swagger / Postman</Button>
+          <Button icon={<ImportOutlined />} onClick={() => navigate('/apis')}>导入 Swagger / Postman</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建项目</Button>
         </div>
       </div>
 
       {projects.length === 0 && !loading ? (
-        <Empty description="暂无项目">
+        <Empty description={`${currentTeam?.name || '当前团队'} 暂无项目`}>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建项目</Button>
         </Empty>
-      ) : (
+      ) : view === 'grid' ? (
         <div className="project-grid">
           {projects.map((project) => (
             <article className="project-card" key={project.id}>
@@ -124,6 +128,31 @@ export default function Projects() {
             </article>
           ))}
         </div>
+      ) : (
+        <Table
+          rowKey="id"
+          loading={loading}
+          dataSource={projects}
+          columns={[
+            { title: '名称', dataIndex: 'name' },
+            { title: '类型', dataIndex: 'project_type', width: 100, render: (v) => <span className="type-pill">{typeLabels[v] || v}</span> },
+            { title: '描述', dataIndex: 'description', ellipsis: true },
+            { title: '负责人', dataIndex: 'owner', width: 120, render: (v) => v || '-' },
+            {
+              title: '操作',
+              width: 140,
+              render: (_, record) => (
+                <Space>
+                  <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>编辑</Button>
+                  <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id)}>
+                    <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+                  </Popconfirm>
+                </Space>
+              ),
+            },
+          ]}
+          pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `共 ${total} 个项目` }}
+        />
       )}
 
       <Modal

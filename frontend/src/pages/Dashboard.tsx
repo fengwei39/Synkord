@@ -53,7 +53,7 @@ export default function Dashboard() {
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card>
-            <Statistic title="破坏性变更" value={stats.breakingChanges} prefix={<WarningOutlined />} valueStyle={{ color: stats.breakingChanges > 0 ? '#cf1322' : undefined }} />
+            <Statistic title="破坏性变更" value={stats.breakingChanges} prefix={<WarningOutlined />} styles={{ content: { color: stats.breakingChanges > 0 ? '#cf1322' : undefined } }} />
           </Card>
         </Col>
       </Row>

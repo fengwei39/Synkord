@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Form, Input, Button, Typography, message } from 'antd';
+import { App as AntApp, Card, Form, Input, Button, Typography } from 'antd';
 import { LockOutlined, UserOutlined } from '@ant-design/icons';
 import { useAuth } from '../api/auth';
 
@@ -10,6 +10,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
+  const { message } = AntApp.useApp();
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
@@ -17,8 +18,8 @@ export default function Login() {
       await login(values.username, values.password);
       message.success('登录成功');
       navigate('/');
-    } catch {
-      message.error('用户名或密码错误');
+    } catch (error: any) {
+      message.error(error?.response?.data?.detail || '用户名或密码错误');
     } finally {
       setLoading(false);
     }

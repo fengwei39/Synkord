@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { Spin } from 'antd';
 import AppLayout from './components/AppLayout';
 import WorkspaceHome from './pages/WorkspaceHome';
 import TeamHome from './pages/TeamHome';
@@ -18,7 +19,14 @@ import TeamRequiredRoute from './components/TeamRequiredRoute';
 import CreateTeam from './pages/CreateTeam';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, bootstrapping } = useAuth();
+  if (bootstrapping) {
+    return (
+      <div className="route-loading">
+        <Spin />
+      </div>
+    );
+  }
   if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }

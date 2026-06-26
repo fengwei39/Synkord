@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/synkord/core/database"
@@ -38,12 +39,13 @@ func RegisterAPIRoutes(r *gin.RouterGroup) {
 			var req struct {
 				ProjectID string `json:"project_id" binding:"required"`
 				Spec      string `json:"spec" binding:"required"`
+				Format    string `json:"format"`
 			}
 			if err := c.ShouldBindJSON(&req); err != nil {
 				c.JSON(400, gin.H{"detail": err.Error()})
 				return
 			}
-			result, err := services.ImportOpenAPISpec(database.DB, req.ProjectID, req.Spec)
+			result, err := importAPISpec(req.ProjectID, req.Spec, req.Format)
 			if err != nil {
 				c.JSON(400, gin.H{"detail": err.Error()})
 				return
@@ -106,6 +108,7 @@ func RegisterTeamAPIRoutes(r *gin.RouterGroup) {
 			var req struct {
 				ProjectID string `json:"project_id" binding:"required"`
 				Spec      string `json:"spec" binding:"required"`
+				Format    string `json:"format"`
 			}
 			if err := c.ShouldBindJSON(&req); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
@@ -118,7 +121,7 @@ func RegisterTeamAPIRoutes(r *gin.RouterGroup) {
 				return
 			}
 
-			result, err := services.ImportOpenAPISpec(database.DB, req.ProjectID, req.Spec)
+			result, err := importAPISpec(req.ProjectID, req.Spec, req.Format)
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 				return
@@ -143,5 +146,16 @@ func RegisterTeamAPIRoutes(r *gin.RouterGroup) {
 			}
 			c.JSON(http.StatusOK, endpoint)
 		})
+	}
+}
+
+func importAPISpec(projectID, spec, format string) (*services.ImportOpenAPIResult, error) {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "", "openapi", "swagger":
+		return services.ImportOpenAPISpec(database.DB, projectID, spec)
+	case "postman":
+		return services.ImportPostmanCollection(database.DB, projectID, spec)
+	default:
+		return nil, services.ErrUnsupportedAPIImportFormat(format)
 	}
 }

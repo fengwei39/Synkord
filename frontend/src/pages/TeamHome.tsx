@@ -61,7 +61,7 @@ export default function TeamHome() {
         </Col>
         <Col span={6}>
           <Card loading={loading}>
-            <Statistic title="Breaking 风险" value={summary?.breaking_risk_count || 0} valueStyle={{ color: '#cf1322' }} />
+            <Statistic title="Breaking 风险" value={summary?.breaking_risk_count || 0} styles={{ content: { color: '#cf1322' } }} />
           </Card>
         </Col>
       </Row>
@@ -82,7 +82,7 @@ export default function TeamHome() {
         <Col span={14}>
           <Card title="最近变更" extra={<a onClick={() => navigate('/changesets')}>查看全部</a>}>
             {summary?.recent_changesets?.length ? (
-              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Space orientation="vertical" size={12} style={{ width: '100%' }}>
                 {summary.recent_changesets.map((item) => (
                   <div className="activity-row" key={item.id}>
                     <Tag color={severityColor[item.severity]}>{item.severity}</Tag>
@@ -100,7 +100,7 @@ export default function TeamHome() {
         </Col>
         <Col span={10}>
           <Card title="快捷入口">
-            <Space direction="vertical" size={10}>
+            <Space orientation="vertical" size={10}>
               <a onClick={() => navigate('/apis')}>导入 Swagger / Postman</a>
               <a onClick={() => navigate('/mcp')}>生成 MCP Token</a>
               <a onClick={() => navigate('/dependencies')}>查看依赖拓扑</a>

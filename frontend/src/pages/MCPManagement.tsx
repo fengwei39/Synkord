@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Card, Empty, Form, Input, Modal, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
+import { App as AntApp, Button, Card, Empty, Form, Input, Modal, Select, Space, Switch, Table, Tag, Typography } from 'antd';
 import { CopyOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import {
   createMCPConfig,
   getTeamMCPOverview,
+  listMCPAuditLogs,
   rotateMCPConfigToken,
   updateMCPConfigStatus,
   updateTeamMCPEnabled,
+  type MCPAuditLog,
   type MCPConfig,
   type TeamMCPOverview,
 } from '../api/mcp';
@@ -17,7 +19,9 @@ const { Paragraph, Text, Title } = Typography;
 
 export default function MCPManagement() {
   const { currentTeam, currentTeamId } = useTeam();
+  const { message } = AntApp.useApp();
   const [overview, setOverview] = useState<TeamMCPOverview | null>(null);
+  const [auditLogs, setAuditLogs] = useState<MCPAuditLog[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -27,12 +31,14 @@ export default function MCPManagement() {
     if (!currentTeamId) return;
     setLoading(true);
     try {
-      const [mcp, projectItems] = await Promise.all([
+      const [mcp, projectItems, audit] = await Promise.all([
         getTeamMCPOverview(currentTeamId),
         listProjects(currentTeamId),
+        listMCPAuditLogs(currentTeamId),
       ]);
       setOverview(mcp);
       setProjects(projectItems);
+      setAuditLogs(audit.items);
     } finally {
       setLoading(false);
     }
@@ -45,6 +51,14 @@ export default function MCPManagement() {
     const endpoint = overview?.sse_endpoint || '/mcp/sse';
     return apiBase.replace(/\/api\/?$/, '') + `${endpoint}?token=<team-token>`;
   }, [overview?.sse_endpoint]);
+
+  const ideConfig = useMemo(() => JSON.stringify({
+    mcpServers: {
+      synkord: {
+        url: serviceUrl,
+      },
+    },
+  }, null, 2), [serviceUrl]);
 
   const handleCreate = async () => {
     if (!currentTeamId) return;
@@ -176,6 +190,33 @@ export default function MCPManagement() {
                 </Space>
               ),
             },
+          ]}
+        />
+      </Card>
+
+      <Card title="IDE 接入说明" style={{ marginTop: 16 }}>
+        <Text type="secondary">创建 Token 后，将接入地址中的 <code>&lt;team-token&gt;</code> 替换为实际 Token。</Text>
+        <Paragraph copyable={{ text: ideConfig }} style={{ marginTop: 12 }}>
+          <pre style={{ margin: 0 }}>{ideConfig}</pre>
+        </Paragraph>
+      </Card>
+
+      <Card title="调用审计" style={{ marginTop: 16 }}>
+        <Table
+          rowKey="id"
+          dataSource={auditLogs}
+          pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `共 ${total} 条审计` }}
+          columns={[
+            { title: '工具', dataIndex: 'tool_name' },
+            { title: '调用方', dataIndex: 'caller', render: (value) => value || '-' },
+            { title: '参数摘要', dataIndex: 'params_summary', ellipsis: true, render: (value) => value || '-' },
+            {
+              title: '结果',
+              dataIndex: 'result_status',
+              width: 100,
+              render: (value) => <Tag color={value === 'success' ? 'green' : 'red'}>{value}</Tag>,
+            },
+            { title: '时间', dataIndex: 'created_at', width: 180, render: (value) => value ? new Date(value).toLocaleString() : '-' },
           ]}
         />
       </Card>

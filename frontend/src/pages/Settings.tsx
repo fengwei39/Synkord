@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, Form, InputNumber, Modal, Select, Space, Switch, Tag, Typography, message } from 'antd';
+import { App as AntApp, Button, Card, Form, InputNumber, Modal, Select, Space, Switch, Tag, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { getGlobalMCPServer, updateGlobalMCPServer, type GlobalMCPServerConfig } from '../api/mcp';
 import { useAuth } from '../api/auth';
@@ -17,6 +17,7 @@ const mcpToolOptions = [
 
 export default function Settings() {
   const { user } = useAuth();
+  const { message } = AntApp.useApp();
   const [config, setConfig] = useState<GlobalMCPServerConfig | null>(null);
   const [loading, setLoading] = useState(false);
   const [form] = Form.useForm();

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Form, Input, message } from 'antd';
+import { App as AntApp, Button, Form, Input } from 'antd';
 import { PlusOutlined, TeamOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useTeam } from '../contexts/TeamContext';
@@ -8,6 +8,7 @@ export default function CreateTeam() {
   const [loading, setLoading] = useState(false);
   const { createTeam, teams } = useTeam();
   const navigate = useNavigate();
+  const { message } = AntApp.useApp();
 
   const handleSubmit = async (values: { name: string; description?: string }) => {
     setLoading(true);

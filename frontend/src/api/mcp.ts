@@ -34,6 +34,15 @@ export interface GlobalMCPServerConfig {
   rate_limit_per_minute: number;
 }
 
+export interface MCPAuditLog {
+  id: string;
+  tool_name: string;
+  caller: string;
+  params_summary: string;
+  result_status: string;
+  created_at: string;
+}
+
 export async function getTeamMCPOverview(teamId: string): Promise<TeamMCPOverview> {
   const resp = await apiClient.get(`/teams/${teamId}/mcp`);
   return resp.data;
@@ -67,6 +76,14 @@ export async function updateMCPConfigStatus(
 export async function rotateMCPConfigToken(teamId: string, tokenId: string): Promise<MCPConfig> {
   const resp = await apiClient.post(`/teams/${teamId}/mcp/tokens/${tokenId}/rotate`);
   return resp.data;
+}
+
+export async function listMCPAuditLogs(teamId: string): Promise<{ items: MCPAuditLog[]; total: number }> {
+  const resp = await apiClient.get(`/teams/${teamId}/mcp/audit`);
+  return {
+    items: resp.data.items || [],
+    total: resp.data.total || 0,
+  };
 }
 
 export async function getGlobalMCPServer(): Promise<GlobalMCPServerConfig> {

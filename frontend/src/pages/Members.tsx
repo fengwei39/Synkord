@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Key } from 'react';
-import { Button, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
+import { App as AntApp, Button, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography } from 'antd';
 import { DeleteOutlined, EditOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import {
   createTeamMember,
@@ -19,6 +19,7 @@ const roleColors: Record<TeamRole, string> = { team_admin: 'red', editor: 'blue'
 
 export default function Members() {
   const { currentTeam, currentTeamId } = useTeam();
+  const { message } = AntApp.useApp();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);

@@ -18,6 +18,42 @@ type ImportOpenAPIResult struct {
 	APIs      []models.APIEndpoint `json:"apis"`
 }
 
+func ErrUnsupportedAPIImportFormat(format string) error {
+	return fmt.Errorf("unsupported API import format: %s", format)
+}
+
+type postmanCollection struct {
+	Info postmanInfo   `json:"info"`
+	Item []postmanItem `json:"item"`
+}
+
+type postmanInfo struct {
+	Name string `json:"name"`
+}
+
+type postmanItem struct {
+	Name    string          `json:"name"`
+	Item    []postmanItem   `json:"item"`
+	Request *postmanRequest `json:"request"`
+}
+
+type postmanRequest struct {
+	Method      string           `json:"method"`
+	Header      interface{}      `json:"header"`
+	Body        interface{}      `json:"body"`
+	URL         postmanURL       `json:"url"`
+	Description postmanTextOrRaw `json:"description"`
+}
+
+type postmanURL struct {
+	Raw  string        `json:"raw"`
+	Path []interface{} `json:"path"`
+}
+
+type postmanTextOrRaw struct {
+	Raw string `json:"raw"`
+}
+
 func ImportOpenAPISpec(db *gorm.DB, projectID, spec string) (*ImportOpenAPIResult, error) {
 	var doc map[string]interface{}
 	if err := json.Unmarshal([]byte(spec), &doc); err != nil {
@@ -149,6 +185,91 @@ func ImportOpenAPISpec(db *gorm.DB, projectID, spec string) (*ImportOpenAPIResul
 	}, nil
 }
 
+func ImportPostmanCollection(db *gorm.DB, projectID, collectionJSON string) (*ImportOpenAPIResult, error) {
+	var collection postmanCollection
+	if err := json.Unmarshal([]byte(collectionJSON), &collection); err != nil {
+		return nil, fmt.Errorf("postman collection parse failed: %w", err)
+	}
+	if len(collection.Item) == 0 {
+		return nil, fmt.Errorf("postman collection item is missing or empty")
+	}
+
+	tx := db.Begin()
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	if err := tx.Where("project_id = ?", projectID).Delete(&models.APIEndpoint{}).Error; err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	if err := tx.Where("source_project_id = ? AND source = ?", projectID, "postman").Delete(&models.Dependency{}).Error; err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+
+	apis := make([]models.APIEndpoint, 0)
+	var createErr error
+	walkPostmanItems(collection.Item, "", func(item postmanItem, req postmanRequest, tag string) {
+		if createErr != nil {
+			return
+		}
+		path := postmanPath(req.URL)
+		method := strings.ToUpper(strings.TrimSpace(req.Method))
+		if path == "" || method == "" {
+			return
+		}
+		endpoint := models.APIEndpoint{
+			ProjectID:       projectID,
+			Path:            path,
+			Method:          method,
+			Tag:             tag,
+			Summary:         item.Name,
+			Description:     req.Description.Raw,
+			ParametersJSON:  mustJSON(req.URL),
+			RequestBodyJSON: mustJSON(req.Body),
+			ResponsesJSON:   "",
+			SecurityJSON:    mustJSON(req.Header),
+			Deprecated:      false,
+			Version:         collection.Info.Name,
+		}
+		if err := tx.Create(&endpoint).Error; err != nil {
+			createErr = err
+			return
+		}
+		apis = append(apis, endpoint)
+	})
+	if createErr != nil {
+		tx.Rollback()
+		return nil, createErr
+	}
+
+	if err := tx.Model(&models.Project{}).Where("id = ?", projectID).Updates(map[string]interface{}{
+		"open_api_spec":    collectionJSON,
+		"open_api_version": collection.Info.Name,
+	}).Error; err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return nil, err
+	}
+
+	return &ImportOpenAPIResult{
+		ProjectID: projectID,
+		APICount:  len(apis),
+		RefCount:  0,
+		DepCount:  0,
+		APIs:      apis,
+	}, nil
+}
+
 func ListAPIs(db *gorm.DB, projectID, query string, offset, limit int) ([]models.APIEndpoint, int64, error) {
 	var apis []models.APIEndpoint
 	var total int64
@@ -234,4 +355,82 @@ func refEntityName(ref string) string {
 		return ""
 	}
 	return name
+}
+
+func walkPostmanItems(items []postmanItem, parent string, visit func(postmanItem, postmanRequest, string)) {
+	for _, item := range items {
+		tag := itemTag(parent, item.Name)
+		if item.Request != nil {
+			visit(postmanItem{Name: item.Name}, *item.Request, parent)
+		}
+		if len(item.Item) > 0 {
+			walkPostmanItems(item.Item, tag, visit)
+		}
+	}
+}
+
+func itemTag(parent, name string) string {
+	if parent != "" {
+		return parent
+	}
+	return name
+}
+
+func postmanPath(url postmanURL) string {
+	if url.Raw != "" {
+		raw := strings.TrimSpace(url.Raw)
+		if idx := strings.Index(raw, "://"); idx >= 0 {
+			if slash := strings.Index(raw[idx+3:], "/"); slash >= 0 {
+				raw = raw[idx+3+slash:]
+			}
+		}
+		if q := strings.Index(raw, "?"); q >= 0 {
+			raw = raw[:q]
+		}
+		if raw != "" && !strings.HasPrefix(raw, "/") {
+			raw = "/" + raw
+		}
+		return raw
+	}
+	parts := make([]string, 0, len(url.Path))
+	for _, part := range url.Path {
+		value := stringValue(part)
+		if value != "" {
+			parts = append(parts, value)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "/" + strings.Join(parts, "/")
+}
+
+func (u *postmanURL) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err == nil {
+		u.Raw = raw
+		return nil
+	}
+	type alias postmanURL
+	var next alias
+	if err := json.Unmarshal(data, &next); err != nil {
+		return err
+	}
+	*u = postmanURL(next)
+	return nil
+}
+
+func (t *postmanTextOrRaw) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err == nil {
+		t.Raw = raw
+		return nil
+	}
+	type alias postmanTextOrRaw
+	var next alias
+	if err := json.Unmarshal(data, &next); err != nil {
+		return err
+	}
+	*t = postmanTextOrRaw(next)
+	return nil
 }

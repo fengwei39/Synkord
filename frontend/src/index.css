@@ -426,6 +426,26 @@ select {
   padding: 8px 18px;
 }
 
+.team-list-row {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+}
+
+.team-list-row + .team-list-row {
+  border-top: 1px solid #eef1f6;
+}
+
+.team-list-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .team-list-avatar {
   width: 38px;
   height: 38px;
@@ -434,6 +454,17 @@ select {
   place-items: center;
   color: #2563eb;
   background: #eff6ff;
+}
+
+.team-list-name {
+  color: #17233d;
+  font-weight: 650;
+}
+
+.team-list-description {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 13px;
 }
 
 .project-page {
@@ -723,14 +754,46 @@ select {
   text-overflow: ellipsis;
 }
 
+.notification-loading {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+}
+
+.notification-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .notification-item {
+  width: 100%;
+  border: 0;
   border-radius: 8px;
-  padding: 12px !important;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  background: transparent;
   cursor: pointer;
 }
 
 .notification-item.unread {
   background: #f8fafc;
+}
+
+.notification-item:hover {
+  background: #f8fafc;
+}
+
+.notification-content {
+  min-width: 0;
+}
+
+.notification-action {
+  flex: 0 0 auto;
 }
 
 .notification-title {

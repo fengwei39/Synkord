@@ -11,6 +11,11 @@ const severityColors: Record<string, string> = {
   breaking: 'red',
 };
 
+type ChangeSetRow = {
+  changes_json?: string;
+  affected_json?: string;
+};
+
 export default function ChangeSets() {
   const { currentTeam, currentTeamId } = useTeam();
   const [items, setItems] = useState<any[]>([]);
@@ -20,8 +25,16 @@ export default function ChangeSets() {
     if (!currentTeamId) return;
     setLoading(true);
     try {
-      const data = await listChangeSets(currentTeamId);
-      setItems(data);
+      const items = await listChangeSets(currentTeamId);
+      setItems(items.map((item: ChangeSetRow) => ({
+        ...item,
+        _changeCount: (() => {
+          try { return JSON.parse(item.changes_json || '[]').length; } catch { return 0; }
+        })(),
+        _affectedCount: (() => {
+          try { return JSON.parse(item.affected_json || '[]').length; } catch { return 0; }
+        })(),
+      })));
     } finally {
       setLoading(false);
     }
@@ -55,20 +68,11 @@ export default function ChangeSets() {
               width: 110,
               render: (v: string) => <Tag color={severityColors[v] || 'default'}>{v}</Tag>,
             },
-            {
-              title: '变更数',
-              dataIndex: 'changes_json',
-              width: 100,
-              render: (v: string) => {
-                try {
-                  return JSON.parse(v || '[]').length;
-                } catch {
-                  return 0;
-                }
-              },
-            },
+            { title: '变更数', dataIndex: '_changeCount', width: 100 },
+            { title: '影响项目数', dataIndex: '_affectedCount', width: 110 },
             { title: '时间', dataIndex: 'created_at', render: (v: string) => new Date(v).toLocaleString() },
           ]}
+          pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `共 ${total} 条记录` }}
         />
       </Card>
     </div>

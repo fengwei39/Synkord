@@ -1,6 +1,20 @@
 import apiClient from './client';
 
-export async function getDependencyGraph(teamId: string) {
+export interface DependencyNode {
+  id: string;
+  name: string;
+  project_type: string;
+}
+
+export interface DependencyEdge {
+  source: string;
+  target: string;
+  entity_name: string;
+  api_path?: string;
+  api_method?: string;
+}
+
+export async function getDependencyGraph(teamId: string): Promise<{ nodes: DependencyNode[]; edges: DependencyEdge[] }> {
   const resp = await apiClient.get(`/teams/${teamId}/dependencies/graph`);
-  return resp.data;
+  return resp.data || { nodes: [], edges: [] };
 }

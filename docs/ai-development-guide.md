@@ -428,7 +428,196 @@ pnpm electron
 如果修改 Go 模型、服务或 API，至少运行 `go test ./...`。  
 如果修改前端路由、页面或 TypeScript 类型，至少运行 `pnpm build`。
 
-## 12. AI 开发工作规则
+## 12. 同步架构与契约语言
+
+本文档确定整个产品的同步边界与协议分工。所有后续开发必须遵循本节定义。
+
+### 12.1 三层协议分工
+
+| 层 | 进程/工具 | 协议 | 用途 |
+| --- | --- | --- | --- |
+| Authority | synkord-core (Go) | 内部 | 数据 + REST API + MCP Server 同进程 |
+| Management | Electron 桌面端 | REST | 团队资产 CRUD + MCP 服务控制 + Token 管理 + 审计查看 |
+| Consumption | IDE / AI / Git Hook / CI | REST + MCP | 读取规范、推送规范、本地校验 |
+
+**核心约束**：
+
+- REST API 路径前缀 `/api`，所有团队业务请求走 `/api/teams/:teamId/...`
+- MCP 端点 `/mcp/sse`、`/mcp/message`，**仅供 IDE/AI 编码助手使用**
+- Electron 不调 MCP 工具，只通过 REST 控制 MCP 服务进程
+- 后端 CI 推送 spec、前端 Git Hook 校验、CI 校验都走 REST
+- CLI 工具 `synkord` 是 REST 客户端封装，**不是 MCP 客户端**
+
+### 12.2 同步渠道矩阵
+
+| 行为 | 通道 | 调用方 |
+| --- | --- | --- |
+| 后端 CI 推送 OpenAPI/Postman | REST | `synkord push-spec` |
+| 前端 commit 校验依赖 | REST | `synkord validate-deps` |
+| CI 通用：检查 spec 兼容性 | REST | `synkord check-spec` |
+| IDE/AI 读取最新 API 列表 | MCP | `get_project_apis` |
+| IDE/AI 读取团队模型 | MCP | `get_team_entities` |
+| IDE/AI 校验代码片段 | MCP | `validate_entity_usage` |
+| Electron 增删改查 | REST | REST 客户端 |
+| Electron 启停 MCP 服务 | REST | `PATCH /api/admin/mcp-server` |
+| Electron 管理 Token | REST | `/api/teams/:teamId/mcp/tokens` |
+| Electron 查看审计 | REST | `/api/teams/:teamId/mcp/audit` |
+
+### 12.3 契约语言：OpenAPI 3.x
+
+后端不限制技术栈。Synkord 约束对象是 **OpenAPI 3.x** 规范本身：
+
+| 后端栈 | 规范生成方式 | 产物 |
+| --- | --- | --- |
+| Spring Boot | springdoc-openapi | openapi.json |
+| NestJS | @nestjs/swagger | openapi.json |
+| FastAPI | 内置 | openapi.json |
+| Go (Gin 等) | swag/swaggo | openapi.json |
+| Python (Flask) | flasgger / apispec | openapi.json |
+| 其他 | 自行实现或手写 | openapi.json |
+
+导入时校验（不通过则拒绝）：
+
+- `info.title`、`info.version` 必填
+- 每个 operation 必填 `summary` 或 `description`
+- `$ref` 必须指向 `components/schemas` 内已定义 entity
+- HTTP 响应需带 description
+
+### 12.4 CLI 工具 synkord
+
+`synkord` 是独立命令行工具，封装 REST 调用，跨语言通用：
+
+```bash
+# 后端 CI 用：推送新 spec
+synkord push-spec \
+  --server https://synkord.xxx.com \
+  --token $SYNKORD_TOKEN \
+  --team t_xxx --project p_xxx \
+  --spec ./api/openapi.json \
+  --note "新增重置密码"
+
+# 前端 Git Hook 用：校验依赖（前置阻塞）
+synkord validate-deps \
+  --server https://synkord.xxx.com \
+  --token $SYNKORD_TOKEN \
+  --team t_xxx --project p_yyy \
+  --pinned-version 1.0.0 \
+  --changed-files "$(git diff --cached --name-only)"
+
+# CI 通用：检查 spec 兼容性
+synkord check-spec \
+  --server https://synkord.xxx.com \
+  --token $SYNKORD_TOKEN \
+  --team t_xxx --project p_xxx \
+  --spec ./api/openapi.json
+```
+
+CLI 不调 MCP。如需 MCP 能力，配置 IDE 的 `.mcp.json`。
+
+### 12.5 IDE 接入（MCP 消费方）
+
+在 Cursor/VSCode/PyCharm 中配置 MCP 客户端连接 synkord-core：
+
+`.cursor/mcp.json` 模板：
+
+```json
+{
+  "mcpServers": {
+    "synkord": {
+      "url": "${SYNKORD_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer ${SYNKORD_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+**鉴权**：MCP 客户端使用 `MCPConfig.Token`（不是 JWT）。Token 由 Electron 在「MCP 管理」页创建，明文仅展示一次，之后只保存哈希或摘要。
+
+### 12.5.1 鉴权凭据矩阵
+
+不同客户端对应不同凭据，混用会失败：
+
+| 客户端 | 凭据类型 | 获取方式 | 用在哪些端点 |
+| --- | --- | --- | --- |
+| Electron 管理端 | **JWT**（用户密码登录） | `POST /api/auth/login` → `access_token` | 所有 `/api/teams/:teamId/...` |
+| synkord CLI | **JWT**（用户密码登录） | `synkord login` → 缓存到 `~/.synkord/token` | 所有 `/api/teams/:teamId/...` |
+| IDE/AI 编码助手 | **`MCPConfig.Token`** | Electron「MCP 管理」创建 | `/mcp/sse`、`/mcp/message` |
+| Git Hook / CI | JWT（沿用 synkord CLI） | CI env `SYNKORD_TOKEN` | REST 校验/导入端点 |
+
+**为什么 CLI 用 JWT 而不是 MCPConfig.Token？**
+
+- CLI 调用的是 REST（push-spec、validate-deps），REST 鉴权只验 JWT
+- MCPConfig.Token 只能用于 `/mcp/*`，scope 更窄
+- 团队成员本来就有 JWT，CLI 复用账号体系比另发服务 token 简单
+
+**反例**：
+
+- ❌ 把 JWT 放到 `.cursor/mcp.json` 头里 → MCP 端点会拒
+- ❌ 把 MCPConfig.Token 当作 CLI 的 `--token` → REST 端点会拒
+- ❌ CLI 调 MCP → 协议不匹配，绕一层反而不稳
+
+### 12.6 Git Hook 前置校验
+
+前端/App 项目 pre-commit 阻塞式校验：
+
+```bash
+#!/bin/sh
+# .git/hooks/pre-commit
+synkord validate-deps \
+  --server "$SYNKORD_SERVER" \
+  --token "$SYNKORD_TOKEN" \
+  --team "$SYNKORD_TEAM" \
+  --project "$SYNKORD_PROJECT" \
+  --pinned-version "$(synkord current-version)"
+
+if [ $? -ne 0 ]; then
+  echo "❌ Synkord 校验失败：你的代码引用了已变更/已删除的契约"
+  echo "请运行 'synkord upgrade-suggest' 查看迁移建议"
+  exit 1
+fi
+```
+
+校验失败时**阻止提交**，不通过警告绕过。
+
+### 12.7 端到端闭环
+
+```text
+[后端仓库] 写代码 → CI 生成 openapi.json → synkord push-spec (REST)
+                                                              │
+                                                              ▼
+                                                     synkord-core
+                                                     ├─ SwaggerSpec v1.0.2
+                                                     ├─ 解析 APIEndpoint
+                                                     ├─ diff v1.0.1 → v1.0.2
+                                                     └─ ChangeSet + Notification
+                                                              │
+                                                              ▼
+                                            ┌─────────────────┴────────────────┐
+                                            │                                  │
+                                       MCP (SSE)                          REST
+                                            │                                  │
+                            [Cursor AI / VSCode AI]              [Git Pre-Commit]
+                            get_project_apis                      synkord validate-deps
+                            get_team_entities                     → 阻止提交 (if breaking)
+                            validate_entity_usage
+```
+
+### 12.8 Electron 管理职责
+
+按 [prototype-structure.md 4.6](docs/prototype-structure.md) 规范，Electron 在「MCP 管理」页提供：
+
+- 全局 MCP 服务开关（启停 synkord-core 上的 MCP 进程）
+- 当前 SSE / Message 端点（只读展示）
+- 工具列表（按全局开关过滤）
+- Token CRUD（含项目范围、工具范围、过期时间）
+- IDE 接入说明（一键复制 .cursor/mcp.json 等模板）
+- 调用审计（按时间、Token、工具筛选）
+
+平台管理员可在用户菜单进入「全局配置 - MCP 服务器管理」修改服务地址、限流策略。
+
+## 13. AI 开发工作规则
 
 AI 执行开发任务时必须遵守：
 
@@ -441,7 +630,7 @@ AI 执行开发任务时必须遵守：
 7. 每次完成后说明已跑的测试；没跑测试必须说明原因。
 8. 如果发现需求链路不闭环，先补文档再写代码。
 
-## 13. Definition of Done
+## 14. Definition of Done
 
 一个开发任务完成必须满足：
 

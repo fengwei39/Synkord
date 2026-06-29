@@ -9,6 +9,7 @@ import (
 type APIEndpoint struct {
 	ID              string    `json:"id" gorm:"primaryKey;size:36"`
 	ProjectID       string    `json:"project_id" gorm:"size:36;not null;index"`
+	SpecID          string    `json:"spec_id" gorm:"size:36;index"`
 	Path            string    `json:"path" gorm:"size:512;not null;index"`
 	Method          string    `json:"method" gorm:"size:16;not null;index"`
 	Tag             string    `json:"tag" gorm:"size:128;index"`
@@ -23,7 +24,8 @@ type APIEndpoint struct {
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 
-	Project *Project `json:"project,omitempty" gorm:"foreignKey:ProjectID"`
+	Project *Project     `json:"project,omitempty" gorm:"foreignKey:ProjectID"`
+	Spec    *SwaggerSpec `json:"spec,omitempty" gorm:"foreignKey:SpecID"`
 }
 
 func (a *APIEndpoint) BeforeCreate(tx *gorm.DB) error {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { App as AntApp, Button, Card, Form, Input, Radio, Select, Space, Table, Tag, Typography } from 'antd';
 import { CloudUploadOutlined, ReloadOutlined } from '@ant-design/icons';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { importAPISpec, listAPIs } from '../api/apis';
 import { listProjects } from '../api/projects';
 import { useTeam } from '../contexts/TeamContext';
@@ -8,6 +9,8 @@ import { useTeam } from '../contexts/TeamContext';
 const { TextArea } = Input;
 
 export default function APIs() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { currentTeam, currentTeamId } = useTeam();
   const { message } = AntApp.useApp();
   const [apis, setApis] = useState<any[]>([]);
@@ -41,6 +44,10 @@ export default function APIs() {
 
   useEffect(() => {
     loadProjects();
+    const projectID = searchParams.get('project_id');
+    if (projectID) {
+      filterForm.setFieldValue('project_id', projectID);
+    }
     loadAPIs();
   }, [currentTeamId]);
 
@@ -127,7 +134,15 @@ export default function APIs() {
           dataSource={apis}
           columns={[
             { title: '方法', dataIndex: 'method', width: 96, render: (v: string) => <Tag color="blue">{v}</Tag> },
-            { title: '路径', dataIndex: 'path', render: (v: string) => <code>{v}</code> },
+            {
+              title: '路径',
+              dataIndex: 'path',
+              render: (v: string, record: any) => (
+                <Button type="link" className="table-link" onClick={() => navigate(`/apis/${record.id}`)}>
+                  <code>{v}</code>
+                </Button>
+              ),
+            },
             { title: '标签', dataIndex: 'tag', width: 140 },
             { title: '摘要', dataIndex: 'summary' },
             { title: '版本', dataIndex: 'version', width: 120 },

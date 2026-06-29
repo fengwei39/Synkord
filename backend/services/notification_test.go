@@ -44,8 +44,36 @@ func TestSaveTeamChangeSetCreatesNotificationForBreakingChange(t *testing.T) {
 	if items[0].ChangeSetID == nil || *items[0].ChangeSetID != changeSet.ID {
 		t.Fatalf("notification changeset = %+v, want %s", items[0].ChangeSetID, changeSet.ID)
 	}
-	if items[0].ReadStatus != models.NotificationUnread || items[0].DeliveryStatus != models.NotificationDeliveryNotConfigured {
+	if items[0].ReadStatus != models.NotificationUnread || items[0].DeliveryStatus != models.NotificationDeliveryDisabled {
 		t.Fatalf("unexpected notification status: %+v", items[0])
+	}
+}
+
+func TestUpdateWebhookConfigPersistsTeamSettings(t *testing.T) {
+	db := testDB(t)
+	user := &models.User{Username: "webhook-owner", HashedPassword: "hash", Role: models.RoleViewer, IsActive: true}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	team, err := CreateTeam(db, user.ID, "Webhook Team", "")
+	if err != nil {
+		t.Fatalf("create team: %v", err)
+	}
+
+	config, err := UpdateWebhookConfig(db, team.ID, WebhookConfigInput{
+		Enabled:       true,
+		Provider:      models.WebhookProviderFeishu,
+		WebhookURL:    "https://example.com/webhook",
+		NotifyWarning: true,
+	})
+	if err != nil {
+		t.Fatalf("update webhook config: %v", err)
+	}
+	if !config.Enabled || config.Provider != models.WebhookProviderFeishu || !config.NotifyWarning {
+		t.Fatalf("unexpected config: %+v", config)
+	}
+	if config.WebhookURL != "https://example.com/webhook" {
+		t.Fatalf("WebhookURL = %q", config.WebhookURL)
 	}
 }
 

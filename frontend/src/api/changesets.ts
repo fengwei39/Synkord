@@ -9,3 +9,8 @@ export async function listChangeSets(teamId: string) {
   const resp = await apiClient.get(`/teams/${teamId}/diff/changesets?limit=200`);
   return resp.data.items || [];
 }
+
+export async function getChangeSet(teamId: string, changeSetId: string) {
+  const resp = await apiClient.get(`/teams/${teamId}/diff/changesets/${changeSetId}`);
+  return resp.data;
+}

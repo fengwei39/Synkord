@@ -175,6 +175,11 @@ func GetTeamEntity(db *gorm.DB, teamID, entityID string) (*models.Entity, error)
 	return &e, nil
 }
 
+// Deprecated: 全局实体概念已被团队数据模型取代。
+// 旧语义是 "is_global = true" 的实体（无团队隔离，存在数据泄漏隐患）。
+// 迁移到 ListTeamEntities(db, teamID, nil, ptrBool(true), 0, limit) 替代。
+//
+// 保留此函数仅为兼容 /api/entities/global 旧端点；前端切到团队 API 后删除。
 func GetGlobalEntities(db *gorm.DB) ([]models.Entity, error) {
 	var entities []models.Entity
 	if err := db.Where("is_global = ?", true).Order("name").Find(&entities).Error; err != nil {
@@ -183,6 +188,9 @@ func GetGlobalEntities(db *gorm.DB) ([]models.Entity, error) {
 	return entities, nil
 }
 
+// Deprecated: "服务实体"概念对应"项目私有模型 + 引用团队公共模型"。
+// 旧语义无 team 隔离；迁移到 ListTeamEntities(db, teamID, &projectID, ptrBool(false), 0, limit)
+// 追加 ListTeamEntities(db, teamID, nil, ptrBool(true), 0, limit)。
 func GetServiceEntities(db *gorm.DB, projectID string) ([]models.Entity, error) {
 	var entities []models.Entity
 	if err := db.Where("project_id = ? OR is_global = ?", projectID, true).Order("name").Find(&entities).Error; err != nil {

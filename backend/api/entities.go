@@ -36,6 +36,16 @@ func RegisterEntityRoutes(r *gin.RouterGroup) {
 			c.JSON(200, gin.H{"items": entities, "total": total})
 		})
 
+		// DEPRECATED: 全局实体概念已被"团队数据模型"取代。
+		// 旧名 global 对应新概念 team（team-scoped entity），见
+		// docs/ai-development-guide.md §2 与 §6.6。
+		//
+		// 迁移路径：
+		//   旧 /api/entities/global                       →  /api/teams/:team_id/models
+		//   旧 /api/entities/service/:project_id          →  /api/teams/:team_id/models?project_id=...
+		//
+		// 保留这两个端点是为了不立即打挂现存前端调用；前端切到团队 API 后删除。
+		// 详见 backend/api/entities.go 与 services.GetGlobalEntities 上的 TODO 注释。
 		e.GET("/global", func(c *gin.Context) {
 			entities, err := services.GetGlobalEntities(database.DB)
 			if err != nil {
@@ -45,6 +55,7 @@ func RegisterEntityRoutes(r *gin.RouterGroup) {
 			c.JSON(200, entities)
 		})
 
+		// DEPRECATED: 同上，旧"服务实体"概念对应"项目私有模型 + 引用团队公共模型"。
 		e.GET("/service/:project_id", func(c *gin.Context) {
 			entities, err := services.GetServiceEntities(database.DB, c.Param("project_id"))
 			if err != nil {

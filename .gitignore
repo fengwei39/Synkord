@@ -3,6 +3,8 @@
 backend/data/
 backend/synkord-core
 backend/*.db
+synkord-cli/synkord.exe
+synkord-cli/synkord
 frontend/node_modules/
 frontend/dist/
 frontend/release/

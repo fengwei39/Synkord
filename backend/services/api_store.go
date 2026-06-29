@@ -11,11 +11,14 @@ import (
 )
 
 type ImportOpenAPIResult struct {
-	ProjectID string               `json:"project_id"`
-	APICount  int                  `json:"api_count"`
-	RefCount  int                  `json:"ref_count"`
-	DepCount  int                  `json:"dependency_count"`
-	APIs      []models.APIEndpoint `json:"apis"`
+	ProjectID   string               `json:"project_id"`
+	SpecID      string               `json:"spec_id"`
+	SpecName    string               `json:"spec_name"`
+	SpecVersion string               `json:"spec_version"`
+	APICount    int                  `json:"api_count"`
+	RefCount    int                  `json:"ref_count"`
+	DepCount    int                  `json:"dependency_count"`
+	APIs        []models.APIEndpoint `json:"apis"`
 }
 
 func ErrUnsupportedAPIImportFormat(format string) error {
@@ -67,9 +70,22 @@ func ImportOpenAPISpec(db *gorm.DB, projectID, spec string) (*ImportOpenAPIResul
 		return nil, fmt.Errorf("openapi paths is missing or invalid")
 	}
 
-	version := ""
+	oasVersion := ""
+	infoVersion := ""
+	if info, ok := doc["info"].(map[string]interface{}); ok {
+		infoVersion = stringValue(info["version"])
+	}
 	if v, ok := doc["openapi"].(string); ok {
-		version = v
+		oasVersion = v
+	}
+	specName := specNameFromOpenAPI(doc)
+	if specName == "" {
+		specName = "default"
+	}
+
+	var project models.Project
+	if err := db.First(&project, "id = ?", projectID).Error; err != nil {
+		return nil, fmt.Errorf("project not found: %w", err)
 	}
 
 	tx := db.Begin()
@@ -81,6 +97,26 @@ func ImportOpenAPISpec(db *gorm.DB, projectID, spec string) (*ImportOpenAPIResul
 			tx.Rollback()
 		}
 	}()
+
+	specVersion, err := nextSpecVersion(tx, projectID, specName, infoVersion)
+	if err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+
+	swaggerSpec := &models.SwaggerSpec{
+		TeamID:         project.TeamID,
+		ProjectID:      projectID,
+		Name:           specName,
+		Version:        specVersion,
+		Source:         models.SpecSourceOpenAPI,
+		SpecContent:    spec,
+		OpenAPIVersion: oasVersion,
+	}
+	if err := tx.Create(swaggerSpec).Error; err != nil {
+		tx.Rollback()
+		return nil, err
+	}
 
 	if err := tx.Where("project_id = ?", projectID).Delete(&models.APIEndpoint{}).Error; err != nil {
 		tx.Rollback()
@@ -116,6 +152,7 @@ func ImportOpenAPISpec(db *gorm.DB, projectID, spec string) (*ImportOpenAPIResul
 			}
 			endpoint := models.APIEndpoint{
 				ProjectID:       projectID,
+				SpecID:          swaggerSpec.ID,
 				Path:            path,
 				Method:          strings.ToUpper(methodLower),
 				Tag:             firstTag(op["tags"]),
@@ -126,7 +163,7 @@ func ImportOpenAPISpec(db *gorm.DB, projectID, spec string) (*ImportOpenAPIResul
 				ResponsesJSON:   mustJSON(op["responses"]),
 				SecurityJSON:    mustJSON(op["security"]),
 				Deprecated:      boolValue(op["deprecated"]),
-				Version:         version,
+				Version:         specVersion,
 			}
 			if err := tx.Create(&endpoint).Error; err != nil {
 				tx.Rollback()
@@ -164,9 +201,14 @@ func ImportOpenAPISpec(db *gorm.DB, projectID, spec string) (*ImportOpenAPIResul
 		}
 	}
 
+	if err := tx.Model(&swaggerSpec).Update("api_count", len(apis)).Error; err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+
 	if err := tx.Model(&models.Project{}).Where("id = ?", projectID).Updates(map[string]interface{}{
 		"open_api_spec":    spec,
-		"open_api_version": version,
+		"open_api_version": oasVersion,
 	}).Error; err != nil {
 		tx.Rollback()
 		return nil, err
@@ -177,11 +219,14 @@ func ImportOpenAPISpec(db *gorm.DB, projectID, spec string) (*ImportOpenAPIResul
 	}
 
 	return &ImportOpenAPIResult{
-		ProjectID: projectID,
-		APICount:  len(apis),
-		RefCount:  len(refSeen),
-		DepCount:  depCount,
-		APIs:      apis,
+		ProjectID:   projectID,
+		SpecID:      swaggerSpec.ID,
+		SpecName:    swaggerSpec.Name,
+		SpecVersion: specVersion,
+		APICount:    len(apis),
+		RefCount:    len(refSeen),
+		DepCount:    depCount,
+		APIs:        apis,
 	}, nil
 }
 
@@ -194,6 +239,16 @@ func ImportPostmanCollection(db *gorm.DB, projectID, collectionJSON string) (*Im
 		return nil, fmt.Errorf("postman collection item is missing or empty")
 	}
 
+	specName := strings.TrimSpace(collection.Info.Name)
+	if specName == "" {
+		specName = "default"
+	}
+
+	var project models.Project
+	if err := db.First(&project, "id = ?", projectID).Error; err != nil {
+		return nil, fmt.Errorf("project not found: %w", err)
+	}
+
 	tx := db.Begin()
 	if tx.Error != nil {
 		return nil, tx.Error
@@ -203,6 +258,25 @@ func ImportPostmanCollection(db *gorm.DB, projectID, collectionJSON string) (*Im
 			tx.Rollback()
 		}
 	}()
+
+	specVersion, err := nextSpecVersion(tx, projectID, specName, "")
+	if err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+
+	swaggerSpec := &models.SwaggerSpec{
+		TeamID:      project.TeamID,
+		ProjectID:   projectID,
+		Name:        specName,
+		Version:     specVersion,
+		Source:      models.SpecSourcePostman,
+		SpecContent: collectionJSON,
+	}
+	if err := tx.Create(swaggerSpec).Error; err != nil {
+		tx.Rollback()
+		return nil, err
+	}
 
 	if err := tx.Where("project_id = ?", projectID).Delete(&models.APIEndpoint{}).Error; err != nil {
 		tx.Rollback()
@@ -226,6 +300,7 @@ func ImportPostmanCollection(db *gorm.DB, projectID, collectionJSON string) (*Im
 		}
 		endpoint := models.APIEndpoint{
 			ProjectID:       projectID,
+			SpecID:          swaggerSpec.ID,
 			Path:            path,
 			Method:          method,
 			Tag:             tag,
@@ -236,7 +311,7 @@ func ImportPostmanCollection(db *gorm.DB, projectID, collectionJSON string) (*Im
 			ResponsesJSON:   "",
 			SecurityJSON:    mustJSON(req.Header),
 			Deprecated:      false,
-			Version:         collection.Info.Name,
+			Version:         specVersion,
 		}
 		if err := tx.Create(&endpoint).Error; err != nil {
 			createErr = err
@@ -247,6 +322,11 @@ func ImportPostmanCollection(db *gorm.DB, projectID, collectionJSON string) (*Im
 	if createErr != nil {
 		tx.Rollback()
 		return nil, createErr
+	}
+
+	if err := tx.Model(&swaggerSpec).Update("api_count", len(apis)).Error; err != nil {
+		tx.Rollback()
+		return nil, err
 	}
 
 	if err := tx.Model(&models.Project{}).Where("id = ?", projectID).Updates(map[string]interface{}{
@@ -262,11 +342,14 @@ func ImportPostmanCollection(db *gorm.DB, projectID, collectionJSON string) (*Im
 	}
 
 	return &ImportOpenAPIResult{
-		ProjectID: projectID,
-		APICount:  len(apis),
-		RefCount:  0,
-		DepCount:  0,
-		APIs:      apis,
+		ProjectID:   projectID,
+		SpecID:      swaggerSpec.ID,
+		SpecName:    swaggerSpec.Name,
+		SpecVersion: specVersion,
+		APICount:    len(apis),
+		RefCount:    0,
+		DepCount:    0,
+		APIs:        apis,
 	}, nil
 }
 
@@ -292,6 +375,64 @@ func GetProjectAPIs(db *gorm.DB, projectID string) ([]models.APIEndpoint, error)
 	var apis []models.APIEndpoint
 	err := db.Where("project_id = ?", projectID).Order("path, method").Find(&apis).Error
 	return apis, err
+}
+
+// specNameFromOpenAPI 从 OpenAPI 文档的 info.title 提取 spec 名称。
+// 找不到时返回空字符串，调用方需自行决定回退值。
+func specNameFromOpenAPI(doc map[string]interface{}) string {
+	info, ok := doc["info"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(stringValue(info["title"]))
+}
+
+// nextSpecVersion 决定新建 SwaggerSpec 应当使用的版本号。
+//
+// 规则：
+//  1. 调用方显式传入 hint（非空）且为合法 semver → 直接使用
+//  2. 否则查询该项目同名 spec 的最新版本，自动递增 patch 段
+//  3. 首次导入默认 v1.0.0
+func nextSpecVersion(tx *gorm.DB, projectID, name, hint string) (string, error) {
+	if hint = strings.TrimSpace(hint); hint != "" {
+		return hint, nil
+	}
+
+	var last models.SwaggerSpec
+	err := tx.Where("project_id = ? AND name = ?", projectID, name).
+		Order("created_at DESC").
+		First(&last).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return "", err
+	}
+	if err == gorm.ErrRecordNotFound {
+		return "1.0.0", nil
+	}
+	return bumpPatchVersion(last.Version, "1.0.0")
+}
+
+// bumpPatchVersion 把 v1.2.3 → v1.2.4；如果解析失败或为空则 fallback 到 seed。
+func bumpPatchVersion(current, seed string) (string, error) {
+	cur := strings.TrimSpace(current)
+	if cur == "" {
+		return seed, nil
+	}
+	parts := strings.Split(cur, ".")
+	if len(parts) != 3 {
+		return seed, nil
+	}
+	var major, minor, patch int
+	if _, err := fmt.Sscanf(parts[0], "%d", &major); err != nil {
+		return seed, nil
+	}
+	if _, err := fmt.Sscanf(parts[1], "%d", &minor); err != nil {
+		return seed, nil
+	}
+	if _, err := fmt.Sscanf(parts[2], "%d", &patch); err != nil {
+		return seed, nil
+	}
+	patch++
+	return fmt.Sprintf("%d.%d.%d", major, minor, patch), nil
 }
 
 func firstTag(v interface{}) string {

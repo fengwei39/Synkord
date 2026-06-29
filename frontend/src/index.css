@@ -573,7 +573,6 @@ select {
   border-radius: 12px;
   padding: 18px 16px 14px;
   background: #fff;
-  cursor: pointer;
   transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
 }
 
@@ -607,6 +606,39 @@ select {
   color: #111827;
   font-size: 15px;
   font-weight: 700;
+}
+
+.detail-link {
+  border: 0;
+  padding: 0;
+  display: block;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.detail-link:hover,
+.table-link:hover {
+  color: #2563eb;
+}
+
+.table-link {
+  height: auto;
+  padding: 0;
+  line-height: 1.4;
+}
+
+.json-preview {
+  max-height: 360px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #e9edf5;
+  border-radius: 8px;
+  color: #17233d;
+  background: #f8fafc;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .project-desc {

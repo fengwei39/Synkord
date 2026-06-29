@@ -117,6 +117,68 @@ Synkord 开源 MCP 规范协同平台需求文档
                        └──────────────────────────────────────┘
    ```
 
+   4.1 三层架构与协议分工
+
+   Synkord 运行时分为三层，协议严格分离：
+
+   ```text
+   ┌─────────────────────────────────────────────────────────────┐
+   │  Authority: synkord-core (Go)                              │
+   │  ├─ 数据存储 (SQLite/PG)                                    │
+   │  ├─ REST API (/api/*)                                      │
+   │  ├─ MCP Server (/mcp/sse, /mcp/message)                    │
+   │  └─ MCP 服务可独立启停，由 Electron 控制                    │
+   └─────────────────────────────────────────────────────────────┘
+                 ▲                              ▲
+                 │ REST                         │ MCP (SSE)
+                 │                              │
+   ┌──────────────────────────┐  ┌──────────────────────────┐
+   │  Management: Electron    │  │  Consumption:            │
+   │  ├─ 团队资产 CRUD          │  │  ├─ Cursor / VSCode      │
+   │  ├─ MCP 服务开关          │  │  ├─ Git Pre-Commit (CLI) │
+   │  ├─ Token 管理            │  │  └─ CI Pipeline (CLI)    │
+   │  └─ 审计查看              │  │                          │
+   └──────────────────────────┘  └──────────────────────────┘
+   ```
+
+   - **Authority（synkord-core）**：数据存储、REST API、MCP Server 同进程部署。REST API 路径前缀 `/api`；MCP Server 路径 `/mcp/sse`、`/mcp/message`；MCP 服务可独立启停，由 Electron 通过 REST 控制。
+   - **Management（Electron 管理端）**：通过 REST API 完成项目、接口、模型、依赖、变更、通知、成员的 CRUD；通过 REST API 控制 MCP 服务开关、Token、工具范围、限流策略；通过 REST API 查看 MCP 调用审计。**不直接调用 MCP 工具**。
+   - **Consumption（消费方）**：IDE/AI 编码助手（Cursor、VSCode、Codex、PyCharm、Copilot 等）通过 MCP 协议读取规范；后端 CI 通过 REST 推送 OpenAPI 规范；前端/App Git Hook 通过 REST 校验引用；跨场景通用 CLI 工具封装 REST 调用，避免每个项目重复实现。
+
+   4.2 同步渠道矩阵
+
+   | 行为 | 通道 | 调用方 |
+   | --- | --- | --- |
+   | 后端 CI 推送 OpenAPI/Postman | REST | 后端项目 + CLI |
+   | 前端 commit 校验依赖 | REST | 前端项目 + CLI |
+   | CI 通用校验 spec 兼容性 | REST | 任意项目 + CLI |
+   | IDE/AI 读取最新 API/模型 | MCP | IDE/AI |
+   | IDE/AI 校验代码片段 | MCP | IDE/AI |
+   | 团队资产 CRUD | REST | Electron |
+   | 启停 MCP 服务 | REST | Electron |
+   | Token 管理 | REST | Electron |
+   | 审计查看 | REST | Electron |
+
+   4.3 后端技术栈
+
+   后端不限制技术栈，Synkord 不集成特定框架的 OpenAPI 生成器。约束对象是 **OpenAPI 3.x** 规范本身：
+
+   - Spring Boot 项目使用 springdoc-openapi 生成 openapi.json
+   - NestJS 项目使用 @nestjs/swagger 生成 openapi.json
+   - FastAPI 项目自动生成 openapi.json
+   - Go 项目使用 swag/swaggo 生成 openapi.json
+   - Python (Flask) 使用 flasgger / apispec 生成 openapi.json
+   - 其他栈自行保证产物符合 OpenAPI 3.x
+
+   导入时校验（不通过则拒绝）：
+
+   - `info.title`、`info.version` 必填
+   - 每个 operation 必填 `summary` 或 `description`
+   - `$ref` 必须指向 `components/schemas` 内已定义 entity
+   - HTTP 响应需带 description
+
+   只要后端项目能在 CI 中产出 openapi.json 并通过 CLI 推送，即满足约束。
+
 5. 核心数据对象
 
    5.1 Team

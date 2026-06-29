@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Card, Table, Tag, Typography } from 'antd';
+import { Button, Card, Table, Tag, Typography } from 'antd';
+import { useNavigate } from 'react-router-dom';
 import { listChangeSets } from '../api/changesets';
 import { useTeam } from '../contexts/TeamContext';
 
@@ -17,6 +18,7 @@ type ChangeSetRow = {
 };
 
 export default function ChangeSets() {
+  const navigate = useNavigate();
   const { currentTeam, currentTeamId } = useTeam();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -59,7 +61,13 @@ export default function ChangeSets() {
           loading={loading}
           dataSource={items}
           columns={[
-            { title: '服务', dataIndex: 'service_name' },
+            {
+              title: '服务',
+              dataIndex: 'service_name',
+              render: (v: string, record: any) => (
+                <Button type="link" className="table-link" onClick={() => navigate(`/changesets/${record.id}`)}>{v}</Button>
+              ),
+            },
             { title: '旧版本', dataIndex: 'old_version', width: 100 },
             { title: '新版本', dataIndex: 'new_version', width: 100 },
             {

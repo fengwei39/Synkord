@@ -64,6 +64,9 @@ func RegisterDiffRoutes(r *gin.RouterGroup) {
 				return
 			}
 
+			// TODO: 切到 ListTeamEntities(teamID, &projectID, ptrBool(false), 0, limit)
+			// 追加 ListTeamEntities(teamID, nil, ptrBool(true), 0, limit) 替代 GetServiceEntities。
+			// 详见 services/entity_store.go 上的 Deprecated 注释。
 			entities, err := services.GetServiceEntities(database.DB, req.ProjectID)
 			if err != nil {
 				c.JSON(500, gin.H{"detail": err.Error()})
@@ -137,6 +140,20 @@ func RegisterTeamDiffRoutes(r *gin.RouterGroup) {
 				return
 			}
 			c.JSON(http.StatusOK, gin.H{"items": items, "total": total})
+		})
+
+		d.GET("/changesets/:change_set_id", func(c *gin.Context) {
+			teamID := c.Param("team_id")
+			if _, err := services.GetTeamForUser(database.DB, teamID, c.GetString("user_id")); err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"detail": "Team not found"})
+				return
+			}
+			item, err := services.GetTeamChangeSet(database.DB, teamID, c.Param("change_set_id"))
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"detail": "Change set not found"})
+				return
+			}
+			c.JSON(http.StatusOK, item)
 		})
 	}
 }

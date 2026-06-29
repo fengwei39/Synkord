@@ -75,3 +75,11 @@ func ListTeamChangeSets(db *gorm.DB, teamID, projectID string, offset, limit int
 	}
 	return items, total, nil
 }
+
+func GetTeamChangeSet(db *gorm.DB, teamID, changeSetID string) (*models.ChangeSet, error) {
+	var item models.ChangeSet
+	if err := db.Preload("Project").First(&item, "id = ? AND team_id = ?", changeSetID, teamID).Error; err != nil {
+		return nil, err
+	}
+	return &item, nil
+}

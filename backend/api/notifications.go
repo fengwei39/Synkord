@@ -32,6 +32,50 @@ func RegisterTeamNotificationRoutes(r *gin.RouterGroup) {
 			c.JSON(http.StatusOK, gin.H{"items": items, "total": total})
 		})
 
+		n.GET("/webhook", func(c *gin.Context) {
+			teamID := c.Param("team_id")
+			if _, err := services.GetTeamForUser(database.DB, teamID, c.GetString("user_id")); err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"detail": "Team not found"})
+				return
+			}
+			config, err := services.GetWebhookConfig(database.DB, teamID)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, config)
+		})
+
+		n.PATCH("/webhook", func(c *gin.Context) {
+			teamID := c.Param("team_id")
+			if !requireTeamAdmin(c, teamID) {
+				return
+			}
+			var req services.WebhookConfigInput
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+				return
+			}
+			config, err := services.UpdateWebhookConfig(database.DB, teamID, req)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, config)
+		})
+
+		n.POST("/webhook/test", func(c *gin.Context) {
+			teamID := c.Param("team_id")
+			if !requireTeamAdmin(c, teamID) {
+				return
+			}
+			if err := services.TestWebhookConfig(database.DB, teamID); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"status": "sent"})
+		})
+
 		n.POST("/:notification_id/read", func(c *gin.Context) {
 			teamID := c.Param("team_id")
 			if _, err := services.GetTeamForUser(database.DB, teamID, c.GetString("user_id")); err != nil {

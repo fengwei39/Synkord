@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Avatar, Badge, Button, Drawer, Dropdown, Empty, Spin, Tag, Tooltip } from 'antd';
+import { App as AntApp, Avatar, Badge, Button, Drawer, Dropdown, Empty, Form, Input, Modal, Select, Space, Spin, Switch, Tag, Tooltip } from 'antd';
 import {
   ApiOutlined,
   ApartmentOutlined,
@@ -24,7 +24,16 @@ import {
 } from '@ant-design/icons';
 import { useAuth } from '../api/auth';
 import { getTeamMCPOverview } from '../api/mcp';
-import { listNotifications, markNotificationRead, retryNotificationDelivery, type TeamNotification } from '../api/notifications';
+import {
+  getWebhookConfig,
+  listNotifications,
+  markNotificationRead,
+  retryNotificationDelivery,
+  testWebhookConfig,
+  updateWebhookConfig,
+  type TeamNotification,
+  type WebhookConfig,
+} from '../api/notifications';
 import { useTeam } from '../contexts/TeamContext';
 
 const workspaceLinks = [
@@ -44,9 +53,13 @@ export default function AppLayout() {
   const location = useLocation();
   const { user, logout } = useAuth();
   const { teams, currentTeam, currentTeamId, switchTeam } = useTeam();
+  const { message } = AntApp.useApp();
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [notifications, setNotifications] = useState<TeamNotification[]>([]);
   const [notificationLoading, setNotificationLoading] = useState(false);
+  const [webhookOpen, setWebhookOpen] = useState(false);
+  const [webhookSaving, setWebhookSaving] = useState(false);
+  const [webhookForm] = Form.useForm<WebhookConfig>();
   const [mcpStatus, setMcpStatus] = useState<'enabled' | 'disabled' | 'not_configured'>('not_configured');
   const selectedTopKey = location.pathname === '/' ? '/' : '/' + location.pathname.split('/')[1];
   const selectedWorkspaceKey = workspaceLinks.find((item) => selectedTopKey === item.key)?.key || selectedTopKey;
@@ -106,6 +119,48 @@ export default function AppLayout() {
     if (!currentTeamId) return;
     const updated = await retryNotificationDelivery(currentTeamId, item.id);
     setNotifications((items) => items.map((next) => (next.id === item.id ? updated : next)));
+  };
+
+  const openWebhookSettings = async () => {
+    if (!currentTeamId) return;
+    const config = await getWebhookConfig(currentTeamId);
+    webhookForm.setFieldsValue(config);
+    setWebhookOpen(true);
+  };
+
+  const saveWebhookSettings = async () => {
+    if (!currentTeamId) return;
+    const values = await webhookForm.validateFields();
+    setWebhookSaving(true);
+    try {
+      const config = await updateWebhookConfig(currentTeamId, {
+        enabled: !!values.enabled,
+        provider: values.provider || 'dingtalk',
+        webhook_url: values.webhook_url || '',
+        notify_warning: !!values.notify_warning,
+      });
+      webhookForm.setFieldsValue(config);
+      message.success('Webhook 配置已保存');
+      setWebhookOpen(false);
+      loadNotifications();
+    } catch (error: any) {
+      message.error(error?.response?.data?.detail || '保存失败');
+    } finally {
+      setWebhookSaving(false);
+    }
+  };
+
+  const testWebhook = async () => {
+    if (!currentTeamId) return;
+    setWebhookSaving(true);
+    try {
+      await testWebhookConfig(currentTeamId);
+      message.success('测试通知已发送');
+    } catch (error: any) {
+      message.error(error?.response?.data?.detail || '测试发送失败');
+    } finally {
+      setWebhookSaving(false);
+    }
   };
 
   return (
@@ -239,6 +294,7 @@ export default function AppLayout() {
         open={notificationOpen}
         onClose={() => setNotificationOpen(false)}
         size="default"
+        extra={<Button size="small" onClick={openWebhookSettings}>通知设置</Button>}
       >
         {notificationLoading ? (
           <div className="notification-loading">
@@ -280,6 +336,43 @@ export default function AppLayout() {
           </div>
         )}
       </Drawer>
+
+      <Modal
+        title="团队 Webhook 通知配置"
+        open={webhookOpen}
+        onOk={saveWebhookSettings}
+        confirmLoading={webhookSaving}
+        onCancel={() => setWebhookOpen(false)}
+        footer={(
+          <Space>
+            <Button onClick={() => setWebhookOpen(false)}>取消</Button>
+            <Button onClick={testWebhook} loading={webhookSaving}>测试通知</Button>
+            <Button type="primary" onClick={saveWebhookSettings} loading={webhookSaving}>保存配置</Button>
+          </Space>
+        )}
+      >
+        <Form form={webhookForm} layout="vertical">
+          <Form.Item name="enabled" label="Webhook 开关" valuePropName="checked">
+            <Switch checkedChildren="启用" unCheckedChildren="停用" />
+          </Form.Item>
+          <Form.Item name="provider" label="通知渠道" rules={[{ required: true, message: '请选择通知渠道' }]}>
+            <Select options={[
+              { value: 'dingtalk', label: '钉钉' },
+              { value: 'feishu', label: '飞书' },
+            ]} />
+          </Form.Item>
+          <Form.Item
+            name="webhook_url"
+            label="Webhook 地址"
+            rules={[{ required: true, message: '请输入 Webhook 地址' }]}
+          >
+            <Input.Password placeholder="粘贴群机器人 Webhook 地址" />
+          </Form.Item>
+          <Form.Item name="notify_warning" label="warning 变更也推送" valuePropName="checked">
+            <Switch checkedChildren="推送" unCheckedChildren="不推送" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }
@@ -297,6 +390,7 @@ const severityColor: Record<TeamNotification['severity'], string> = {
 };
 
 const deliveryStatusLabel: Record<TeamNotification['delivery_status'], string> = {
+  disabled: '通知已关闭',
   not_configured: '未配置 Webhook',
   pending: '待发送',
   sent: '已发送',
@@ -304,6 +398,7 @@ const deliveryStatusLabel: Record<TeamNotification['delivery_status'], string> =
 };
 
 const deliveryStatusColor: Record<TeamNotification['delivery_status'], string> = {
+  disabled: 'default',
   not_configured: 'default',
   pending: 'processing',
   sent: 'success',

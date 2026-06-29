@@ -14,6 +14,11 @@ export async function listModels(teamId: string) {
   return resp.data.items || [];
 }
 
+export async function getModel(teamId: string, modelId: string) {
+  const resp = await apiClient.get(`/teams/${teamId}/models/${modelId}`);
+  return resp.data;
+}
+
 export async function createModel(teamId: string, values: ModelPayload) {
   const resp = await apiClient.post(`/teams/${teamId}/models`, values);
   return resp.data;

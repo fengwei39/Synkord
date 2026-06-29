@@ -9,6 +9,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/synkord/core/config"
 	"github.com/synkord/core/database"
+	"github.com/synkord/core/models"
 	"github.com/synkord/core/services"
 )
 
@@ -19,33 +20,54 @@ func CreateMCPServer(cfg *config.Config) *server.MCPServer {
 		server.WithToolCapabilities(true),
 	)
 
-	// Tool 1: get_global_entities
-	s.AddTool(mcp.NewTool("get_global_entities",
-		mcp.WithDescription("获取全局公共实体定义（统一返回体、分页 DTO、枚举等）。AI 编码助手应在生成任何 DTO 或实体代码前调用此工具。"),
+	// Tool 1: get_team_entities
+	// 对应 docs/ai-development-guide.md §8 与 docs/requirements.md §6.6。
+	// 旧名 get_global_entities 已在 §2 禁止沿用。
+	s.AddTool(mcp.NewTool("get_team_entities",
+		mcp.WithDescription("获取当前团队（由 MCP Token 解析得到）的公共数据模型定义（DTO、VO、枚举、返回体等）。AI 编码助手应在生成任何 DTO 或实体代码前调用此工具。"),
+		mcp.WithString("team_id", mcp.Required(), mcp.Description("团队 ID（由 MCP 客户端从 token 元数据中获取并传入）")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		entities, err := services.GetGlobalEntities(database.DB)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to get global entities: %v", err)), nil
+		args := getArgs(req)
+		teamID, ok := args["team_id"].(string)
+		if !ok {
+			return mcp.NewToolResultError("team_id is required"), nil
 		}
-		data, _ := json.MarshalIndent(entities, "", "  ")
+		items, _, err := services.ListTeamEntities(database.DB, teamID, nil, ptrBool(true), 0, 200)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to get team entities: %v", err)), nil
+		}
+		data, _ := json.MarshalIndent(items, "", "  ")
 		return mcp.NewToolResultText(string(data)), nil
 	})
 
-	// Tool 2: get_service_entities
-	s.AddTool(mcp.NewTool("get_service_entities",
-		mcp.WithDescription("获取指定服务的私有实体及引用的公共实体。"),
-		mcp.WithString("project_id", mcp.Required(), mcp.Description("服务项目的唯一标识符")),
+	// Tool 2: get_project_entities
+	// 旧名 get_service_entities 已在 §2 禁止沿用。
+	s.AddTool(mcp.NewTool("get_project_entities",
+		mcp.WithDescription("获取指定项目的私有实体及该项目引用的团队公共实体。"),
+		mcp.WithString("team_id", mcp.Required(), mcp.Description("团队 ID")),
+		mcp.WithString("project_id", mcp.Required(), mcp.Description("项目 ID")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args := getArgs(req)
+		teamID, ok := args["team_id"].(string)
+		if !ok {
+			return mcp.NewToolResultError("team_id is required"), nil
+		}
 		projectID, ok := args["project_id"].(string)
 		if !ok {
 			return mcp.NewToolResultError("project_id is required"), nil
 		}
-		entities, err := services.GetServiceEntities(database.DB, projectID)
+		// 先取项目私有
+		privItems, _, err := services.ListTeamEntities(database.DB, teamID, &projectID, ptrBool(false), 0, 200)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed: %v", err)), nil
 		}
-		data, _ := json.MarshalIndent(entities, "", "  ")
+		// 再追加团队公共
+		pubItems, _, err := services.ListTeamEntities(database.DB, teamID, nil, ptrBool(true), 0, 200)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed: %v", err)), nil
+		}
+		merged := append(privItems, pubItems...)
+		data, _ := json.MarshalIndent(merged, "", "  ")
 		return mcp.NewToolResultText(string(data)), nil
 	})
 
@@ -133,22 +155,66 @@ func CreateMCPServer(cfg *config.Config) *server.MCPServer {
 	s.AddTool(mcp.NewTool("validate_entity_usage",
 		mcp.WithDescription("校验代码片段中的实体使用是否符合平台规范。"),
 		mcp.WithString("code_snippet", mcp.Required(), mcp.Description("需要校验的代码片段")),
+		mcp.WithString("team_id", mcp.Required(), mcp.Description("所属团队 ID")),
 		mcp.WithString("project_id", mcp.Required(), mcp.Description("所属项目 ID")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args := getArgs(req)
 		codeSnippet, _ := args["code_snippet"].(string)
-		projectID, _ := args["project_id"].(string)
+		teamID, ok := args["team_id"].(string)
+		if !ok {
+			return mcp.NewToolResultError("team_id is required"), nil
+		}
+		projectID, ok := args["project_id"].(string)
+		if !ok {
+			return mcp.NewToolResultError("project_id is required"), nil
+		}
 
-		entities, err := services.GetServiceEntities(database.DB, projectID)
+		privItems, _, err := services.ListTeamEntities(database.DB, teamID, &projectID, ptrBool(false), 0, 500)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed: %v", err)), nil
 		}
-		schemas := make([]string, len(entities))
-		for i, e := range entities {
+		pubItems, _, err := services.ListTeamEntities(database.DB, teamID, nil, ptrBool(true), 0, 500)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed: %v", err)), nil
+		}
+		merged := append(privItems, pubItems...)
+		schemas := make([]string, len(merged))
+		for i, e := range merged {
 			schemas[i] = e.SchemaContent
 		}
 		result := services.ValidateEntityUsage(codeSnippet, schemas)
 		data, _ := json.MarshalIndent(result, "", "  ")
+		return mcp.NewToolResultText(string(data)), nil
+	})
+
+	// Tool 8: get_swagger_spec_versions
+	// 新增：返回某项目的 spec 版本历史，AI 升级前应先调此工具。
+	s.AddTool(mcp.NewTool("get_swagger_spec_versions",
+		mcp.WithDescription("返回指定项目的 SwaggerSpec / PostmanCollection 版本历史，AI 在升级依赖前应先调此工具确认当前最新版本。"),
+		mcp.WithString("team_id", mcp.Required(), mcp.Description("团队 ID")),
+		mcp.WithString("project_id", mcp.Required(), mcp.Description("项目 ID")),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		args := getArgs(req)
+		teamID, ok := args["team_id"].(string)
+		if !ok {
+			return mcp.NewToolResultError("team_id is required"), nil
+		}
+		projectID, ok := args["project_id"].(string)
+		if !ok {
+			return mcp.NewToolResultError("project_id is required"), nil
+		}
+
+		var specs []models.SwaggerSpec
+		err := database.DB.
+			Joins("JOIN projects ON projects.id = swagger_specs.project_id").
+			Where("swagger_specs.project_id = ? AND projects.team_id = ?", projectID, teamID).
+			Order("swagger_specs.created_at DESC").
+			Limit(50).
+			Find(&specs).Error
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed: %v", err)), nil
+		}
+		data, _ := json.MarshalIndent(specs, "", "  ")
 		return mcp.NewToolResultText(string(data)), nil
 	})
 
@@ -161,3 +227,5 @@ func getArgs(req mcp.CallToolRequest) map[string]interface{} {
 	}
 	return make(map[string]interface{})
 }
+
+func ptrBool(b bool) *bool { return &b }

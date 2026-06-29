@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { App as AntApp, Table, Button, Modal, Form, Input, Select, Switch, Space, Tag, Typography, Popconfirm } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, HistoryOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { createModel, deleteModel, listModels, listModelVersions, updateModel } from '../api/models';
 import { listProjects } from '../api/projects';
 import { useTeam } from '../contexts/TeamContext';
@@ -8,6 +9,7 @@ import { useTeam } from '../contexts/TeamContext';
 const { Text } = Typography;
 
 export default function Entities() {
+  const navigate = useNavigate();
   const { currentTeam, currentTeamId } = useTeam();
   const { message } = AntApp.useApp();
   const [entities, setEntities] = useState<any[]>([]);
@@ -78,7 +80,14 @@ export default function Entities() {
   };
 
   const columns = [
-    { title: '名称', dataIndex: 'name', key: 'name' },
+    {
+      title: '名称',
+      dataIndex: 'name',
+      key: 'name',
+      render: (v: string, record: any) => (
+        <Button type="link" className="table-link" onClick={() => navigate(`/models/${record.id}`)}>{v}</Button>
+      ),
+    },
     {
       title: '类型', dataIndex: 'is_global', key: 'type',
       render: (g: boolean) => <Tag color={g ? 'purple' : 'blue'}>{g ? '团队模型' : '项目模型'}</Tag>,
@@ -137,8 +146,8 @@ export default function Entities() {
         rowKey="id"
         loading={loading}
         dataSource={entities.filter((entity) => {
-          if (scopes === 'team') return !!entity.is_team_model;
-          if (scopes === 'project') return !entity.is_team_model;
+          if (scopes === 'team') return !!entity.is_global;
+          if (scopes === 'project') return !entity.is_global;
           return true;
         })}
         columns={columns}

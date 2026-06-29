@@ -13,6 +13,11 @@ export async function listProjects(teamId: string) {
   return resp.data.items || [];
 }
 
+export async function getProject(teamId: string, projectId: string) {
+  const resp = await apiClient.get(`/teams/${teamId}/projects/${projectId}`);
+  return resp.data;
+}
+
 export async function createProject(teamId: string, values: ProjectPayload) {
   const resp = await apiClient.post(`/teams/${teamId}/projects`, values);
   return resp.data;

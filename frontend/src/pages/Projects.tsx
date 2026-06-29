@@ -112,7 +112,9 @@ export default function Projects() {
           {projects.map((project) => (
             <article className="project-card" key={project.id}>
               <div className="project-icon"><ProjectOutlined /></div>
-              <div className="project-name">{project.name}</div>
+              <button className="detail-link project-name" onClick={() => navigate(`/projects/${project.id}`)}>
+                {project.name}
+              </button>
               <div className="project-desc">{project.description || '暂无描述'}</div>
               <div className="project-card-footer">
                 <Space style={{ width: '100%', justifyContent: 'space-between' }}>
@@ -134,7 +136,13 @@ export default function Projects() {
           loading={loading}
           dataSource={projects}
           columns={[
-            { title: '名称', dataIndex: 'name' },
+            {
+              title: '名称',
+              dataIndex: 'name',
+              render: (v, record) => (
+                <Button type="link" className="table-link" onClick={() => navigate(`/projects/${record.id}`)}>{v}</Button>
+              ),
+            },
             { title: '类型', dataIndex: 'project_type', width: 100, render: (v) => <span className="type-pill">{typeLabels[v] || v}</span> },
             { title: '描述', dataIndex: 'description', ellipsis: true },
             { title: '负责人', dataIndex: 'owner', width: 120, render: (v) => v || '-' },

@@ -43,6 +43,7 @@ func main() {
 	api.RegisterTeamRoutes(protectedAPI)
 	api.RegisterTeamProjectRoutes(protectedAPI)
 	api.RegisterTeamAPIRoutes(protectedAPI)
+	api.RegisterTeamSwaggerSpecRoutes(protectedAPI)
 	api.RegisterTeamModelRoutes(protectedAPI)
 	api.RegisterTeamDependencyRoutes(protectedAPI)
 	api.RegisterTeamDiffRoutes(protectedAPI)

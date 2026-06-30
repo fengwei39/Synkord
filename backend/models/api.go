@@ -8,6 +8,7 @@ import (
 
 type APIEndpoint struct {
 	ID              string    `json:"id" gorm:"primaryKey;size:36"`
+	TeamID          string    `json:"team_id" gorm:"size:36;not null;index"`
 	ProjectID       string    `json:"project_id" gorm:"size:36;not null;index"`
 	SpecID          string    `json:"spec_id" gorm:"size:36;index"`
 	Path            string    `json:"path" gorm:"size:512;not null;index"`
@@ -24,6 +25,7 @@ type APIEndpoint struct {
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 
+	Team    *Team        `json:"team,omitempty" gorm:"foreignKey:TeamID"`
 	Project *Project     `json:"project,omitempty" gorm:"foreignKey:ProjectID"`
 	Spec    *SwaggerSpec `json:"spec,omitempty" gorm:"foreignKey:SpecID"`
 }
@@ -31,39 +33,6 @@ type APIEndpoint struct {
 func (a *APIEndpoint) BeforeCreate(tx *gorm.DB) error {
 	if a.ID == "" {
 		a.ID = newUUID()
-	}
-	return nil
-}
-
-type ChangeSeverity string
-
-const (
-	SeverityInfo     ChangeSeverity = "info"
-	SeverityWarning  ChangeSeverity = "warning"
-	SeverityBreaking ChangeSeverity = "breaking"
-)
-
-type ChangeSet struct {
-	ID               string         `json:"id" gorm:"primaryKey;size:36"`
-	TeamID           string         `json:"team_id" gorm:"size:36;index"`
-	ProjectID        string         `json:"project_id" gorm:"size:36;not null;index"`
-	ServiceName      string         `json:"service_name" gorm:"size:128;not null"`
-	OldVersion       string         `json:"old_version" gorm:"size:32"`
-	NewVersion       string         `json:"new_version" gorm:"size:32"`
-	ChangedBy        *string        `json:"changed_by" gorm:"size:36"`
-	Severity         ChangeSeverity `json:"severity" gorm:"size:16;index"`
-	ChangesJSON      string         `json:"changes_json" gorm:"type:text"`
-	AffectedJSON     string         `json:"affected_json" gorm:"type:text"`
-	NotificationJSON string         `json:"notification_json" gorm:"type:text"`
-	CreatedAt        time.Time      `json:"created_at"`
-
-	Team    *Team    `json:"team,omitempty" gorm:"foreignKey:TeamID"`
-	Project *Project `json:"project,omitempty" gorm:"foreignKey:ProjectID"`
-}
-
-func (c *ChangeSet) BeforeCreate(tx *gorm.DB) error {
-	if c.ID == "" {
-		c.ID = newUUID()
 	}
 	return nil
 }

@@ -11,70 +11,22 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/synkord/core/database"
-	"github.com/synkord/core/middleware"
 	"github.com/synkord/core/models"
 	"github.com/synkord/core/services"
 )
 
-func RegisterAPIRoutes(r *gin.RouterGroup) {
-	a := r.Group("/apis")
-	{
-		a.GET("", func(c *gin.Context) {
-			skip, _ := strconv.Atoi(c.DefaultQuery("skip", "0"))
-			limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
-			apis, total, err := services.ListAPIs(database.DB, c.Query("project_id"), c.Query("q"), skip, limit)
-			if err != nil {
-				c.JSON(500, gin.H{"detail": err.Error()})
-				return
-			}
-			c.JSON(200, gin.H{"items": apis, "total": total})
-		})
-
-		a.GET("/project/:project_id", func(c *gin.Context) {
-			apis, err := services.GetProjectAPIs(database.DB, c.Param("project_id"))
-			if err != nil {
-				c.JSON(500, gin.H{"detail": err.Error()})
-				return
-			}
-			c.JSON(200, apis)
-		})
-
-		a.POST("/import", middleware.RequireEditorOrAdmin(), func(c *gin.Context) {
-			var req struct {
-				ProjectID string `json:"project_id" binding:"required"`
-				Spec      string `json:"spec" binding:"required"`
-				Format    string `json:"format"`
-			}
-			if err := c.ShouldBindJSON(&req); err != nil {
-				c.JSON(400, gin.H{"detail": err.Error()})
-				return
-			}
-			result, err := importAPISpec(req.ProjectID, req.Spec, req.Format)
-			if err != nil {
-				c.JSON(400, gin.H{"detail": err.Error()})
-				return
-			}
-			c.JSON(200, result)
-		})
-
-		a.GET("/:id", func(c *gin.Context) {
-			var endpoint models.APIEndpoint
-			if err := database.DB.First(&endpoint, "id = ?", c.Param("id")).Error; err != nil {
-				c.JSON(404, gin.H{"detail": "API not found"})
-				return
-			}
-			c.JSON(200, endpoint)
-		})
-	}
-}
-
 func RegisterTeamAPIRoutes(r *gin.RouterGroup) {
-	a := r.Group("/teams/:team_id/apis")
+	a := r.Group("/teams/:team_id/projects/:project_id/apis")
 	{
 		a.GET("", func(c *gin.Context) {
 			teamID := c.Param("team_id")
+			projectID := c.Param("project_id")
 			if _, err := services.GetTeamForUser(database.DB, teamID, c.GetString("user_id")); err != nil {
 				c.JSON(http.StatusNotFound, gin.H{"detail": "Team not found"})
+				return
+			}
+			if !projectBelongsToTeam(projectID, teamID) {
+				c.JSON(http.StatusNotFound, gin.H{"detail": "Project not found"})
 				return
 			}
 
@@ -82,11 +34,7 @@ func RegisterTeamAPIRoutes(r *gin.RouterGroup) {
 			limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 
 			query := database.DB.Model(&models.APIEndpoint{}).
-				Joins("JOIN projects ON projects.id = api_endpoints.project_id").
-				Where("projects.team_id = ?", teamID)
-			if projectID := c.Query("project_id"); projectID != "" {
-				query = query.Where("api_endpoints.project_id = ?", projectID)
-			}
+				Where("team_id = ? AND project_id = ?", teamID, projectID)
 			if q := c.Query("q"); q != "" {
 				like := "%" + q + "%"
 				query = query.Where("api_endpoints.path LIKE ? OR api_endpoints.summary LIKE ? OR api_endpoints.tag LIKE ?", like, like, like)
@@ -108,11 +56,11 @@ func RegisterTeamAPIRoutes(r *gin.RouterGroup) {
 			if !requireTeamEditor(c, teamID) {
 				return
 			}
+			projectID := c.Param("project_id")
 
 			var req struct {
-				ProjectID string `json:"project_id" binding:"required"`
-				Spec      string `json:"spec" binding:"required"`
-				Format    string `json:"format"`
+				Spec   string `json:"spec" binding:"required"`
+				Format string `json:"format"`
 			}
 			if err := c.ShouldBindJSON(&req); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
@@ -120,12 +68,12 @@ func RegisterTeamAPIRoutes(r *gin.RouterGroup) {
 			}
 
 			var project models.Project
-			if err := database.DB.First(&project, "id = ? AND team_id = ?", req.ProjectID, teamID).Error; err != nil {
+			if err := database.DB.First(&project, "id = ? AND team_id = ?", projectID, teamID).Error; err != nil {
 				c.JSON(http.StatusNotFound, gin.H{"detail": "Project not found"})
 				return
 			}
 
-			result, err := importAPISpec(req.ProjectID, req.Spec, req.Format)
+			result, err := importAPISpec(projectID, req.Spec, req.Format)
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 				return
@@ -138,17 +86,10 @@ func RegisterTeamAPIRoutes(r *gin.RouterGroup) {
 			if !requireTeamEditor(c, teamID) {
 				return
 			}
-
-			var req struct {
-				ProjectID string `json:"project_id" binding:"required"`
-			}
-			if err := c.ShouldBindJSON(&req); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
-				return
-			}
+			projectID := c.Param("project_id")
 
 			var project models.Project
-			if err := database.DB.First(&project, "id = ? AND team_id = ?", req.ProjectID, teamID).Error; err != nil {
+			if err := database.DB.First(&project, "id = ? AND team_id = ?", projectID, teamID).Error; err != nil {
 				c.JSON(http.StatusNotFound, gin.H{"detail": "Project not found"})
 				return
 			}
@@ -184,8 +125,7 @@ func RegisterTeamAPIRoutes(r *gin.RouterGroup) {
 
 			var endpoint models.APIEndpoint
 			if err := database.DB.
-				Joins("JOIN projects ON projects.id = api_endpoints.project_id").
-				Where("api_endpoints.id = ? AND projects.team_id = ?", c.Param("api_id"), teamID).
+				Where("id = ? AND team_id = ? AND project_id = ?", c.Param("api_id"), teamID, c.Param("project_id")).
 				First(&endpoint).Error; err != nil {
 				c.JSON(http.StatusNotFound, gin.H{"detail": "API not found"})
 				return
@@ -193,6 +133,12 @@ func RegisterTeamAPIRoutes(r *gin.RouterGroup) {
 			c.JSON(http.StatusOK, endpoint)
 		})
 	}
+}
+
+func projectBelongsToTeam(projectID, teamID string) bool {
+	var count int64
+	database.DB.Model(&models.Project{}).Where("id = ? AND team_id = ?", projectID, teamID).Count(&count)
+	return count == 1
 }
 
 func fetchSwaggerSpec(rawURL string) (string, error) {

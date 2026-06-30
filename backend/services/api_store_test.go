@@ -24,13 +24,8 @@ func testDB(t *testing.T) *gorm.DB {
 		&models.Entity{},
 		&models.EntityVersion{},
 		&models.Dependency{},
-		&models.ChangeSet{},
-		&models.Notification{},
-		&models.WebhookConfig{},
-		&models.TeamMCPSetting{},
 		&models.MCPConfig{},
 		&models.MCPAuditLog{},
-		&models.GlobalMCPServerConfig{},
 	); err != nil {
 		t.Fatalf("migrate db: %v", err)
 	}

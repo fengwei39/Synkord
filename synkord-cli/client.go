@@ -155,17 +155,17 @@ func formatHTTPError(status int, body []byte) error {
 // swaggerSpec 是 swagger_specs API 返回的最小子集。
 // 我们不引入后端 models 包，CLI 独立维护所需字段。
 type swaggerSpec struct {
-	ID          string `json:"id"`
-	TeamID      string `json:"team_id"`
-	ProjectID   string `json:"project_id"`
-	Name        string `json:"name"`
-	Version     string `json:"version"`
-	Source      string `json:"source"`
-	SpecContent string `json:"spec_content"`
+	ID             string `json:"id"`
+	TeamID         string `json:"team_id"`
+	ProjectID      string `json:"project_id"`
+	Name           string `json:"name"`
+	Version        string `json:"version"`
+	Source         string `json:"source"`
+	SpecContent    string `json:"spec_content"`
 	OpenAPIVersion string `json:"openapi_version"`
 	ChangeSummary  string `json:"change_summary"`
 	APICount       int    `json:"api_count"`
-	CreatedAt   string `json:"created_at"`
+	CreatedAt      string `json:"created_at"`
 }
 
 // swaggerSpecListResponse 匹配 backend/api/swagger_specs.go 的响应结构。

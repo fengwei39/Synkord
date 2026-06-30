@@ -151,6 +151,7 @@ func ImportOpenAPISpec(db *gorm.DB, projectID, spec string) (*ImportOpenAPIResul
 				continue
 			}
 			endpoint := models.APIEndpoint{
+				TeamID:          project.TeamID,
 				ProjectID:       projectID,
 				SpecID:          swaggerSpec.ID,
 				Path:            path,
@@ -184,6 +185,7 @@ func ImportOpenAPISpec(db *gorm.DB, projectID, spec string) (*ImportOpenAPIResul
 				}
 				depSeen[key] = true
 				dep := models.Dependency{
+					TeamID:          project.TeamID,
 					SourceProjectID: projectID,
 					TargetProjectID: projectID,
 					EntityName:      entityName,
@@ -299,6 +301,7 @@ func ImportPostmanCollection(db *gorm.DB, projectID, collectionJSON string) (*Im
 			return
 		}
 		endpoint := models.APIEndpoint{
+			TeamID:          project.TeamID,
 			ProjectID:       projectID,
 			SpecID:          swaggerSpec.ID,
 			Path:            path,
@@ -374,6 +377,12 @@ func ListAPIs(db *gorm.DB, projectID, query string, offset, limit int) ([]models
 func GetProjectAPIs(db *gorm.DB, projectID string) ([]models.APIEndpoint, error) {
 	var apis []models.APIEndpoint
 	err := db.Where("project_id = ?", projectID).Order("path, method").Find(&apis).Error
+	return apis, err
+}
+
+func GetTeamProjectAPIs(db *gorm.DB, teamID, projectID string) ([]models.APIEndpoint, error) {
+	var apis []models.APIEndpoint
+	err := db.Where("team_id = ? AND project_id = ?", teamID, projectID).Order("path, method").Find(&apis).Error
 	return apis, err
 }
 

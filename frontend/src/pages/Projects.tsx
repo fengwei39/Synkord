@@ -98,7 +98,9 @@ export default function Projects() {
           <Button type="text" icon={<SortAscendingOutlined />} />
         </div>
         <div className="toolbar-right">
-          <Button icon={<ImportOutlined />} onClick={() => navigate('/apis')}>导入 Swagger / Postman</Button>
+          <Button icon={<ImportOutlined />} onClick={() => message.info('请先进入具体项目，再在项目详情中导入 Swagger / Postman')}>
+            导入 Swagger / Postman
+          </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建项目</Button>
         </div>
       </div>

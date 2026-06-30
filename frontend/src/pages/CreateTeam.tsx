@@ -15,7 +15,7 @@ export default function CreateTeam() {
     try {
       await createTeam(values);
       message.success('团队已创建');
-      navigate('/team', { replace: true });
+      navigate('/projects', { replace: true });
     } catch (error: any) {
       message.error(error?.response?.data?.detail || '创建团队失败');
     } finally {
@@ -30,7 +30,7 @@ export default function CreateTeam() {
           <TeamOutlined />
         </div>
         <h2>{teams.length > 0 ? '新建团队' : '创建你的第一个团队'}</h2>
-        <p>团队是 Synkord 的最高业务容器，项目、接口、数据模型、MCP Token 和变更记录都会归属到当前团队。</p>
+        <p>团队是 Synkord 的最高业务容器。团队层只管理项目和成员，接口、数据模型、依赖拓扑和 MCP 需要进入具体项目后使用。</p>
         <Form layout="vertical" onFinish={handleSubmit} className="team-create-form">
           <Form.Item
             name="name"

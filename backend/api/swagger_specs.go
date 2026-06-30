@@ -127,9 +127,8 @@ func teamImportSwaggerSpec(c *gin.Context) {
 // validateDependenciesRequest 是 Git Hook 调用 validate-deps 时的请求体。
 //
 // PinnedVersion: 消费方声明当前锁定的 spec 版本（可选）。
-// UsedEntities / UsedAPIs: 消费方声明本次变更涉及的实体名 / "METHOD path"。
-//
-// 服务端比对：当目标项目的最新 spec 中已删除某 entity 或 API 时，判定为 breaking。
+// UsedEntities / UsedAPIs: 消费方声明当前代码引用的实体名 / "METHOD path"。
+// 服务端只校验这些引用是否仍存在于当前项目最新规范中，不写入额外业务记录。
 type validateDependenciesRequest struct {
 	ProjectID     string   `json:"project_id" binding:"required"`
 	PinnedVersion string   `json:"pinned_version"`
@@ -138,9 +137,9 @@ type validateDependenciesRequest struct {
 }
 
 type validateDependenciesResponse struct {
-	OK       bool     `json:"ok"`
-	Breaking []string `json:"breaking"`
-	Warnings []string `json:"warnings"`
+	OK         bool     `json:"ok"`
+	Violations []string `json:"violations"`
+	Warnings   []string `json:"warnings"`
 }
 
 func teamValidateDependencies(c *gin.Context) {
@@ -188,13 +187,13 @@ func teamValidateDependencies(c *gin.Context) {
 	for _, entity := range req.UsedEntities {
 		if _, ok := currentEntities[entity]; !ok {
 			resp.OK = false
-			resp.Breaking = append(resp.Breaking, "entity "+entity+" not in latest spec "+currentSpec.Version)
+			resp.Violations = append(resp.Violations, "entity "+entity+" not in latest spec "+currentSpec.Version)
 		}
 	}
 	for _, apiKey := range req.UsedAPIs {
 		if _, ok := currentAPIs[apiKey]; !ok {
 			resp.OK = false
-			resp.Breaking = append(resp.Breaking, "api "+apiKey+" not in latest spec "+currentSpec.Version)
+			resp.Violations = append(resp.Violations, "api "+apiKey+" not in latest spec "+currentSpec.Version)
 		}
 	}
 
@@ -203,7 +202,7 @@ func teamValidateDependencies(c *gin.Context) {
 			"pinned_version "+req.PinnedVersion+" differs from latest "+currentSpec.Version)
 	}
 
-	sort.Strings(resp.Breaking)
+	sort.Strings(resp.Violations)
 	sort.Strings(resp.Warnings)
 	c.JSON(http.StatusOK, resp)
 }

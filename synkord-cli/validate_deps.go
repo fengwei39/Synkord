@@ -9,9 +9,9 @@ import (
 // runValidateDeps implements `synkord validate-deps`.
 //
 // 前端 Git Hook 用：消费方声明"我用了哪些 entity / API"，synkord-core
-// 对比最新 spec 判断是否引用了已变更/已删除的契约。
+// 对照最新 spec 校验这些引用是否仍存在。
 //
-// 阻塞式语义：若返回 breaking 非空，CLI 退出码非零，pre-commit hook
+// 阻塞式语义：若返回 violations 非空，CLI 退出码非零，pre-commit hook
 // 据此阻止 commit（docs/ai-development-guide.md §12.6）。
 func runValidateDeps(args []string) error {
 	fs := flag.NewFlagSet("validate-deps", flag.ContinueOnError)
@@ -55,9 +55,9 @@ func runValidateDeps(args []string) error {
 	}
 
 	var resp struct {
-		OK       bool     `json:"ok"`
-		Breaking []string `json:"breaking"`
-		Warnings []string `json:"warnings"`
+		OK         bool     `json:"ok"`
+		Violations []string `json:"violations"`
+		Warnings   []string `json:"warnings"`
 	}
 	if err := decodeJSON(body, &resp); err != nil {
 		return err
@@ -71,11 +71,11 @@ func runValidateDeps(args []string) error {
 	}
 
 	if !resp.OK {
-		fmt.Fprintln(os.Stderr, "❌ breaking references detected:")
-		for _, b := range resp.Breaking {
-			fmt.Fprintf(os.Stderr, "  - %s\n", b)
+		fmt.Fprintln(os.Stderr, "❌ invalid references detected:")
+		for _, violation := range resp.Violations {
+			fmt.Fprintf(os.Stderr, "  - %s\n", violation)
 		}
-		return fmt.Errorf("validation failed: %d breaking", len(resp.Breaking))
+		return fmt.Errorf("validation failed: %d violation(s)", len(resp.Violations))
 	}
 
 	fmt.Println("✅ validation passed")

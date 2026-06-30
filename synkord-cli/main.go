@@ -5,7 +5,6 @@
 //
 //   - backend CI pipeline:     synkord push-spec --spec ./openapi.json
 //   - frontend Git pre-commit: synkord validate-deps --used-entities X --used-apis Y
-//   - any CI job:              synkord check-spec --spec ./openapi.json
 //
 // Authentication: the CLI authenticates against /api/auth/login with
 // username + password and stores the returned JWT in $HOME/.synkord/token.
@@ -40,8 +39,6 @@ func main() {
 		err = runPushSpec(args)
 	case "validate-deps":
 		err = runValidateDeps(args)
-	case "check-spec":
-		err = runCheckSpec(args)
 	case "login":
 		err = runLogin(args)
 	case "version", "-v", "--version":
@@ -73,7 +70,6 @@ Usage:
 Commands:
   push-spec       Import a new OpenAPI/Postman spec version (CI 推送)
   validate-deps   Validate code references against latest spec (Git Hook 前置校验)
-  check-spec      Check spec compatibility against the latest version (CI 通用校验)
   login           Login to synkord-core and cache JWT
   version         Print version
   help            Show this help

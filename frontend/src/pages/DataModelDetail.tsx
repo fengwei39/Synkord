@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, Descriptions, Empty, Spin, Table, Tag, Typography } from 'antd';
+import { Button, Card, Descriptions, Empty, Spin, Table, Typography } from 'antd';
 import { LeftOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getModel, listModelVersions } from '../api/models';
@@ -18,7 +18,7 @@ function formatJSON(value?: string) {
 
 export default function DataModelDetail() {
   const navigate = useNavigate();
-  const { modelId } = useParams();
+  const { projectId, modelId } = useParams();
   const { currentTeam, currentTeamId } = useTeam();
   const [model, setModel] = useState<any>(null);
   const [versions, setVersions] = useState<any[]>([]);
@@ -26,12 +26,12 @@ export default function DataModelDetail() {
 
   useEffect(() => {
     const load = async () => {
-      if (!currentTeamId || !modelId) return;
+      if (!currentTeamId || !projectId || !modelId) return;
       setLoading(true);
       try {
         const [modelDetail, versionItems] = await Promise.all([
-          getModel(currentTeamId, modelId),
-          listModelVersions(currentTeamId, modelId),
+          getModel(currentTeamId, projectId, modelId),
+          listModelVersions(currentTeamId, projectId, modelId),
         ]);
         setModel(modelDetail);
         setVersions(versionItems);
@@ -40,7 +40,7 @@ export default function DataModelDetail() {
       }
     };
     load();
-  }, [currentTeamId, modelId]);
+  }, [currentTeamId, projectId, modelId]);
 
   if (loading) return <div className="route-loading"><Spin /></div>;
   if (!model) return <Empty description="数据模型不存在" />;
@@ -48,7 +48,7 @@ export default function DataModelDetail() {
   return (
     <div className="project-page">
       <header className="page-header">
-        <Button type="text" icon={<LeftOutlined />} onClick={() => navigate('/models')}>返回模型</Button>
+        <Button type="text" icon={<LeftOutlined />} onClick={() => navigate(`/projects/${projectId}/models`)}>返回模型</Button>
         <div className="page-title-row">
           <h1>{model.name}</h1>
           <span className="owner-badge">{currentTeam?.name || '当前团队'}</span>
@@ -58,9 +58,6 @@ export default function DataModelDetail() {
 
       <Card style={{ marginBottom: 16 }}>
         <Descriptions column={2} size="small">
-          <Descriptions.Item label="范围">
-            <Tag color={model.is_global ? 'purple' : 'blue'}>{model.is_global ? '团队模型' : '项目模型'}</Tag>
-          </Descriptions.Item>
           <Descriptions.Item label="当前版本">{model.current_version || '-'}</Descriptions.Item>
           <Descriptions.Item label="版本数">{model.version_count || versions.length || 0}</Descriptions.Item>
           <Descriptions.Item label="所属项目">{model.project?.name || model.project_id || '-'}</Descriptions.Item>
@@ -79,7 +76,7 @@ export default function DataModelDetail() {
           dataSource={versions}
           columns={[
             { title: '版本', dataIndex: 'version_number', width: 120 },
-            { title: '变更说明', dataIndex: 'change_summary', render: (v: string) => v || '-' },
+            { title: '版本说明', dataIndex: 'change_summary', render: (v: string) => v || '-' },
             { title: '时间', dataIndex: 'created_at', width: 220, render: (v: string) => new Date(v).toLocaleString() },
           ]}
           pagination={false}

@@ -72,12 +72,8 @@ func testDB(t *testing.T) *gorm.DB {
 		&models.Entity{},
 		&models.EntityVersion{},
 		&models.Dependency{},
-		&models.ChangeSet{},
-		&models.Notification{},
-		&models.TeamMCPSetting{},
 		&models.MCPConfig{},
 		&models.MCPAuditLog{},
-		&models.GlobalMCPServerConfig{},
 	); err != nil {
 		t.Fatalf("migrate db: %v", err)
 	}
@@ -247,9 +243,9 @@ func TestValidateDependenciesDetectsMissingReferences(t *testing.T) {
 	if body["ok"] != false {
 		t.Fatalf("ok = %v, want false (OrderDTO + POST /orders missing)", body["ok"])
 	}
-	breaking := body["breaking"].([]any)
-	if len(breaking) != 2 {
-		t.Fatalf("breaking len = %d, want 2, body = %+v", len(breaking), body)
+	violations := body["violations"].([]any)
+	if len(violations) != 2 {
+		t.Fatalf("violations len = %d, want 2, body = %+v", len(violations), body)
 	}
 }
 

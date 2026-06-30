@@ -2,12 +2,16 @@ import { useState, useEffect, useRef } from 'react';
 import { Typography, Card, Empty, Spin } from 'antd';
 import { Graph } from '@antv/g6';
 import { getDependencyGraph } from '../api/dependencies';
+import { getProject } from '../api/projects';
 import { useTeam } from '../contexts/TeamContext';
+import { useParams } from 'react-router-dom';
 
 const { Text } = Typography;
 
 export default function DependencyGraph() {
+  const { projectId } = useParams();
   const { currentTeam, currentTeamId } = useTeam();
+  const [project, setProject] = useState<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(false);
   const [empty, setEmpty] = useState(false);
@@ -16,10 +20,15 @@ export default function DependencyGraph() {
 
   useEffect(() => {
     async function load() {
-      if (!currentTeamId) return;
+      if (!currentTeamId || !projectId) return;
       setLoading(true);
       try {
-        const { nodes, edges } = await getDependencyGraph(currentTeamId);
+        const [projectResp, graphResp] = await Promise.all([
+          getProject(currentTeamId, projectId),
+          getDependencyGraph(currentTeamId, projectId),
+        ]);
+        setProject(projectResp);
+        const { nodes, edges } = graphResp;
         setStats({ nodes: nodes?.length || 0, edges: edges?.length || 0 });
         setEmpty(!(nodes?.length || edges?.length));
 
@@ -83,16 +92,16 @@ export default function DependencyGraph() {
         graphRef.current.destroy();
       }
     };
-  }, [currentTeamId]);
+  }, [currentTeamId, projectId]);
 
   return (
     <div className="project-page">
       <header className="page-header">
         <div className="page-title-row">
           <h1>依赖拓扑</h1>
-          <span className="owner-badge">{currentTeam?.name || '当前团队'}</span>
+          <span className="owner-badge">{project?.name || currentTeam?.name || '当前项目'}</span>
         </div>
-        <Text type="secondary">查看当前团队内项目、接口和数据模型之间的依赖关系。</Text>
+        <Text type="secondary">查看当前项目的接口、数据模型和跨项目引用关系。</Text>
       </header>
       <Card
         title={(
@@ -107,7 +116,7 @@ export default function DependencyGraph() {
         {loading ? (
           <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>
         ) : empty ? (
-          <Empty description="当前团队暂无项目依赖关系" />
+          <Empty description="当前项目暂无依赖关系" />
         ) : (
           <div ref={containerRef} style={{ width: '100%', height: 500 }} />
         )}

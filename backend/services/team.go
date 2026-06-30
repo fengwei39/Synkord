@@ -36,16 +36,6 @@ type TeamMemberInput struct {
 	Remark   string                  `json:"remark"`
 }
 
-type TeamSummary struct {
-	ProjectCount       int64              `json:"project_count"`
-	APICount           int64              `json:"api_count"`
-	ModelCount         int64              `json:"model_count"`
-	BreakingRiskCount  int64              `json:"breaking_risk_count"`
-	RecentChangeSets   []models.ChangeSet `json:"recent_changesets"`
-	ActiveMemberCount  int64              `json:"active_member_count"`
-	EnabledMCPTokenNum int64              `json:"enabled_mcp_token_count"`
-}
-
 func CreateTeam(db *gorm.DB, ownerID, name, description string) (*TeamWithRole, error) {
 	if name == "" {
 		return nil, errors.New("team name is required")
@@ -257,41 +247,6 @@ func DeleteTeamMembers(db *gorm.DB, teamID string, memberIDs []string) error {
 		}
 		return nil
 	})
-}
-
-func GetTeamSummary(db *gorm.DB, teamID string) (*TeamSummary, error) {
-	var summary TeamSummary
-	if err := db.Model(&models.Project{}).Where("team_id = ?", teamID).Count(&summary.ProjectCount).Error; err != nil {
-		return nil, err
-	}
-	if err := db.Model(&models.APIEndpoint{}).
-		Joins("JOIN projects ON projects.id = api_endpoints.project_id").
-		Where("projects.team_id = ?", teamID).
-		Count(&summary.APICount).Error; err != nil {
-		return nil, err
-	}
-	if err := db.Model(&models.Entity{}).Where("team_id = ?", teamID).Count(&summary.ModelCount).Error; err != nil {
-		return nil, err
-	}
-	if err := db.Model(&models.ChangeSet{}).
-		Where("team_id = ? AND severity = ?", teamID, models.SeverityBreaking).
-		Count(&summary.BreakingRiskCount).Error; err != nil {
-		return nil, err
-	}
-	if err := db.Model(&models.TeamMember{}).
-		Where("team_id = ? AND status = ?", teamID, models.TeamMemberActive).
-		Count(&summary.ActiveMemberCount).Error; err != nil {
-		return nil, err
-	}
-	if err := db.Model(&models.MCPConfig{}).
-		Where("team_id = ? AND status = ?", teamID, models.MCPConfigActive).
-		Count(&summary.EnabledMCPTokenNum).Error; err != nil {
-		return nil, err
-	}
-	if err := db.Where("team_id = ?", teamID).Order("created_at desc").Limit(5).Find(&summary.RecentChangeSets).Error; err != nil {
-		return nil, err
-	}
-	return &summary, nil
 }
 
 func ensureNotRemovingLastTeamAdmin(db *gorm.DB, teamID, memberID string, nextRole models.TeamRole, nextStatus models.TeamMemberStatus) error {

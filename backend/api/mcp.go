@@ -7,65 +7,36 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/synkord/core/database"
-	"github.com/synkord/core/middleware"
 	"github.com/synkord/core/models"
 	"github.com/synkord/core/services"
 )
 
 type mcpConfigRequest struct {
-	Name         string   `json:"name"`
-	Purpose      string   `json:"purpose"`
-	ProjectScope []string `json:"project_scope"`
-	ToolScope    []string `json:"tool_scope"`
-	ExpiresAt    string   `json:"expires_at"`
+	Name      string   `json:"name"`
+	Purpose   string   `json:"purpose"`
+	ToolScope []string `json:"tool_scope"`
+	ExpiresAt string   `json:"expires_at"`
 }
 
-type mcpStatusRequest struct {
-	Status models.MCPConfigStatus `json:"status"`
+type mcpConfigPatchRequest struct {
+	Status    models.MCPConfigStatus `json:"status"`
+	ToolScope []string               `json:"tool_scope"`
 }
 
-type enabledRequest struct {
-	Enabled bool `json:"enabled"`
+type mcpIntrospectRequest struct {
+	Token     string `json:"token"`
+	TeamID    string `json:"team_id"`
+	ProjectID string `json:"project_id"`
 }
 
-type globalMCPRequest struct {
-	Enabled            bool     `json:"enabled"`
-	Tools              []string `json:"tools"`
-	RateLimitPerMinute int      `json:"rate_limit_per_minute"`
-}
-
-func RegisterTeamMCPRoutes(r *gin.RouterGroup) {
-	m := r.Group("/teams/:team_id/mcp")
+func RegisterProjectMCPRoutes(r *gin.RouterGroup) {
+	m := r.Group("/teams/:team_id/projects/:project_id/mcp")
 	{
 		m.GET("", func(c *gin.Context) {
-			teamID := c.Param("team_id")
-			if _, err := services.GetTeamForUser(database.DB, teamID, c.GetString("user_id")); err != nil {
-				c.JSON(http.StatusNotFound, gin.H{"detail": "Team not found"})
+			if !requireProjectMember(c) {
 				return
 			}
-			overview, err := teamMCPOverview(teamID)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
-				return
-			}
-			c.JSON(http.StatusOK, overview)
-		})
-
-		m.PATCH("", func(c *gin.Context) {
-			teamID := c.Param("team_id")
-			if !requireTeamAdmin(c, teamID) {
-				return
-			}
-			var req enabledRequest
-			if err := c.ShouldBindJSON(&req); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
-				return
-			}
-			if _, err := services.UpdateTeamMCPEnabled(database.DB, teamID, req.Enabled); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
-				return
-			}
-			overview, err := teamMCPOverview(teamID)
+			overview, err := services.GetProjectMCPOverview(database.DB, c.Param("team_id"), c.Param("project_id"))
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
 				return
@@ -74,12 +45,10 @@ func RegisterTeamMCPRoutes(r *gin.RouterGroup) {
 		})
 
 		m.GET("/tokens", func(c *gin.Context) {
-			teamID := c.Param("team_id")
-			if _, err := services.GetTeamForUser(database.DB, teamID, c.GetString("user_id")); err != nil {
-				c.JSON(http.StatusNotFound, gin.H{"detail": "Team not found"})
+			if !requireProjectMember(c) {
 				return
 			}
-			configs, err := services.ListTeamMCPConfigs(database.DB, teamID)
+			configs, err := services.ListProjectMCPConfigs(database.DB, c.Param("team_id"), c.Param("project_id"))
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
 				return
@@ -88,17 +57,12 @@ func RegisterTeamMCPRoutes(r *gin.RouterGroup) {
 		})
 
 		m.POST("/tokens", func(c *gin.Context) {
-			teamID := c.Param("team_id")
-			if !requireTeamAdmin(c, teamID) {
+			if !requireTeamAdmin(c, c.Param("team_id")) || !requireProjectExists(c) {
 				return
 			}
 			var req mcpConfigRequest
 			if err := c.ShouldBindJSON(&req); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
-				return
-			}
-			if req.Name == "" || req.Purpose == "" {
-				c.JSON(http.StatusBadRequest, gin.H{"detail": "name and purpose are required"})
 				return
 			}
 			input, err := buildMCPConfigInput(req)
@@ -107,39 +71,24 @@ func RegisterTeamMCPRoutes(r *gin.RouterGroup) {
 				return
 			}
 			uid := c.GetString("user_id")
-			config, err := services.CreateMCPConfig(database.DB, teamID, &uid, input)
+			config, err := services.CreateProjectMCPConfig(database.DB, c.Param("team_id"), c.Param("project_id"), &uid, input)
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 				return
 			}
 			c.JSON(http.StatusCreated, config)
 		})
 
-		m.POST("/tokens/ensure-codex", func(c *gin.Context) {
-			teamID := c.Param("team_id")
-			if !requireTeamAdmin(c, teamID) {
-				return
-			}
-			uid := c.GetString("user_id")
-			config, err := services.EnsureCodexMCPConfig(database.DB, teamID, &uid)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
-				return
-			}
-			c.JSON(http.StatusOK, config)
-		})
-
 		m.PATCH("/tokens/:token_id", func(c *gin.Context) {
-			teamID := c.Param("team_id")
-			if !requireTeamAdmin(c, teamID) {
+			if !requireTeamAdmin(c, c.Param("team_id")) || !requireProjectExists(c) {
 				return
 			}
-			var req mcpStatusRequest
+			var req mcpConfigPatchRequest
 			if err := c.ShouldBindJSON(&req); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 				return
 			}
-			config, err := services.UpdateMCPConfigStatus(database.DB, teamID, c.Param("token_id"), req.Status)
+			config, err := services.UpdateProjectMCPConfig(database.DB, c.Param("team_id"), c.Param("project_id"), c.Param("token_id"), req.Status, req.ToolScope)
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 				return
@@ -148,11 +97,10 @@ func RegisterTeamMCPRoutes(r *gin.RouterGroup) {
 		})
 
 		m.POST("/tokens/:token_id/rotate", func(c *gin.Context) {
-			teamID := c.Param("team_id")
-			if !requireTeamAdmin(c, teamID) {
+			if !requireTeamAdmin(c, c.Param("team_id")) || !requireProjectExists(c) {
 				return
 			}
-			config, err := services.RotateMCPConfigToken(database.DB, teamID, c.Param("token_id"))
+			config, err := services.RotateProjectMCPConfigToken(database.DB, c.Param("team_id"), c.Param("project_id"), c.Param("token_id"))
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 				return
@@ -160,36 +108,13 @@ func RegisterTeamMCPRoutes(r *gin.RouterGroup) {
 			c.JSON(http.StatusOK, config)
 		})
 
-		m.POST("/active-team", func(c *gin.Context) {
-			teamID := c.Param("team_id")
-			if !requireTeamAdmin(c, teamID) {
-				return
-			}
-			if err := services.SetActiveMCPTeamID(database.DB, teamID); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
-				return
-			}
-			c.JSON(http.StatusOK, gin.H{"active_team_id": services.GetActiveMCPTeamID()})
-		})
-
-		m.DELETE("/active-team", func(c *gin.Context) {
-			teamID := c.Param("team_id")
-			if !requireTeamAdmin(c, teamID) {
-				return
-			}
-			services.SetActiveMCPTeamID(database.DB, "")
-			c.Status(http.StatusNoContent)
-		})
-
 		m.GET("/audit", func(c *gin.Context) {
-			teamID := c.Param("team_id")
-			if _, err := services.GetTeamForUser(database.DB, teamID, c.GetString("user_id")); err != nil {
-				c.JSON(http.StatusNotFound, gin.H{"detail": "Team not found"})
+			if !requireProjectMember(c) {
 				return
 			}
 			skip, _ := strconv.Atoi(c.DefaultQuery("skip", "0"))
 			limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
-			items, total, err := services.ListMCPAuditLogs(database.DB, teamID, skip, limit)
+			items, total, err := services.ListMCPAuditLogs(database.DB, c.Param("team_id"), c.Param("project_id"), skip, limit)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
 				return
@@ -199,80 +124,83 @@ func RegisterTeamMCPRoutes(r *gin.RouterGroup) {
 	}
 }
 
-func RegisterAdminMCPRoutes(r *gin.RouterGroup) {
-	m := r.Group("/admin/mcp-server")
-	m.Use(middleware.RequireAdmin())
+func RegisterLocalMCPRoutes(r *gin.RouterGroup) {
+	m := r.Group("/mcp")
 	{
-		m.GET("", func(c *gin.Context) {
-			cfg, err := services.GetGlobalMCPConfig(database.DB)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
-				return
-			}
-			c.JSON(http.StatusOK, gin.H{
-				"enabled":                  cfg.Enabled,
-				"streamable_http_endpoint": "/mcp",
-				"sse_endpoint":             "/mcp/sse",
-				"message_endpoint":         "/mcp/message",
-				"status":                   mcpServerStatus(cfg.Enabled),
-				"tools":                    services.GlobalMCPTools(cfg),
-				"rate_limit_per_minute":    cfg.RateLimitPerMinute,
-			})
-		})
-
-		m.PATCH("", func(c *gin.Context) {
-			var req globalMCPRequest
+		m.POST("/introspect", func(c *gin.Context) {
+			var req mcpIntrospectRequest
 			if err := c.ShouldBindJSON(&req); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 				return
 			}
-			cfg, err := services.UpdateGlobalMCPConfig(database.DB, req.Enabled, req.Tools, req.RateLimitPerMinute)
+			ctx, err := services.ValidateMCPAccessToken(database.DB, req.Token, req.TeamID, req.ProjectID)
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+				c.JSON(http.StatusUnauthorized, gin.H{"ok": false, "detail": err.Error()})
 				return
 			}
 			c.JSON(http.StatusOK, gin.H{
-				"enabled":                  cfg.Enabled,
-				"streamable_http_endpoint": "/mcp",
-				"sse_endpoint":             "/mcp/sse",
-				"message_endpoint":         "/mcp/message",
-				"status":                   mcpServerStatus(cfg.Enabled),
-				"tools":                    services.GlobalMCPTools(cfg),
-				"rate_limit_per_minute":    cfg.RateLimitPerMinute,
+				"ok":            true,
+				"team_id":       ctx.Config.TeamID,
+				"project_id":    ctx.Config.ProjectID,
+				"config_id":     ctx.Config.ID,
+				"tool_scope":    ctx.ToolScope,
+				"token_preview": ctx.Config.TokenPreview,
+				"expires_at":    ctx.Config.ExpiresAt,
 			})
 		})
-	}
-}
 
-func teamMCPOverview(teamID string) (*services.TeamMCPOverview, error) {
-	setting, err := services.GetTeamMCPSetting(database.DB, teamID)
-	if err != nil {
-		return nil, err
-	}
-	global, err := services.GetGlobalMCPConfig(database.DB)
-	if err != nil {
-		return nil, err
-	}
+		m.POST("/query", func(c *gin.Context) {
+			var req services.MCPQueryRequest
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+				return
+			}
+			result, ctx, err := services.ExecuteMCPQuery(database.DB, req)
+			status := "success"
+			errorMessage := ""
+			if err != nil {
+				status = "error"
+				errorMessage = err.Error()
+			}
+			configID := ""
+			if ctx != nil {
+				configID = ctx.Config.ID
+			}
+			_, _ = services.CreateMCPAuditLog(database.DB, services.MCPAuditInput{
+				TeamID:        req.TeamID,
+				ProjectID:     req.ProjectID,
+				MCPConfigID:   configID,
+				ToolName:      req.Tool,
+				Caller:        "local-mcp",
+				ParamsSummary: summarizeMCPArgs(req.Arguments),
+				ResultStatus:  status,
+				ErrorMessage:  errorMessage,
+			})
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"result": result})
+		})
 
-	if setting.Enabled && global.Enabled {
-		_, _ = services.EnsureCodexMCPConfig(database.DB, teamID, nil)
+		m.POST("/audit", func(c *gin.Context) {
+			var req services.MCPAuditInput
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+				return
+			}
+			if req.Token == "" {
+				c.JSON(http.StatusUnauthorized, gin.H{"detail": "MCP token required"})
+				return
+			}
+			item, err := services.CreateMCPAuditLog(database.DB, req)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+				return
+			}
+			c.JSON(http.StatusCreated, item)
+		})
 	}
-	configs, err := services.ListTeamMCPConfigs(database.DB, teamID)
-	if err != nil {
-		return nil, err
-	}
-
-	status := services.BuildMCPServiceStatus(global.Enabled, setting.Enabled, configs)
-	return &services.TeamMCPOverview{
-		StreamableHTTPEndpoint: "/mcp",
-		Enabled:         setting.Enabled,
-		GlobalEnabled:   global.Enabled,
-		Status:          status,
-		SSEEndpoint:     "/mcp/sse",
-		MessageEndpoint: "/mcp/message",
-		Tools:           services.GlobalMCPTools(global),
-		Configs:         configs,
-	}, nil
 }
 
 func buildMCPConfigInput(req mcpConfigRequest) (services.MCPConfigInput, error) {
@@ -285,17 +213,47 @@ func buildMCPConfigInput(req mcpConfigRequest) (services.MCPConfigInput, error) 
 		expiresAt = &parsed
 	}
 	return services.MCPConfigInput{
-		Name:         req.Name,
-		Purpose:      req.Purpose,
-		ProjectScope: req.ProjectScope,
-		ToolScope:    req.ToolScope,
-		ExpiresAt:    expiresAt,
+		Name:      req.Name,
+		Purpose:   req.Purpose,
+		ToolScope: req.ToolScope,
+		ExpiresAt: expiresAt,
 	}, nil
 }
 
-func mcpServerStatus(enabled bool) string {
-	if enabled {
-		return "running"
+func requireProjectMember(c *gin.Context) bool {
+	if _, err := services.GetTeamForUser(database.DB, c.Param("team_id"), c.GetString("user_id")); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"detail": "Team not found"})
+		return false
 	}
-	return "disabled"
+	return requireProjectExists(c)
+}
+
+func requireProjectExists(c *gin.Context) bool {
+	var project models.Project
+	if err := database.DB.First(&project, "id = ? AND team_id = ?", c.Param("project_id"), c.Param("team_id")).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"detail": "Project not found"})
+		return false
+	}
+	return true
+}
+
+func summarizeMCPArgs(args map[string]interface{}) string {
+	if len(args) == 0 {
+		return "{}"
+	}
+	out := "{"
+	count := 0
+	for key := range args {
+		if count > 0 {
+			out += ", "
+		}
+		out += key
+		count++
+		if count >= 8 {
+			out += ", ..."
+			break
+		}
+	}
+	out += "}"
+	return out
 }

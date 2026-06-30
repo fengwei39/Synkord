@@ -14,7 +14,7 @@ export interface DependencyEdge {
   api_method?: string;
 }
 
-export async function getDependencyGraph(teamId: string): Promise<{ nodes: DependencyNode[]; edges: DependencyEdge[] }> {
-  const resp = await apiClient.get(`/teams/${teamId}/dependencies/graph`);
+export async function getDependencyGraph(teamId: string, projectId: string): Promise<{ nodes: DependencyNode[]; edges: DependencyEdge[] }> {
+  const resp = await apiClient.get(`/teams/${teamId}/projects/${projectId}/dependencies/graph`);
   return resp.data || { nodes: [], edges: [] };
 }

@@ -18,23 +18,23 @@ function formatJSON(value?: string) {
 
 export default function APIDetail() {
   const navigate = useNavigate();
-  const { apiId } = useParams();
+  const { projectId, apiId } = useParams();
   const { currentTeam, currentTeamId } = useTeam();
   const [api, setApi] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const load = async () => {
-      if (!currentTeamId || !apiId) return;
+      if (!currentTeamId || !projectId || !apiId) return;
       setLoading(true);
       try {
-        setApi(await getAPI(currentTeamId, apiId));
+        setApi(await getAPI(currentTeamId, projectId, apiId));
       } finally {
         setLoading(false);
       }
     };
     load();
-  }, [currentTeamId, apiId]);
+  }, [currentTeamId, projectId, apiId]);
 
   if (loading) return <div className="route-loading"><Spin /></div>;
   if (!api) return <Empty description="接口不存在" />;
@@ -42,7 +42,7 @@ export default function APIDetail() {
   return (
     <div className="project-page">
       <header className="page-header">
-        <Button type="text" icon={<LeftOutlined />} onClick={() => navigate('/apis')}>返回接口</Button>
+        <Button type="text" icon={<LeftOutlined />} onClick={() => navigate(`/projects/${projectId}/apis`)}>返回接口</Button>
         <div className="page-title-row">
           <h1>接口详情</h1>
           <span className="owner-badge">{currentTeam?.name || '当前团队'}</span>

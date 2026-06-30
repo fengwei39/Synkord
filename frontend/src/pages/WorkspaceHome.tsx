@@ -35,7 +35,7 @@ export default function WorkspaceHome() {
                 type={currentTeam?.id === team.id ? 'primary' : 'default'}
                 onClick={() => {
                   switchTeam(team.id);
-                  navigate('/team');
+                  navigate('/projects');
                 }}
               >
                 进入团队空间
@@ -54,7 +54,7 @@ export default function WorkspaceHome() {
           <ProjectOutlined />
         </div>
         <h2>还没有团队</h2>
-        <p>团队是项目、接口、数据模型、MCP Token 和变更记录的业务边界。先创建团队，再开始维护规范资产。</p>
+        <p>团队只负责项目管理和团队管理。进入具体项目后，再维护接口、数据模型、依赖拓扑和 MCP。</p>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/teams/new')}>
           创建团队
         </Button>

@@ -46,27 +46,3 @@ export async function deleteTeamMember(teamId: string, memberId: string) {
 export async function deleteTeamMembers(teamId: string, ids: string[]) {
   await apiClient.delete(`/teams/${teamId}/members`, { data: { ids } });
 }
-
-export interface TeamSummary {
-  project_count: number;
-  api_count: number;
-  model_count: number;
-  breaking_risk_count: number;
-  active_member_count: number;
-  enabled_mcp_token_count: number;
-  recent_changesets: Array<{
-    id: string;
-    service_name: string;
-    old_version?: string;
-    new_version?: string;
-    severity: 'info' | 'warning' | 'breaking';
-    changes_json?: string;
-    affected_json?: string;
-    created_at: string;
-  }>;
-}
-
-export async function getTeamSummary(teamId: string) {
-  const resp = await apiClient.get<TeamSummary>(`/teams/${teamId}/summary`);
-  return resp.data;
-}

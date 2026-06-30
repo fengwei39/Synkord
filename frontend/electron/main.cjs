@@ -1,9 +1,19 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
+const { fork } = require('child_process');
 const http = require('http');
 const path = require('path');
 
 const isDev = !app.isPackaged;
 const devURL = process.env.SYNKORD_DEV_URL || 'http://127.0.0.1:3000';
+const mcpPort = Number(process.env.SYNKORD_LOCAL_MCP_PORT || 37991);
+const mcpPath = '/mcp';
+
+let localMCPProcess = null;
+let activeProject = null;
+
+function getAPIBase() {
+  return process.env.SYNKORD_API_BASE || 'http://127.0.0.1:8000/api';
+}
 
 function waitForDevServer(url, timeoutMs = 10000) {
   const deadline = Date.now() + timeoutMs;
@@ -26,6 +36,91 @@ function waitForDevServer(url, timeoutMs = 10000) {
     };
     check();
   });
+}
+
+function mcpStatus() {
+  return {
+    running: !!localMCPProcess,
+    port: mcpPort,
+    url: `http://127.0.0.1:${mcpPort}${mcpPath}`,
+    activeProject,
+    pid: localMCPProcess?.pid || null,
+  };
+}
+
+function startLocalMCPServer() {
+  if (localMCPProcess) {
+    return Promise.resolve(mcpStatus());
+  }
+
+  const servicePath = path.join(__dirname, 'local-mcp-service.cjs');
+  localMCPProcess = fork(servicePath, [], {
+    env: {
+      ...process.env,
+      SYNKORD_API_BASE: getAPIBase(),
+      SYNKORD_LOCAL_MCP_PORT: String(mcpPort),
+    },
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+  });
+  localMCPProcess.stdout?.on('data', (chunk) => console.log(`[synkord-local-mcp] ${chunk.toString().trim()}`));
+  localMCPProcess.stderr?.on('data', (chunk) => console.error(`[synkord-local-mcp] ${chunk.toString().trim()}`));
+  localMCPProcess.on('exit', () => {
+    localMCPProcess = null;
+  });
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      const proc = localMCPProcess;
+      localMCPProcess = null;
+      proc?.kill();
+      reject(new Error('local MCP service startup timed out'));
+    }, 5000);
+
+    localMCPProcess.once('error', (error) => {
+      clearTimeout(timeout);
+      localMCPProcess = null;
+      reject(error);
+    });
+
+    localMCPProcess.on('message', (message) => {
+      if (message?.type === 'ready') {
+        clearTimeout(timeout);
+        sendActiveProjectToLocalMCP();
+        resolve(mcpStatus());
+      }
+      if (message?.type === 'error') {
+        clearTimeout(timeout);
+        reject(new Error(message.error || 'local MCP service failed'));
+      }
+    });
+  });
+}
+
+function stopLocalMCPServer() {
+  if (!localMCPProcess) {
+    return Promise.resolve(mcpStatus());
+  }
+  const proc = localMCPProcess;
+  localMCPProcess = null;
+  return new Promise((resolve) => {
+    proc.once('exit', () => resolve(mcpStatus()));
+    proc.send?.({ type: 'shutdown' });
+    setTimeout(() => {
+      if (!proc.killed) {
+        proc.kill();
+      }
+      resolve(mcpStatus());
+    }, 1000);
+  });
+}
+
+function sendActiveProjectToLocalMCP() {
+  if (localMCPProcess?.connected) {
+    localMCPProcess.send({
+      type: 'set-active-project',
+      project: activeProject,
+    });
+  }
 }
 
 async function createWindow() {
@@ -72,7 +167,36 @@ pnpm dev</pre>
 
 app.whenReady().then(() => {
   ipcMain.handle('synkord:get-api-base', () => {
-    return process.env.SYNKORD_API_BASE || 'http://127.0.0.1:8000/api';
+    return getAPIBase();
+  });
+  ipcMain.handle('synkord:mcp:get-status', () => mcpStatus());
+  ipcMain.handle('synkord:mcp:start', () => startLocalMCPServer());
+  ipcMain.handle('synkord:mcp:stop', () => stopLocalMCPServer());
+  ipcMain.handle('synkord:mcp:restart', async () => {
+    await stopLocalMCPServer();
+    return startLocalMCPServer();
+  });
+  ipcMain.handle('synkord:mcp:set-active-project', (_event, project) => {
+    activeProject = project && project.teamId && project.projectId ? {
+      teamId: String(project.teamId),
+      projectId: String(project.projectId),
+      projectName: String(project.projectName || ''),
+    } : null;
+    sendActiveProjectToLocalMCP();
+    return mcpStatus();
+  });
+  ipcMain.handle('synkord:mcp:get-ide-config', () => {
+    return {
+      url: `http://127.0.0.1:${mcpPort}${mcpPath}`,
+      template: {
+        mcpServers: {
+          synkord: {
+            url: `http://127.0.0.1:${mcpPort}${mcpPath}`,
+            headers: { Authorization: 'Bearer ${SYNKORD_MCP_TOKEN}' },
+          },
+        },
+      },
+    };
   });
   ipcMain.on('synkord:window-control', (event, action) => {
     const win = BrowserWindow.fromWebContents(event.sender);

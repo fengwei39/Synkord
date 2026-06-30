@@ -1,6 +1,8 @@
 package services
 
 import (
+	"errors"
+
 	"github.com/synkord/core/models"
 	"gorm.io/gorm"
 )
@@ -12,7 +14,19 @@ func CreateDependency(db *gorm.DB, sourceProjectID, targetProjectID, entityName,
 	if source == "" {
 		source = "manual"
 	}
+	var sourceProject models.Project
+	if err := db.First(&sourceProject, "id = ?", sourceProjectID).Error; err != nil {
+		return nil, err
+	}
+	var targetProject models.Project
+	if err := db.First(&targetProject, "id = ?", targetProjectID).Error; err != nil {
+		return nil, err
+	}
+	if sourceProject.TeamID != targetProject.TeamID {
+		return nil, errors.New("source and target projects must belong to the same team")
+	}
 	d := &models.Dependency{
+		TeamID:          sourceProject.TeamID,
 		SourceProjectID: sourceProjectID,
 		TargetProjectID: targetProjectID,
 		EntityName:      entityName,
@@ -73,14 +87,12 @@ func GetTeamProjectDependencies(db *gorm.DB, teamID, projectID string) (*Project
 	var outgoing, incoming []models.Dependency
 
 	if err := db.Preload("TargetProject").
-		Joins("JOIN projects source_projects ON source_projects.id = dependencies.source_project_id").
-		Where("dependencies.source_project_id = ? AND source_projects.team_id = ?", projectID, teamID).
+		Where("team_id = ? AND source_project_id = ?", teamID, projectID).
 		Find(&outgoing).Error; err != nil {
 		return nil, err
 	}
 	if err := db.Preload("SourceProject").
-		Joins("JOIN projects target_projects ON target_projects.id = dependencies.target_project_id").
-		Where("dependencies.target_project_id = ? AND target_projects.team_id = ?", projectID, teamID).
+		Where("team_id = ? AND target_project_id = ?", teamID, projectID).
 		Find(&incoming).Error; err != nil {
 		return nil, err
 	}
@@ -142,11 +154,46 @@ func GetTeamDependencyGraph(db *gorm.DB, teamID string) (*DependencyGraph, error
 
 	var deps []models.Dependency
 	if err := db.
-		Joins("JOIN projects source_projects ON source_projects.id = dependencies.source_project_id").
-		Joins("JOIN projects target_projects ON target_projects.id = dependencies.target_project_id").
-		Where("source_projects.team_id = ? AND target_projects.team_id = ?", teamID, teamID).
+		Where("team_id = ?", teamID).
 		Find(&deps).Error; err != nil {
 		return nil, err
+	}
+
+	edges := make([]GraphEdge, len(deps))
+	for i, d := range deps {
+		edges[i] = GraphEdge{Source: d.SourceProjectID, Target: d.TargetProjectID, EntityName: d.EntityName}
+	}
+
+	return &DependencyGraph{Nodes: nodes, Edges: edges}, nil
+}
+
+func GetProjectDependencyGraph(db *gorm.DB, teamID, projectID string) (*DependencyGraph, error) {
+	var deps []models.Dependency
+	if err := db.
+		Where("team_id = ? AND (source_project_id = ? OR target_project_id = ?)", teamID, projectID, projectID).
+		Find(&deps).Error; err != nil {
+		return nil, err
+	}
+
+	projectIDs := map[string]bool{projectID: true}
+	for _, d := range deps {
+		projectIDs[d.SourceProjectID] = true
+		projectIDs[d.TargetProjectID] = true
+	}
+
+	ids := make([]string, 0, len(projectIDs))
+	for id := range projectIDs {
+		ids = append(ids, id)
+	}
+
+	var projects []models.Project
+	if err := db.Where("team_id = ? AND id IN ?", teamID, ids).Find(&projects).Error; err != nil {
+		return nil, err
+	}
+
+	nodes := make([]GraphNode, len(projects))
+	for i, p := range projects {
+		nodes[i] = GraphNode{ID: p.ID, Name: p.Name, ProjectType: string(p.ProjectType)}
 	}
 
 	edges := make([]GraphEdge, len(deps))
@@ -176,9 +223,7 @@ func FindAffectedProjects(db *gorm.DB, projectID string) ([]string, error) {
 func FindTeamAffectedProjects(db *gorm.DB, teamID, projectID string) ([]string, error) {
 	var deps []models.Dependency
 	if err := db.
-		Joins("JOIN projects target_projects ON target_projects.id = dependencies.target_project_id").
-		Joins("JOIN projects source_projects ON source_projects.id = dependencies.source_project_id").
-		Where("dependencies.target_project_id = ? AND target_projects.team_id = ? AND source_projects.team_id = ?", projectID, teamID, teamID).
+		Where("team_id = ? AND target_project_id = ?", teamID, projectID).
 		Find(&deps).Error; err != nil {
 		return nil, err
 	}
@@ -195,4 +240,8 @@ func FindTeamAffectedProjects(db *gorm.DB, teamID, projectID string) ([]string, 
 
 func DeleteDependency(db *gorm.DB, depID string) error {
 	return db.Delete(&models.Dependency{}, "id = ?", depID).Error
+}
+
+func DeleteTeamDependency(db *gorm.DB, teamID, depID string) error {
+	return db.Delete(&models.Dependency{}, "id = ? AND team_id = ?", depID, teamID).Error
 }

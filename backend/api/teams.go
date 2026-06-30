@@ -154,18 +154,5 @@ func RegisterTeamRoutes(r *gin.RouterGroup) {
 			c.Status(http.StatusNoContent)
 		})
 
-		teams.GET("/:team_id/summary", func(c *gin.Context) {
-			teamID := c.Param("team_id")
-			if _, err := services.GetTeamForUser(database.DB, teamID, c.GetString("user_id")); err != nil {
-				c.JSON(http.StatusNotFound, gin.H{"detail": "Team not found"})
-				return
-			}
-			summary, err := services.GetTeamSummary(database.DB, teamID)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
-				return
-			}
-			c.JSON(http.StatusOK, summary)
-		})
 	}
 }

@@ -61,9 +61,7 @@ func TestImportAPISpecFromProjectSwaggerURL(t *testing.T) {
 		t.Fatalf("update swagger_url: %v", err)
 	}
 
-	w, body := doRequest(r, "POST", "/teams/"+team.ID+"/apis/import-from-project", map[string]any{
-		"project_id": project.ID,
-	})
+	w, body := doRequest(r, "POST", "/teams/"+team.ID+"/projects/"+project.ID+"/apis/import-from-project", nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
 	}

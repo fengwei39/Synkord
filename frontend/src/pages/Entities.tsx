@@ -1,20 +1,20 @@
-import { useState, useEffect } from 'react';
-import { App as AntApp, Table, Button, Modal, Form, Input, Select, Switch, Space, Tag, Typography, Popconfirm } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, HistoryOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { App as AntApp, Button, Form, Input, Modal, Popconfirm, Space, Table, Typography } from 'antd';
+import { DeleteOutlined, EditOutlined, HistoryOutlined, PlusOutlined } from '@ant-design/icons';
+import { useNavigate, useParams } from 'react-router-dom';
 import { createModel, deleteModel, listModels, listModelVersions, updateModel } from '../api/models';
-import { listProjects } from '../api/projects';
+import { getProject } from '../api/projects';
 import { useTeam } from '../contexts/TeamContext';
 
 const { Text } = Typography;
 
 export default function Entities() {
   const navigate = useNavigate();
+  const { projectId } = useParams();
   const { currentTeam, currentTeamId } = useTeam();
   const { message } = AntApp.useApp();
+  const [project, setProject] = useState<any>(null);
   const [entities, setEntities] = useState<any[]>([]);
-  const [scopes, setScopes] = useState<'all' | 'team' | 'project'>('all');
-  const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [versionModal, setVersionModal] = useState(false);
@@ -23,35 +23,33 @@ export default function Entities() {
   const [form] = Form.useForm();
 
   const load = async () => {
-    if (!currentTeamId) return;
+    if (!currentTeamId || !projectId) return;
     setLoading(true);
     try {
-      const items = await listModels(currentTeamId);
-      setEntities(items);
+      const [projectResp, modelResp] = await Promise.all([
+        getProject(currentTeamId, projectId),
+        listModels(currentTeamId, projectId),
+      ]);
+      setProject(projectResp);
+      setEntities(modelResp);
     } finally {
       setLoading(false);
     }
   };
 
-  const loadProjects = async () => {
-    if (!currentTeamId) return;
-    const items = await listProjects(currentTeamId);
-    setProjects(items);
-  };
-
   useEffect(() => {
     load();
-    loadProjects();
-  }, [currentTeamId]);
+  }, [currentTeamId, projectId]);
 
   const handleSave = async () => {
+    if (!currentTeamId || !projectId) return;
     const values = await form.validateFields();
     try {
       if (editing) {
-        await updateModel(currentTeamId!, editing.id, values);
+        await updateModel(currentTeamId, projectId, editing.id, values);
         message.success('更新成功');
       } else {
-        await createModel(currentTeamId!, values);
+        await createModel(currentTeamId, projectId, values);
         message.success('创建成功');
       }
       setModalOpen(false);
@@ -64,14 +62,16 @@ export default function Entities() {
   };
 
   const handleDelete = async (id: string) => {
-    await deleteModel(currentTeamId!, id);
+    if (!currentTeamId || !projectId) return;
+    await deleteModel(currentTeamId, projectId, id);
     message.success('删除成功');
     load();
   };
 
   const showVersions = async (entityId: string) => {
+    if (!currentTeamId || !projectId) return;
     try {
-      const items = await listModelVersions(currentTeamId!, entityId);
+      const items = await listModelVersions(currentTeamId, projectId, entityId);
       setVersions(items);
       setVersionModal(true);
     } catch {
@@ -79,78 +79,68 @@ export default function Entities() {
     }
   };
 
-  const columns = [
-    {
-      title: '名称',
-      dataIndex: 'name',
-      key: 'name',
-      render: (v: string, record: any) => (
-        <Button type="link" className="table-link" onClick={() => navigate(`/models/${record.id}`)}>{v}</Button>
-      ),
-    },
-    {
-      title: '类型', dataIndex: 'is_global', key: 'type',
-      render: (g: boolean) => <Tag color={g ? 'purple' : 'blue'}>{g ? '团队模型' : '项目模型'}</Tag>,
-    },
-    { title: '版本', dataIndex: 'current_version', key: 'version', width: 100 },
-    { title: '描述', dataIndex: 'description', key: 'desc', ellipsis: true },
-    {
-      title: '操作', key: 'actions',
-      render: (_: any, record: any) => (
-        <Space>
-          <Button type="link" icon={<HistoryOutlined />} onClick={() => showVersions(record.id)}>版本</Button>
-          <Button type="link" icon={<EditOutlined />} onClick={() => {
-            setEditing(record);
-            form.setFieldsValue({ ...record, is_team_model: record.is_global });
-            setModalOpen(true);
-          }}>编辑</Button>
-          <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id)}>
-            <Button type="link" danger icon={<DeleteOutlined />}>删除</Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ];
-
   return (
     <div className="project-page">
       <header className="page-header">
         <div className="page-title-row">
           <h1>数据模型</h1>
-          <span className="owner-badge">{currentTeam?.name || '当前团队'}</span>
+          <span className="owner-badge">{project?.name || currentTeam?.name || '当前项目'}</span>
         </div>
-        <Text type="secondary">维护当前团队的团队模型和项目私有模型。</Text>
+        <Text type="secondary">维护当前项目的数据模型。</Text>
       </header>
+
       <div className="filter-panel">
-        <Space>
-          <span>范围：</span>
-          <Select
-            value={scopes}
-            style={{ width: 140 }}
-            onChange={setScopes}
-            options={[
-              { value: 'all', label: '全部模型' },
-              { value: 'team', label: '团队模型' },
-              { value: 'project', label: '项目模型' },
-            ]}
-          />
-        </Space>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => {
-          setEditing(null);
-          form.resetFields();
-          setModalOpen(true);
-        }}>新建模型</Button>
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={() => {
+            setEditing(null);
+            form.resetFields();
+            setModalOpen(true);
+          }}
+        >
+          新建模型
+        </Button>
       </div>
 
       <Table
         rowKey="id"
         loading={loading}
-        dataSource={entities.filter((entity) => {
-          if (scopes === 'team') return !!entity.is_global;
-          if (scopes === 'project') return !entity.is_global;
-          return true;
-        })}
-        columns={columns}
+        dataSource={entities}
+        columns={[
+          {
+            title: '名称',
+            dataIndex: 'name',
+            render: (value: string, record: any) => (
+              <Button type="link" className="table-link" onClick={() => navigate(`/projects/${projectId}/models/${record.id}`)}>{value}</Button>
+            ),
+          },
+          { title: '版本', dataIndex: 'current_version', width: 100 },
+          { title: '描述', dataIndex: 'description', ellipsis: true },
+          {
+            title: '操作',
+            width: 240,
+            render: (_: any, record: any) => (
+              <Space>
+                <Button type="link" icon={<HistoryOutlined />} onClick={() => showVersions(record.id)}>版本</Button>
+                <Button
+                  type="link"
+                  icon={<EditOutlined />}
+                  onClick={() => {
+                    setEditing(record);
+                    form.setFieldsValue(record);
+                    setModalOpen(true);
+                  }}
+                >
+                  编辑
+                </Button>
+                <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id)}>
+                  <Button type="link" danger icon={<DeleteOutlined />}>删除</Button>
+                </Popconfirm>
+              </Space>
+            ),
+          },
+        ]}
         pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `共 ${total} 个模型` }}
       />
 
@@ -167,16 +157,6 @@ export default function Entities() {
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input />
-          </Form.Item>
-          <Form.Item name="is_team_model" label="团队模型" valuePropName="checked" initialValue={true}>
-            <Switch />
-          </Form.Item>
-          <Form.Item name="project_id" label="所属项目">
-            <Select
-              allowClear
-              placeholder="团队模型可不选择项目"
-              options={projects.map((project) => ({ value: project.id, label: project.name }))}
-            />
           </Form.Item>
           <Form.Item name="schema_content" label="JSON Schema 定义" rules={[{ required: true }]}>
             <Input.TextArea rows={10} placeholder='{"type": "object", "properties": {...}}' />
@@ -196,8 +176,8 @@ export default function Entities() {
           rowKey="id"
           columns={[
             { title: '版本', dataIndex: 'version_number', width: 100 },
-            { title: '变更说明', dataIndex: 'change_summary' },
-            { title: '时间', dataIndex: 'created_at', render: (t: string) => new Date(t).toLocaleString() },
+            { title: '说明', dataIndex: 'change_summary' },
+            { title: '时间', dataIndex: 'created_at', render: (value: string) => new Date(value).toLocaleString() },
           ]}
           pagination={false}
           size="small"

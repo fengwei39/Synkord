@@ -11,7 +11,6 @@ type Entity struct {
 	TeamID         string    `json:"team_id" gorm:"size:36;index;uniqueIndex:idx_team_entity_name"`
 	Name           string    `json:"name" gorm:"size:256;not null"`
 	Description    string    `json:"description" gorm:"size:512"`
-	IsGlobal       bool      `json:"is_global" gorm:"default:false"`
 	SchemaContent  string    `json:"schema_content" gorm:"type:text;not null"`
 	CurrentVersion string    `json:"current_version" gorm:"size:32;default:1.0.0"`
 	VersionCount   int       `json:"version_count" gorm:"default:1"`

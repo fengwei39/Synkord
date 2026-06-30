@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -47,8 +48,42 @@ func main() {
 	api.RegisterProjectMCPRoutes(protectedAPI)
 	api.RegisterProjectRoutes(protectedAPI)
 
+	// GET /health
+	// 返回后端运行状态与数据库可用性。供部署、监控、Docker 健康检查使用。
+	// 不需要鉴权。
 	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok", "service": "synkord-core"})
+		dbStatus := "ok"
+		dbErr := ""
+		sqlDB, err := database.DB.DB()
+		if err != nil || sqlDB == nil {
+			dbStatus = "error"
+			if err != nil {
+				dbErr = err.Error()
+			}
+		} else if pingErr := sqlDB.PingContext(c.Request.Context()); pingErr != nil {
+			dbStatus = "error"
+			dbErr = pingErr.Error()
+		}
+
+		status := "ok"
+		code := http.StatusOK
+		if dbStatus != "ok" {
+			status = "degraded"
+			code = http.StatusServiceUnavailable
+		}
+
+		payload := gin.H{
+			"status":     status,
+			"service":    "synkord-core",
+			"version":    "0.1.0",
+			"components": gin.H{
+				"database": dbStatus,
+			},
+		}
+		if dbErr != "" {
+			payload["components"].(gin.H)["database_error"] = dbErr
+		}
+		c.JSON(code, payload)
 	})
 
 	addr := fmt.Sprintf(":%s", cfg.Port)

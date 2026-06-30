@@ -39,6 +39,7 @@ type MCPConfigView struct {
 type ProjectMCPOverview struct {
 	TeamID       string           `json:"team_id"`
 	ProjectID    string           `json:"project_id"`
+	ProjectName  string           `json:"project_name"`
 	Status       MCPServiceStatus `json:"status"`
 	Tools        []string         `json:"tools"`
 	Configs      []MCPConfigView  `json:"configs"`
@@ -64,7 +65,8 @@ type MCPQueryRequest struct {
 	TeamID    string                 `json:"team_id"`
 	ProjectID string                 `json:"project_id"`
 	Tool      string                 `json:"tool"`
-	Arguments map[string]interface{} `json:"arguments"`
+	Args      map[string]interface{} `json:"args"`
+	Arguments map[string]interface{} `json:"arguments"` // 兼容旧本地 MCP 服务请求体
 }
 
 type MCPAuditInput struct {
@@ -84,9 +86,12 @@ func GetProjectMCPOverview(db *gorm.DB, teamID, projectID string) (*ProjectMCPOv
 	if err != nil {
 		return nil, err
 	}
+	var project models.Project
+	_ = db.Select("id", "name").First(&project, "id = ? AND team_id = ?", projectID, teamID).Error
 	return &ProjectMCPOverview{
 		TeamID:       teamID,
 		ProjectID:    projectID,
+		ProjectName:  project.Name,
 		Status:       BuildMCPServiceStatus(configs),
 		Tools:        DefaultMCPTools,
 		Configs:      configs,
@@ -226,29 +231,36 @@ func ExecuteMCPQuery(db *gorm.DB, req MCPQueryRequest) (interface{}, *MCPAccessC
 	if !toolAllowed(ctx.ToolScope, req.Tool) {
 		return nil, ctx, fmt.Errorf("MCP tool %s is not allowed", req.Tool)
 	}
+	args := req.Args
+	if args == nil {
+		args = req.Arguments
+	}
 
 	switch req.Tool {
 	case "get_project_entities":
-		var items []models.Entity
+		var items []models.DataModel
 		err = db.Where("team_id = ? AND project_id = ?", req.TeamID, req.ProjectID).Order("name").Limit(500).Find(&items).Error
-		return items, ctx, err
+		return map[string]interface{}{"items": items, "total": len(items)}, ctx, err
 	case "get_project_apis":
 		var items []models.APIEndpoint
 		err = db.Where("team_id = ? AND project_id = ?", req.TeamID, req.ProjectID).Order("path, method").Limit(500).Find(&items).Error
-		return items, ctx, err
+		return map[string]interface{}{"items": items, "total": len(items)}, ctx, err
 	case "get_entity_dependencies":
 		var items []models.Dependency
-		name := stringArg(req.Arguments, "entity_name")
+		name := stringArg(args, "model_name")
+		if name == "" {
+			name = stringArg(args, "entity_name")
+		}
 		query := db.Where("team_id = ? AND (source_project_id = ? OR target_project_id = ?)", req.TeamID, req.ProjectID, req.ProjectID)
 		if name != "" {
 			query = query.Where("entity_name = ?", name)
 		}
 		err = query.Order("created_at desc").Limit(500).Find(&items).Error
-		return items, ctx, err
+		return map[string]interface{}{"referenced_by": items}, ctx, err
 	case "get_api_dependencies":
 		var items []models.Dependency
-		path := stringArg(req.Arguments, "api_path")
-		method := stringArg(req.Arguments, "api_method")
+		path := stringArg(args, "api_path")
+		method := stringArg(args, "api_method")
 		query := db.Where("team_id = ? AND (source_project_id = ? OR target_project_id = ?)", req.TeamID, req.ProjectID, req.ProjectID)
 		if path != "" {
 			query = query.Where("api_path = ?", path)
@@ -257,9 +269,13 @@ func ExecuteMCPQuery(db *gorm.DB, req MCPQueryRequest) (interface{}, *MCPAccessC
 			query = query.Where("api_method = ?", strings.ToUpper(method))
 		}
 		err = query.Order("created_at desc").Limit(500).Find(&items).Error
-		return items, ctx, err
+		return map[string]interface{}{"referenced_by": items}, ctx, err
 	case "validate_entity_usage":
-		return validateEntityUsage(db, req.TeamID, req.ProjectID, stringArg(req.Arguments, "entity_name")), ctx, nil
+		name := stringArg(args, "model_name")
+		if name == "" {
+			name = stringArg(args, "entity_name")
+		}
+		return validateEntityUsage(db, req.TeamID, req.ProjectID, name), ctx, nil
 	default:
 		return nil, ctx, fmt.Errorf("unknown MCP tool %s", req.Tool)
 	}
@@ -404,7 +420,7 @@ func validateEntityUsage(db *gorm.DB, teamID, projectID, entityName string) map[
 	if entityName == "" {
 		return map[string]interface{}{"valid": false, "reason": "entity_name is required"}
 	}
-	var entity models.Entity
+	var entity models.DataModel
 	err := db.Where("team_id = ? AND project_id = ? AND name = ?", teamID, projectID, entityName).First(&entity).Error
 	if err != nil {
 		return map[string]interface{}{"valid": false, "reason": "entity not found in current project context"}

@@ -48,6 +48,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(null);
     setUser(null);
     localStorage.removeItem('synkord_current_team_id');
+    localStorage.removeItem('synkord_current_project_id');
+    window.synkord?.mcpSetActiveProject?.(null).catch(() => undefined);
     setBootstrapping(false);
   }, []);
 

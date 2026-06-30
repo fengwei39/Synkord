@@ -121,6 +121,40 @@ func RegisterProjectMCPRoutes(r *gin.RouterGroup) {
 			}
 			c.JSON(http.StatusOK, gin.H{"items": items, "total": total})
 		})
+
+		// GET /teams/:team_id/projects/:project_id/mcp/onboarding
+		// 返回 IDE 接入说明与 .mcp.json 配置模板。**不**返回 Token 明文与审计，
+		// viewer 可见（仅 IDE 配置模板与接入步骤）。
+		m.GET("/onboarding", func(c *gin.Context) {
+			if !requireProjectMember(c) {
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{
+				"description": "Set the following environment variables before opening the IDE, then drop the JSON below into the IDE's MCP config file (e.g. .cursor/mcp.json, .vscode/mcp.json).",
+				"env_vars": []gin.H{
+					{"name": "SYNKORD_MCP_URL", "description": "Local MCP service URL exposed by Electron. Default http://127.0.0.1:37991/mcp"},
+					{"name": "SYNKORD_MCP_TOKEN", "description": "The MCP token created on this page (not returned here)."},
+				},
+				"templates": gin.H{
+					"cursor": gin.H{
+						"path":  ".cursor/mcp.json",
+						"value": cursorTemplate,
+					},
+					"vscode": gin.H{
+						"path":  ".vscode/mcp.json",
+						"value": vscodeTemplate,
+					},
+					"pycharm": gin.H{
+						"path":  ".idea/mcp.json",
+						"value": jetbrainsTemplate,
+					},
+				},
+				"notes": []string{
+					"本模板只连接本地 MCP 服务，不表达团队或项目；团队和项目由 Electron 当前激活上下文决定。",
+					"切换项目无需修改 .mcp.json。",
+				},
+			})
+		})
 	}
 }
 
@@ -257,3 +291,40 @@ func summarizeMCPArgs(args map[string]interface{}) string {
 	out += "}"
 	return out
 }
+
+// IDE 接入说明模板（不含 Token 明文）。
+const (
+	cursorTemplate = `{
+  "mcpServers": {
+    "synkord": {
+      "url": "${SYNKORD_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer ${SYNKORD_MCP_TOKEN}"
+      }
+    }
+  }
+}`
+
+	vscodeTemplate = `{
+  "servers": {
+    "synkord": {
+      "type": "http",
+      "url": "${SYNKORD_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer ${SYNKORD_MCP_TOKEN}"
+      }
+    }
+  }
+}`
+
+	jetbrainsTemplate = `{
+  "mcpServers": {
+    "synkord": {
+      "url": "${SYNKORD_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer ${SYNKORD_MCP_TOKEN}"
+      }
+    }
+  }
+}`
+)

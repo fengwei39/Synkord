@@ -48,6 +48,27 @@ func RegisterTeamRoutes(r *gin.RouterGroup) {
 			c.JSON(http.StatusOK, team)
 		})
 
+		teams.PATCH("/:team_id", func(c *gin.Context) {
+			var req struct {
+				Name        string `json:"name" binding:"omitempty,min=2,max=64"`
+				Description string `json:"description"`
+			}
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+				return
+			}
+			team, err := services.UpdateTeam(database.DB, c.Param("team_id"), c.GetString("user_id"), req.Name, req.Description)
+			if err != nil {
+				if err.Error() == "insufficient team permissions" {
+					c.JSON(http.StatusForbidden, gin.H{"detail": "Insufficient team permissions"})
+					return
+				}
+				c.JSON(http.StatusNotFound, gin.H{"detail": "Team not found"})
+				return
+			}
+			c.JSON(http.StatusOK, team)
+		})
+
 		teams.GET("/:team_id/members", func(c *gin.Context) {
 			if _, err := services.GetTeamForUser(database.DB, c.Param("team_id"), c.GetString("user_id")); err != nil {
 				c.JSON(http.StatusNotFound, gin.H{"detail": "Team not found"})

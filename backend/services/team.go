@@ -67,6 +67,25 @@ func CreateTeam(db *gorm.DB, ownerID, name, description string) (*TeamWithRole, 
 	return &TeamWithRole{Team: *team, Role: models.TeamRoleAdmin}, nil
 }
 
+func UpdateTeam(db *gorm.DB, teamID, userID, name, description string) (*TeamWithRole, error) {
+	teamWithRole, err := GetTeamForUser(db, teamID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if teamWithRole.Role != models.TeamRoleAdmin {
+		return nil, errors.New("insufficient team permissions")
+	}
+	updates := map[string]any{}
+	if name != "" {
+		updates["name"] = name
+	}
+	updates["description"] = description
+	if err := db.Model(&models.Team{}).Where("id = ?", teamID).Updates(updates).Error; err != nil {
+		return nil, err
+	}
+	return GetTeamForUser(db, teamID, userID)
+}
+
 func ListUserTeams(db *gorm.DB, userID string) ([]TeamWithRole, error) {
 	var memberships []models.TeamMember
 	if err := db.Preload("Team").Where("user_id = ? AND status = ?", userID, models.TeamMemberActive).Order("created_at").Find(&memberships).Error; err != nil {

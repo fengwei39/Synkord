@@ -5,9 +5,10 @@ export interface Team {
   name: string;
   description?: string;
   owner_id: string;
+  owner?: { id: string; username: string };
   role: TeamRole;
-  created_at?: string;
-  updated_at?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface TeamMember {

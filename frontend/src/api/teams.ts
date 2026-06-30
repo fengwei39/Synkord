@@ -6,6 +6,16 @@ export async function listTeams() {
   return resp.data.items || [];
 }
 
+export async function getTeam(teamId: string): Promise<Team> {
+  const resp = await apiClient.get<Team>(`/teams/${teamId}`);
+  return resp.data;
+}
+
+export async function updateTeam(teamId: string, values: { name?: string; description?: string }) {
+  const resp = await apiClient.patch<Team>(`/teams/${teamId}`, values);
+  return resp.data;
+}
+
 export async function createTeam(values: { name: string; description?: string }) {
   const resp = await apiClient.post<Team>('/teams', values);
   return resp.data;

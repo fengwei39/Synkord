@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { App as AntApp, Card, Form, Input, Button, Typography } from 'antd';
 import { LockOutlined, UserOutlined } from '@ant-design/icons';
 import { useAuth } from '../api/auth';
@@ -10,6 +10,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { message } = AntApp.useApp();
 
   const onFinish = async (values: { username: string; password: string }) => {
@@ -17,7 +18,13 @@ export default function Login() {
     try {
       await login(values.username, values.password);
       message.success('登录成功');
-      navigate('/');
+      // 登录成功后回跳到 ?redirect= 指定的路径，否则到 /projects
+      const redirect = searchParams.get('redirect');
+      if (redirect && redirect.startsWith('/')) {
+        navigate(redirect, { replace: true });
+      } else {
+        navigate('/projects', { replace: true });
+      }
     } catch (error: any) {
       message.error(error?.response?.data?.detail || '用户名或密码错误');
     } finally {

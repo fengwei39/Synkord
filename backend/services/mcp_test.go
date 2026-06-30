@@ -112,7 +112,12 @@ func TestExecuteMCPQueryAndAuditAreProjectScoped(t *testing.T) {
 	if ctx.Config.ProjectID != project.ID {
 		t.Fatalf("context project = %s, want %s", ctx.Config.ProjectID, project.ID)
 	}
-	if len(result.([]models.Entity)) != 1 {
+	entityResult, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected MCP query result map, got %+v", result)
+	}
+	items, ok := entityResult["items"].([]models.DataModel)
+	if !ok || len(items) != 1 {
 		t.Fatalf("expected one project entity, got %+v", result)
 	}
 	if _, _, err := ExecuteMCPQuery(db, MCPQueryRequest{
@@ -133,12 +138,12 @@ func TestExecuteMCPQueryAndAuditAreProjectScoped(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create audit: %v", err)
 	}
-	items, total, err := ListMCPAuditLogs(db, team.ID, project.ID, 0, 10)
+	auditItems, total, err := ListMCPAuditLogs(db, team.ID, project.ID, 0, 10)
 	if err != nil {
 		t.Fatalf("list audit: %v", err)
 	}
-	if total != 1 || len(items) != 1 || items[0].ProjectID != project.ID {
-		t.Fatalf("unexpected audit items: total=%d items=%+v", total, items)
+	if total != 1 || len(auditItems) != 1 || auditItems[0].ProjectID != project.ID {
+		t.Fatalf("unexpected audit items: total=%d items=%+v", total, auditItems)
 	}
 }
 

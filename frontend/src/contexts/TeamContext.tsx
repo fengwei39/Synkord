@@ -28,18 +28,11 @@ const TeamContext = createContext<TeamContextType>({
 export function TeamProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [teams, setTeams] = useState<Team[]>([]);
-  const [currentTeamId, setCurrentTeamId] = useState<string | null>(() =>
-    localStorage.getItem('synkord_current_team_id')
-  );
+  const [currentTeamId, setCurrentTeamId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const selectTeam = useCallback((teamId: string | null) => {
     setCurrentTeamId(teamId);
-    if (teamId) {
-      localStorage.setItem('synkord_current_team_id', teamId);
-    } else {
-      localStorage.removeItem('synkord_current_team_id');
-    }
   }, []);
 
   const refreshTeams = useCallback(async () => {
@@ -53,9 +46,7 @@ export function TeamProvider({ children }: { children: React.ReactNode }) {
     try {
       const items = await listTeams();
       setTeams(items);
-      const stored = localStorage.getItem('synkord_current_team_id');
-      const next = items.find((item) => item.id === stored)?.id || items[0]?.id || null;
-      selectTeam(next);
+      setCurrentTeamId((current) => items.find((item) => item.id === current)?.id || items[0]?.id || null);
     } finally {
       setLoading(false);
     }

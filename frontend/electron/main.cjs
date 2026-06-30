@@ -1,12 +1,18 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const { fork } = require('child_process');
+const fs = require('fs');
 const http = require('http');
 const path = require('path');
+const os = require('os');
 
 const isDev = !app.isPackaged;
 const devURL = process.env.SYNKORD_DEV_URL || 'http://127.0.0.1:3000';
 const mcpPort = Number(process.env.SYNKORD_LOCAL_MCP_PORT || 37991);
 const mcpPath = '/mcp';
+
+// 激活上下文文件目录：优先使用 SYNKORD_HOME，否则回退到用户主目录下 ~/.synkord
+const synkordHome = process.env.SYNKORD_HOME || path.join(os.homedir(), '.synkord');
+const activeContextPath = path.join(synkordHome, 'active-context.json');
 
 let localMCPProcess = null;
 let activeProject = null;
@@ -38,12 +44,40 @@ function waitForDevServer(url, timeoutMs = 10000) {
   });
 }
 
+function ensureSynkordHome() {
+  try {
+    if (!fs.existsSync(synkordHome)) {
+      fs.mkdirSync(synkordHome, { recursive: true, mode: 0o700 });
+    }
+  } catch (e) {
+    console.error('[synkord] failed to ensure SYNKORD_HOME', synkordHome, e);
+  }
+}
+
+function writeActiveContext() {
+  ensureSynkordHome();
+  const payload = {
+    team_id: activeProject ? activeProject.teamId : null,
+    project_id: activeProject ? activeProject.projectId : null,
+    project_name: activeProject ? activeProject.projectName : null,
+    synkord_core_url: getAPIBase(),
+    updated_at: new Date().toISOString(),
+  };
+  try {
+    fs.writeFileSync(activeContextPath, JSON.stringify(payload, null, 2), { mode: 0o600 });
+  } catch (e) {
+    console.error('[synkord] failed to write active-context.json', activeContextPath, e);
+  }
+}
+
 function mcpStatus() {
   return {
     running: !!localMCPProcess,
     port: mcpPort,
     url: `http://127.0.0.1:${mcpPort}${mcpPath}`,
     activeProject,
+    synkordHome,
+    activeContextPath,
     pid: localMCPProcess?.pid || null,
   };
 }
@@ -53,8 +87,11 @@ function startLocalMCPServer() {
     return Promise.resolve(mcpStatus());
   }
 
+  // 启动前先写一份 active-context.json，确保本地 MCP 服务读取时一定有值
+  writeActiveContext();
+
   const servicePath = path.join(__dirname, 'local-mcp-service.cjs');
-  localMCPProcess = fork(servicePath, [], {
+  localMCPProcess = fork(servicePath, ['--synkord-home', synkordHome], {
     env: {
       ...process.env,
       SYNKORD_API_BASE: getAPIBase(),
@@ -115,6 +152,7 @@ function stopLocalMCPServer() {
 }
 
 function sendActiveProjectToLocalMCP() {
+  writeActiveContext();
   if (localMCPProcess?.connected) {
     localMCPProcess.send({
       type: 'set-active-project',

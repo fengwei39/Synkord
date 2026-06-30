@@ -29,7 +29,7 @@ type Project struct {
 	UpdatedAt      time.Time   `json:"updated_at"`
 
 	Team                 *Team         `json:"team,omitempty" gorm:"foreignKey:TeamID"`
-	Entities             []Entity      `json:"-" gorm:"foreignKey:ProjectID"`
+	Entities             []DataModel      `json:"-" gorm:"foreignKey:ProjectID"`
 	APIEndpoints         []APIEndpoint `json:"-" gorm:"foreignKey:ProjectID"`
 	DependenciesAsSource []Dependency  `json:"-" gorm:"foreignKey:SourceProjectID"`
 	DependenciesAsTarget []Dependency  `json:"-" gorm:"foreignKey:TargetProjectID"`

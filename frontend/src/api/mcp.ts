@@ -30,6 +30,7 @@ export interface MCPServiceStatus {
 export interface ProjectMCPOverview {
   team_id: string;
   project_id: string;
+  project_name?: string;
   status: MCPServiceStatus;
   tools: string[];
   configs: MCPConfig[];
@@ -88,5 +89,17 @@ export async function listProjectMCPAuditLogs(
   projectId: string,
 ): Promise<{ items: MCPAuditLog[]; total: number }> {
   const resp = await apiClient.get(`/teams/${teamId}/projects/${projectId}/mcp/audit`);
+  return resp.data;
+}
+
+export interface MCPOnboarding {
+  description: string;
+  env_vars: Array<{ name: string; description: string }>;
+  templates: Record<string, { path: string; value: string }>;
+  notes: string[];
+}
+
+export async function getProjectMCPOnboarding(teamId: string, projectId: string): Promise<MCPOnboarding> {
+  const resp = await apiClient.get(`/teams/${teamId}/projects/${projectId}/mcp/onboarding`);
   return resp.data;
 }

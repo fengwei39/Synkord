@@ -8,7 +8,7 @@ import { useTeam } from '../contexts/TeamContext';
 
 const { Text } = Typography;
 
-export default function Entities() {
+export default function DataModels() {
   const navigate = useNavigate();
   const { projectId } = useParams();
   const { currentTeam, currentTeamId } = useTeam();

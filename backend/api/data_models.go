@@ -87,7 +87,7 @@ func RegisterTeamModelRoutes(r *gin.RouterGroup) {
 				c.JSON(http.StatusNotFound, gin.H{"detail": "Model not found"})
 				return
 			}
-			versions, err := services.GetEntityVersions(database.DB, c.Param("model_id"))
+			versions, err := services.GetDataModelVersions(database.DB, c.Param("model_id"))
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
 				return

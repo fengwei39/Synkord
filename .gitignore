@@ -8,6 +8,7 @@ synkord-cli/synkord
 frontend/node_modules/
 frontend/dist/
 frontend/release/
+frontend/tsconfig.tsbuildinfo
 *.log
 .env
 .DS_Store

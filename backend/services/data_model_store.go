@@ -9,8 +9,8 @@ import (
 	"gorm.io/gorm"
 )
 
-func CreateProjectEntity(db *gorm.DB, teamID, projectID, name, description, schemaContent string, userID *string) (*models.Entity, error) {
-	e := &models.Entity{
+func CreateProjectEntity(db *gorm.DB, teamID, projectID, name, description, schemaContent string, userID *string) (*models.DataModel, error) {
+	e := &models.DataModel{
 		TeamID:         teamID,
 		ProjectID:      &projectID,
 		Name:           name,
@@ -24,8 +24,8 @@ func CreateProjectEntity(db *gorm.DB, teamID, projectID, name, description, sche
 		return nil, err
 	}
 
-	v := &models.EntityVersion{
-		EntityID:      e.ID,
+	v := &models.DataModelVersion{
+		DataModelID:      e.ID,
 		VersionNumber: "1.0.0",
 		SchemaContent: schemaContent,
 		ChangeSummary: "Initial version",
@@ -36,8 +36,8 @@ func CreateProjectEntity(db *gorm.DB, teamID, projectID, name, description, sche
 	return e, nil
 }
 
-func UpdateProjectEntity(db *gorm.DB, teamID, projectID, entityID string, name, description, schemaContent, changeSummary *string, userID *string) (*models.Entity, error) {
-	var e models.Entity
+func UpdateProjectEntity(db *gorm.DB, teamID, projectID, entityID string, name, description, schemaContent, changeSummary *string, userID *string) (*models.DataModel, error) {
+	var e models.DataModel
 	if err := db.First(&e, "id = ? AND team_id = ? AND project_id = ?", entityID, teamID, projectID).Error; err != nil {
 		return nil, err
 	}
@@ -62,8 +62,8 @@ func UpdateProjectEntity(db *gorm.DB, teamID, projectID, entityID string, name, 
 		summary = *changeSummary
 	}
 
-	v := &models.EntityVersion{
-		EntityID:      e.ID,
+	v := &models.DataModelVersion{
+		DataModelID:      e.ID,
 		VersionNumber: e.CurrentVersion,
 		SchemaContent: newSchema,
 		ChangeSummary: summary,
@@ -77,19 +77,19 @@ func UpdateProjectEntity(db *gorm.DB, teamID, projectID, entityID string, name, 
 	return &e, nil
 }
 
-func GetProjectEntity(db *gorm.DB, teamID, projectID, entityID string) (*models.Entity, error) {
-	var e models.Entity
+func GetProjectEntity(db *gorm.DB, teamID, projectID, entityID string) (*models.DataModel, error) {
+	var e models.DataModel
 	if err := db.Preload("Project").First(&e, "id = ? AND team_id = ? AND project_id = ?", entityID, teamID, projectID).Error; err != nil {
 		return nil, err
 	}
 	return &e, nil
 }
 
-func ListProjectEntities(db *gorm.DB, teamID, projectID string, offset, limit int) ([]models.Entity, int64, error) {
-	var entities []models.Entity
+func ListProjectEntities(db *gorm.DB, teamID, projectID string, offset, limit int) ([]models.DataModel, int64, error) {
+	var entities []models.DataModel
 	var total int64
 
-	query := db.Model(&models.Entity{}).Where("team_id = ? AND project_id = ?", teamID, projectID)
+	query := db.Model(&models.DataModel{}).Where("team_id = ? AND project_id = ?", teamID, projectID)
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
@@ -99,8 +99,8 @@ func ListProjectEntities(db *gorm.DB, teamID, projectID string, offset, limit in
 	return entities, total, nil
 }
 
-func GetEntityVersions(db *gorm.DB, entityID string) ([]models.EntityVersion, error) {
-	var versions []models.EntityVersion
+func GetDataModelVersions(db *gorm.DB, entityID string) ([]models.DataModelVersion, error) {
+	var versions []models.DataModelVersion
 	if err := db.Where("entity_id = ?", entityID).Order("created_at desc").Find(&versions).Error; err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func GetEntityVersions(db *gorm.DB, entityID string) ([]models.EntityVersion, er
 }
 
 func DeleteProjectEntity(db *gorm.DB, teamID, projectID, entityID string) error {
-	return db.Delete(&models.Entity{}, "id = ? AND team_id = ? AND project_id = ?", entityID, teamID, projectID).Error
+	return db.Delete(&models.DataModel{}, "id = ? AND team_id = ? AND project_id = ?", entityID, teamID, projectID).Error
 }
 
 func bumpVersion(current string) string {

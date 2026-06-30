@@ -6,6 +6,7 @@ export interface ProjectPayload {
   project_type: 'backend' | 'web' | 'app';
   owner?: string;
   repo_url?: string;
+  swagger_url?: string;
 }
 
 export async function listProjects(teamId: string) {

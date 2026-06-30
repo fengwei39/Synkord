@@ -19,6 +19,15 @@ export interface MCPConfig {
 export interface TeamMCPOverview {
   enabled: boolean;
   global_enabled: boolean;
+  status: {
+    state: 'disabled' | 'no_token' | 'ready' | 'connected';
+    ready: boolean;
+    connected: boolean;
+    reason: string;
+    active_tokens: number;
+    last_connected_at?: string;
+  };
+  streamable_http_endpoint: string;
   sse_endpoint: string;
   message_endpoint: string;
   tools: string[];
@@ -27,6 +36,7 @@ export interface TeamMCPOverview {
 
 export interface GlobalMCPServerConfig {
   enabled: boolean;
+  streamable_http_endpoint: string;
   sse_endpoint: string;
   message_endpoint: string;
   status: 'running' | 'disabled' | 'error';
@@ -61,6 +71,11 @@ export async function createMCPConfig(teamId: string, values: {
   expires_at?: string;
 }): Promise<MCPConfig> {
   const resp = await apiClient.post(`/teams/${teamId}/mcp/tokens`, values);
+  return resp.data;
+}
+
+export async function ensureCodexMCPConfig(teamId: string): Promise<MCPConfig> {
+  const resp = await apiClient.post(`/teams/${teamId}/mcp/tokens/ensure-codex`);
   return resp.data;
 }
 

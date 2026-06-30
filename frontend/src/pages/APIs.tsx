@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { App as AntApp, Button, Card, Form, Input, Radio, Select, Space, Table, Tag, Typography } from 'antd';
+import { Alert, App as AntApp, Button, Card, Form, Input, Radio, Select, Space, Table, Tag, Typography } from 'antd';
 import { CloudUploadOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { importAPISpec, listAPIs } from '../api/apis';
+import { importAPISpec, importAPISpecFromProject, listAPIs } from '../api/apis';
 import { listProjects } from '../api/projects';
 import { useTeam } from '../contexts/TeamContext';
 
@@ -18,7 +18,9 @@ export default function APIs() {
   const [loading, setLoading] = useState(false);
   const [form] = Form.useForm();
   const [filterForm] = Form.useForm();
-  const importFormat = Form.useWatch('format', form) || 'openapi';
+  const importMode = Form.useWatch('mode', form) || 'project';
+  const importProjectId = Form.useWatch('project_id', form);
+  const selectedProject = projects.find((project) => project.id === importProjectId);
 
   const loadProjects = async () => {
     if (!currentTeamId) return;
@@ -54,7 +56,13 @@ export default function APIs() {
   const handleImport = async () => {
     const values = await form.validateFields();
     try {
-      const result = await importAPISpec(currentTeamId!, values);
+      const result = values.mode === 'project'
+        ? await importAPISpecFromProject(currentTeamId!, { project_id: values.project_id })
+        : await importAPISpec(currentTeamId!, {
+          project_id: values.project_id,
+          spec: values.spec,
+          format: values.mode === 'postman' ? 'postman' : 'openapi',
+        });
       message.success(`导入完成：${result.api_count} 个 API，${result.dependency_count} 条依赖`);
       form.resetFields(['spec']);
       filterForm.setFieldValue('project_id', values.project_id);
@@ -71,18 +79,19 @@ export default function APIs() {
           <h1>接口管理</h1>
           <span className="owner-badge">{currentTeam?.name || '当前团队'}</span>
         </div>
-        <Typography.Text type="secondary">导入和查询当前团队后端项目的 Swagger / OpenAPI 或 Postman 接口规范。</Typography.Text>
+        <Typography.Text type="secondary">选择后端项目后，可直接从项目配置的 Swagger 地址拉取并导入接口规范。</Typography.Text>
       </header>
 
       <Card style={{ marginBottom: 16 }}>
-        <Form form={form} layout="vertical" initialValues={{ format: 'openapi' }}>
-          <Form.Item name="format" label="导入格式">
+        <Form form={form} layout="vertical" initialValues={{ mode: 'project' }}>
+          <Form.Item name="mode" label="导入来源">
             <Radio.Group
               optionType="button"
               buttonStyle="solid"
               options={[
-                { value: 'openapi', label: 'Swagger / OpenAPI' },
-                { value: 'postman', label: 'Postman Collection' },
+                { value: 'project', label: '项目 Swagger 地址' },
+                { value: 'openapi', label: '手动粘贴 OpenAPI' },
+                { value: 'postman', label: '手动粘贴 Postman' },
               ]}
             />
           </Form.Item>
@@ -92,18 +101,32 @@ export default function APIs() {
               options={projects.map((p) => ({ value: p.id, label: p.name }))}
             />
           </Form.Item>
-          <Form.Item
-            name="spec"
-            label={importFormat === 'postman' ? 'Postman Collection JSON' : 'OpenAPI 3.x JSON/YAML'}
-            rules={[{ required: true }]}
-          >
-            <TextArea
-              rows={8}
-              placeholder={importFormat === 'postman' ? '粘贴 Postman Collection v2.1 JSON...' : '粘贴 OpenAPI 3.x 文档...'}
+          {importMode === 'project' ? (
+            <Alert
+              style={{ marginBottom: 16 }}
+              type={selectedProject?.swagger_url ? 'info' : 'warning'}
+              showIcon
+              title={selectedProject?.swagger_url || '当前项目尚未配置 Swagger 地址，请先到项目管理中编辑该后端项目。'}
             />
-          </Form.Item>
-          <Button type="primary" icon={<CloudUploadOutlined />} onClick={handleImport}>
-            导入规范
+          ) : (
+            <Form.Item
+              name="spec"
+              label={importMode === 'postman' ? 'Postman Collection JSON' : 'OpenAPI 3.x JSON/YAML'}
+              rules={[{ required: true }]}
+            >
+              <TextArea
+                rows={8}
+                placeholder={importMode === 'postman' ? '粘贴 Postman Collection v2.1 JSON...' : '粘贴 OpenAPI 3.x 文档...'}
+              />
+            </Form.Item>
+          )}
+          <Button
+            type="primary"
+            icon={<CloudUploadOutlined />}
+            onClick={handleImport}
+            disabled={importMode === 'project' && !selectedProject?.swagger_url}
+          >
+            {importMode === 'project' ? '从项目 Swagger 导入' : '导入规范'}
           </Button>
         </Form>
       </Card>

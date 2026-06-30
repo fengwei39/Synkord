@@ -1,43 +1,60 @@
 import { useEffect, useMemo, useState } from 'react';
-import { App as AntApp, Button, Card, Empty, Form, Input, Modal, Select, Space, Switch, Table, Tag, Typography } from 'antd';
-import { CopyOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { App as AntApp, Button, Card, Modal, Space, Switch, Table, Tag, Typography } from 'antd';
+import { CopyOutlined, ReloadOutlined } from '@ant-design/icons';
 import {
-  createMCPConfig,
+  ensureCodexMCPConfig,
   getTeamMCPOverview,
   listMCPAuditLogs,
-  rotateMCPConfigToken,
-  updateMCPConfigStatus,
   updateTeamMCPEnabled,
   type MCPAuditLog,
-  type MCPConfig,
   type TeamMCPOverview,
 } from '../api/mcp';
-import { listProjects } from '../api/projects';
 import { useTeam } from '../contexts/TeamContext';
 
 const { Paragraph, Text, Title } = Typography;
+
+const connectionStatusMeta: Record<string, { color: string; label: string }> = {
+  connected: { color: 'green', label: '已连接' },
+  ready: { color: 'blue', label: '可连接' },
+  no_token: { color: 'orange', label: '未配置 Token' },
+  disabled: { color: 'red', label: '不可用' },
+};
 
 export default function MCPManagement() {
   const { currentTeam, currentTeamId } = useTeam();
   const { message } = AntApp.useApp();
   const [overview, setOverview] = useState<TeamMCPOverview | null>(null);
   const [auditLogs, setAuditLogs] = useState<MCPAuditLog[]>([]);
-  const [projects, setProjects] = useState<any[]>([]);
+  const [codexToken, setCodexToken] = useState('');
+  const [ensureTokenError, setEnsureTokenError] = useState('');
+  const [showToken, setShowToken] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [form] = Form.useForm();
 
   const load = async () => {
     if (!currentTeamId) return;
     setLoading(true);
     try {
-      const [mcp, projectItems, audit] = await Promise.all([
+      try {
+        const ensured = await ensureCodexMCPConfig(currentTeamId);
+        setEnsureTokenError('');
+        if (ensured.token) {
+          setCodexToken(ensured.token);
+          setShowToken(true);
+        }
+      } catch (e: any) {
+        const detail = e.response?.status === 404
+          ? '后端尚未加载自动生成 Token 接口，请重启 synkord-core'
+          : e.response?.data?.detail || '自动生成 Codex Token 失败';
+        setEnsureTokenError(detail);
+        if (e.response?.status !== 403) {
+          message.warning(detail);
+        }
+      }
+      const [mcp, audit] = await Promise.all([
         getTeamMCPOverview(currentTeamId),
-        listProjects(currentTeamId),
         listMCPAuditLogs(currentTeamId),
       ]);
       setOverview(mcp);
-      setProjects(projectItems);
       setAuditLogs(audit.items);
     } finally {
       setLoading(false);
@@ -52,36 +69,75 @@ export default function MCPManagement() {
     return apiBase.replace(/\/api\/?$/, '') + `${endpoint}?token=<team-token>`;
   }, [overview?.sse_endpoint]);
 
-  const ideConfig = useMemo(() => JSON.stringify({
-    mcpServers: {
-      synkord: {
-        url: serviceUrl,
-      },
-    },
-  }, null, 2), [serviceUrl]);
+  const codexUrl = useMemo(() => {
+    const apiBase = localStorage.getItem('synkord_api_base') || 'http://127.0.0.1:8000/api';
+    const endpoint = overview?.streamable_http_endpoint || '/mcp';
+    return apiBase.replace(/\/api\/?$/, '') + endpoint;
+  }, [overview?.streamable_http_endpoint]);
 
-  const handleCreate = async () => {
-    if (!currentTeamId) return;
-    const values = await form.validateFields();
-    const created = await createMCPConfig(currentTeamId, {
-      name: values.name,
-      purpose: values.purpose,
-      project_scope: values.projects || [],
-      tool_scope: values.tools,
-      expires_at: values.expiresAt,
-    });
-    setModalOpen(false);
-    form.resetFields();
-    await load();
-    Modal.success({
-      title: 'MCP Token 已生成',
-      content: (
-        <Paragraph copyable={{ text: created.token || '' }}>
-          {created.token}
-        </Paragraph>
-      ),
-    });
-  };
+  const codexConfig = useMemo(() => [
+    '名称：synkord',
+    '连接方式：流式 HTTP',
+    `URL：${codexUrl}`,
+    'Bearer 令牌环境变量：SYNKORD_MCP_TOKEN',
+  ].join('\n'), [codexUrl]);
+
+  const codexToml = useMemo(() => [
+    '[mcp_servers.synkord]',
+    `url = "${codexUrl}"`,
+    'bearer_token_env_var = "SYNKORD_MCP_TOKEN"',
+    'enabled = true',
+  ].join('\n'), [codexUrl]);
+
+  const displayStatus = useMemo(() => {
+    if (overview?.status) {
+      return overview.status;
+    }
+    if (!overview) {
+      return {
+        state: 'disabled' as const,
+        ready: false,
+        connected: false,
+        reason: '正在读取 MCP 状态',
+        active_tokens: 0,
+      };
+    }
+    const activeTokens = (overview.configs || []).filter((item) => item.status === 'active').length;
+    if (!overview.global_enabled) {
+      return {
+        state: 'disabled' as const,
+        ready: false,
+        connected: false,
+        reason: '全局 MCP 服务未开启',
+        active_tokens: activeTokens,
+      };
+    }
+    if (!overview.enabled) {
+      return {
+        state: 'disabled' as const,
+        ready: false,
+        connected: false,
+        reason: '团队 MCP 服务未开启',
+        active_tokens: activeTokens,
+      };
+    }
+    if (activeTokens === 0) {
+      return {
+        state: 'no_token' as const,
+        ready: false,
+        connected: false,
+        reason: ensureTokenError || '尚无可用 MCP Token',
+        active_tokens: 0,
+      };
+    }
+    return {
+      state: 'ready' as const,
+      ready: true,
+      connected: false,
+      reason: '已就绪，等待 Codex 或其他 MCP 客户端连接',
+      active_tokens: activeTokens,
+    };
+  }, [ensureTokenError, overview]);
 
   const toggleTeamEnabled = (checked: boolean) => {
     if (!currentTeamId) return;
@@ -96,29 +152,7 @@ export default function MCPManagement() {
     });
   };
 
-  const toggleConfig = async (record: MCPConfig) => {
-    if (!currentTeamId) return;
-    const status = record.status === 'active' ? 'disabled' : 'active';
-    const updated = await updateMCPConfigStatus(currentTeamId, record.id, status);
-    setOverview((value) => value ? {
-      ...value,
-      configs: value.configs.map((item) => item.id === updated.id ? updated : item),
-    } : value);
-  };
 
-  const rotateConfig = async (record: MCPConfig) => {
-    if (!currentTeamId) return;
-    const updated = await rotateMCPConfigToken(currentTeamId, record.id);
-    await load();
-    Modal.success({
-      title: 'MCP Token 已重新生成',
-      content: (
-        <Paragraph copyable={{ text: updated.token || '' }}>
-          {updated.token}
-        </Paragraph>
-      ),
-    });
-  };
 
   return (
     <div className="project-page">
@@ -131,6 +165,28 @@ export default function MCPManagement() {
       </header>
 
       <Card style={{ marginBottom: 16 }}>
+        <div className="mcp-status-row" style={{ marginBottom: 16 }}>
+          <div>
+            <Title level={5}>连接状态</Title>
+            <Space wrap>
+              <Tag color={connectionStatusMeta[displayStatus.state]?.color}>
+                {connectionStatusMeta[displayStatus.state]?.label}
+              </Tag>
+              <Text type="secondary">{displayStatus.reason}</Text>
+            </Space>
+            <div style={{ marginTop: 8 }}>
+              <Space size={16} wrap>
+                <Text type="secondary">可用 Token：{displayStatus.active_tokens}</Text>
+                <Text type="secondary">
+                  最近连接：{displayStatus.last_connected_at ? new Date(displayStatus.last_connected_at).toLocaleString() : '-'}
+                </Text>
+              </Space>
+            </div>
+          </div>
+          <Button icon={<ReloadOutlined />} loading={loading} onClick={load}>
+            刷新状态
+          </Button>
+        </div>
         <div className="mcp-status-row">
           <div>
             <Title level={5}>团队 MCP 开关</Title>
@@ -151,53 +207,42 @@ export default function MCPManagement() {
           </div>
         )}
         <div className="mcp-url-row">
-          <Text type="secondary">接入地址</Text>
-          <code>{serviceUrl}</code>
-          <Button size="small" icon={<CopyOutlined />} onClick={() => navigator.clipboard?.writeText(serviceUrl)}>
+          <Text type="secondary">Codex 流式 HTTP 地址</Text>
+          <code>{codexUrl}</code>
+          <Button size="small" icon={<CopyOutlined />} onClick={() => navigator.clipboard?.writeText(codexUrl)}>
             复制
           </Button>
         </div>
       </Card>
 
-      <Card
-        title="MCP 配置列表"
-        extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>新建配置</Button>}
-      >
-        <Table
-          loading={loading}
-          rowKey="id"
-          dataSource={overview?.configs || []}
-          pagination={false}
-          locale={{ emptyText: <Empty description="暂无 MCP Token" /> }}
-          columns={[
-            { title: '名称', dataIndex: 'name' },
-            { title: '用途', dataIndex: 'purpose', width: 100, render: (v) => <Tag>{v}</Tag> },
-            { title: 'Token', dataIndex: 'token_preview', width: 140 },
-            { title: '项目范围', dataIndex: 'project_scope', render: (items: string[]) => items?.length ? items.join('、') : '全部项目' },
-            { title: '工具范围', dataIndex: 'tool_scope', render: (items: string[]) => items.map((item) => <Tag key={item}>{item}</Tag>) },
-            { title: '状态', dataIndex: 'status', width: 90, render: (v) => v === 'active' ? <Tag color="green">启用</Tag> : <Tag color="red">停用</Tag> },
-            { title: '过期时间', dataIndex: 'expires_at', width: 120, render: (v) => v ? new Date(v).toLocaleDateString() : '未设置' },
-            { title: '最近调用', dataIndex: 'last_used_at', width: 150, render: (v) => v ? new Date(v).toLocaleString() : '-' },
-            {
-              title: '操作',
-              width: 180,
-              render: (_, record) => (
-                <Space>
-                  <Button size="small" onClick={() => toggleConfig(record)}>
-                    {record.status === 'active' ? '停用' : '启用'}
-                  </Button>
-                  <Button size="small" icon={<ReloadOutlined />} onClick={() => rotateConfig(record)}>重生成</Button>
-                </Space>
-              ),
-            },
-          ]}
-        />
+
+      <Card title="Codex 接入说明" style={{ marginTop: 16 }}>
+        <Text type="secondary">在 Codex 自定义 MCP 中选择“流式 HTTP”，按下面字段填写；Token 建议通过环境变量提供。</Text>
+        <Paragraph copyable={{ text: codexConfig }} style={{ marginTop: 12 }}>
+          <pre style={{ margin: 0 }}>{codexConfig}</pre>
+        </Paragraph>
+        {codexToken && (
+          <>
+            <Text type="secondary">首次自动生成的 Token：</Text>
+            <Paragraph copyable={{ text: codexToken }} style={{ marginTop: 12 }}>
+              <pre style={{ margin: 0 }}>{codexToken}</pre>
+            </Paragraph>
+            <Text type="secondary">PowerShell 环境变量：</Text>
+            <Paragraph copyable={{ text: `[Environment]::SetEnvironmentVariable("SYNKORD_MCP_TOKEN", "${codexToken}", "User")` }} style={{ marginTop: 12 }}>
+              <pre style={{ margin: 0 }}>{`[Environment]::SetEnvironmentVariable("SYNKORD_MCP_TOKEN", "${codexToken}", "User")`}</pre>
+            </Paragraph>
+          </>
+        )}
+        <Text type="secondary">也可以写入 Codex 配置文件：</Text>
+        <Paragraph copyable={{ text: codexToml }} style={{ marginTop: 12 }}>
+          <pre style={{ margin: 0 }}>{codexToml}</pre>
+        </Paragraph>
       </Card>
 
-      <Card title="IDE 接入说明" style={{ marginTop: 16 }}>
-        <Text type="secondary">创建 Token 后，将接入地址中的 <code>&lt;team-token&gt;</code> 替换为实际 Token。</Text>
-        <Paragraph copyable={{ text: ideConfig }} style={{ marginTop: 12 }}>
-          <pre style={{ margin: 0 }}>{ideConfig}</pre>
+      <Card title="兼容 SSE 接入" style={{ marginTop: 16 }}>
+        <Text type="secondary">用于仍采用 SSE 的 MCP 客户端。创建 Token 后，将地址中的 <code>&lt;team-token&gt;</code> 替换为实际 Token。</Text>
+        <Paragraph copyable={{ text: serviceUrl }} style={{ marginTop: 12 }}>
+          <pre style={{ margin: 0 }}>{serviceUrl}</pre>
         </Paragraph>
       </Card>
 
@@ -221,39 +266,6 @@ export default function MCPManagement() {
         />
       </Card>
 
-      <Modal
-        title="新建 MCP 配置"
-        open={modalOpen}
-        onOk={handleCreate}
-        onCancel={() => { setModalOpen(false); form.resetFields(); }}
-      >
-        <Form form={form} layout="vertical">
-          <Form.Item name="name" label="配置名称" rules={[{ required: true, message: '请输入配置名称' }]}>
-            <Input placeholder="例如 Cursor 开发环境" />
-          </Form.Item>
-          <Form.Item name="purpose" label="用途" rules={[{ required: true, message: '请选择用途' }]}>
-            <Select options={[
-              { value: 'IDE', label: 'IDE' },
-              { value: 'CI', label: 'CI' },
-              { value: 'Git Hook', label: 'Git Hook' },
-              { value: 'AI Agent', label: 'AI Agent' },
-            ]} />
-          </Form.Item>
-          <Form.Item name="projects" label="项目范围">
-            <Select
-              mode="multiple"
-              placeholder="不选表示全部项目"
-              options={projects.map((project) => ({ value: project.id, label: project.name }))}
-            />
-          </Form.Item>
-          <Form.Item name="tools" label="工具范围" rules={[{ required: true, message: '请选择可调用工具' }]}>
-            <Select mode="multiple" options={(overview?.tools || []).map((tool) => ({ value: tool, label: tool }))} />
-          </Form.Item>
-          <Form.Item name="expiresAt" label="过期时间">
-            <Input placeholder="例如 2026-12-31，留空表示不过期" />
-          </Form.Item>
-        </Form>
-      </Modal>
     </div>
   );
 }

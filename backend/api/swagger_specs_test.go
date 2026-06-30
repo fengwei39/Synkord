@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -27,9 +28,6 @@ func fakeAuth(userID string) gin.HandlerFunc {
 
 // newTestEngine 装配一个最小可用的 gin 引擎，绑上 swagger_specs 路由。
 // 共享 *gorm.DB，方便各 test 复用 Setup helper 准备数据。
-//
-// userName 必须全局唯一，因为底层用 file::memory:?cache=shared，
-// 多 test 共用一个 SQLite 实例，username 有 unique 约束。
 func newTestEngine(t *testing.T, userName string) (*gin.Engine, *models.User, *services.TeamWithRole, *models.Project) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -59,7 +57,8 @@ func newTestEngine(t *testing.T, userName string) (*gin.Engine, *models.User, *s
 
 func testDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	dbName := "file:" + url.QueryEscape(t.Name()) + "?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

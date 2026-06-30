@@ -115,6 +115,20 @@ func RegisterTeamMCPRoutes(r *gin.RouterGroup) {
 			c.JSON(http.StatusCreated, config)
 		})
 
+		m.POST("/tokens/ensure-codex", func(c *gin.Context) {
+			teamID := c.Param("team_id")
+			if !requireTeamAdmin(c, teamID) {
+				return
+			}
+			uid := c.GetString("user_id")
+			config, err := services.EnsureCodexMCPConfig(database.DB, teamID, &uid)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, config)
+		})
+
 		m.PATCH("/tokens/:token_id", func(c *gin.Context) {
 			teamID := c.Param("team_id")
 			if !requireTeamAdmin(c, teamID) {
@@ -146,6 +160,27 @@ func RegisterTeamMCPRoutes(r *gin.RouterGroup) {
 			c.JSON(http.StatusOK, config)
 		})
 
+		m.POST("/active-team", func(c *gin.Context) {
+			teamID := c.Param("team_id")
+			if !requireTeamAdmin(c, teamID) {
+				return
+			}
+			if err := services.SetActiveMCPTeamID(database.DB, teamID); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"active_team_id": services.GetActiveMCPTeamID()})
+		})
+
+		m.DELETE("/active-team", func(c *gin.Context) {
+			teamID := c.Param("team_id")
+			if !requireTeamAdmin(c, teamID) {
+				return
+			}
+			services.SetActiveMCPTeamID(database.DB, "")
+			c.Status(http.StatusNoContent)
+		})
+
 		m.GET("/audit", func(c *gin.Context) {
 			teamID := c.Param("team_id")
 			if _, err := services.GetTeamForUser(database.DB, teamID, c.GetString("user_id")); err != nil {
@@ -175,12 +210,13 @@ func RegisterAdminMCPRoutes(r *gin.RouterGroup) {
 				return
 			}
 			c.JSON(http.StatusOK, gin.H{
-				"enabled":               cfg.Enabled,
-				"sse_endpoint":          "/mcp/sse",
-				"message_endpoint":      "/mcp/message",
-				"status":                mcpServerStatus(cfg.Enabled),
-				"tools":                 services.GlobalMCPTools(cfg),
-				"rate_limit_per_minute": cfg.RateLimitPerMinute,
+				"enabled":                  cfg.Enabled,
+				"streamable_http_endpoint": "/mcp",
+				"sse_endpoint":             "/mcp/sse",
+				"message_endpoint":         "/mcp/message",
+				"status":                   mcpServerStatus(cfg.Enabled),
+				"tools":                    services.GlobalMCPTools(cfg),
+				"rate_limit_per_minute":    cfg.RateLimitPerMinute,
 			})
 		})
 
@@ -196,12 +232,13 @@ func RegisterAdminMCPRoutes(r *gin.RouterGroup) {
 				return
 			}
 			c.JSON(http.StatusOK, gin.H{
-				"enabled":               cfg.Enabled,
-				"sse_endpoint":          "/mcp/sse",
-				"message_endpoint":      "/mcp/message",
-				"status":                mcpServerStatus(cfg.Enabled),
-				"tools":                 services.GlobalMCPTools(cfg),
-				"rate_limit_per_minute": cfg.RateLimitPerMinute,
+				"enabled":                  cfg.Enabled,
+				"streamable_http_endpoint": "/mcp",
+				"sse_endpoint":             "/mcp/sse",
+				"message_endpoint":         "/mcp/message",
+				"status":                   mcpServerStatus(cfg.Enabled),
+				"tools":                    services.GlobalMCPTools(cfg),
+				"rate_limit_per_minute":    cfg.RateLimitPerMinute,
 			})
 		})
 	}
@@ -216,13 +253,21 @@ func teamMCPOverview(teamID string) (*services.TeamMCPOverview, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	if setting.Enabled && global.Enabled {
+		_, _ = services.EnsureCodexMCPConfig(database.DB, teamID, nil)
+	}
 	configs, err := services.ListTeamMCPConfigs(database.DB, teamID)
 	if err != nil {
 		return nil, err
 	}
+
+	status := services.BuildMCPServiceStatus(global.Enabled, setting.Enabled, configs)
 	return &services.TeamMCPOverview{
+		StreamableHTTPEndpoint: "/mcp",
 		Enabled:         setting.Enabled,
 		GlobalEnabled:   global.Enabled,
+		Status:          status,
 		SSEEndpoint:     "/mcp/sse",
 		MessageEndpoint: "/mcp/message",
 		Tools:           services.GlobalMCPTools(global),

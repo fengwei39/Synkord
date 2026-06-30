@@ -16,16 +16,16 @@ Synkord 开源 MCP 规范协同平台需求文档
    Synkord 是一个开源、自托管的 MCP 规范协同平台，用于统一管理 API、实体、依赖和变更规则，并向 IDE、AI 工具、Git Hook、CI 和桌面管理端提供一致的规范来源。
 
 1. 统一托管团队内所有微服务 API 接口、团队数据模型、项目私有模型、枚举、分页模型和统一返回体。
-2. 通过 MCP Server 为 IDE、AI 编码助手、Git Hook、CI 提供统一规范消费接口。
-3. 通过 REST API 为 Electron 管理端提供登录、管理、检索、变更检测和配置能力。
+2. 通过本地 MCP 服务为 IDE 和 AI 编码助手提供统一规范消费接口。
+3. 通过 REST API 分别提供 Electron 管理端所需的登录与管理能力、CLI/Git Hook/CI 所需的规范导入与校验能力，以及本地 MCP 服务所需的 Token 校验与规范查询能力。
 4. 后端修改 API 或数据实体后，自动识别破坏性变更，定位影响范围，并主动通知相关前端/App 开发人员。
 5. 构建“AI 前置提示 + MCP 规范查询 + Git Hook/CI 兜底拦截 + 变更主动通知”的规范闭环。
 6. 以开源项目方式提供清晰的安装、配置、扩展和二次开发路径。
 
    1.3 边界说明
 
-- MCP Server 是 IDE、AI 工具、Git Hook、CI 的统一规范消费接口。
-- REST API 是 Electron 管理端的管理接口，不作为 AI/IDE 集成入口。
+- 本地 MCP 服务是 IDE 和 AI 工具的统一规范消费接口。
+- 后端 REST API 分为管理类、校验/导入类和本地 MCP 服务代理类；AI/IDE 不直接接入管理类 REST，而是通过本地 MCP 服务消费规范。
 - MCP 不能天然强制 AI 输出正确代码，强约束依赖 Git Hook、CI 和规则校验共同完成。
 - MVP 阶段优先支持 OpenAPI 3.x 与 JSON Schema，不覆盖 Swagger 2.0、GraphQL、gRPC 和私有 RPC 协议。
 - 产品默认面向开源自托管场景，内网私有化部署是支持的部署形态之一，不作为唯一产品定位。
@@ -44,13 +44,13 @@ Synkord 开源 MCP 规范协同平台需求文档
 2. Electron 管理端。
 3. 账号登录、JWT 鉴权、RBAC 权限控制。
 4. 项目管理：后端服务、Web 项目、App 项目。
-5. 团队空间：每个团队拥有独立的项目管理、接口管理、数据模型、MCP 管理四个核心模块。
+5. 团队空间：每个团队拥有独立的项目管理、接口管理、数据模型、项目 MCP 管理四个核心模块。
 6. 项目管理：维护后端服务、Web 项目、App 项目及仓库、负责人、描述等元数据。
 7. 接口管理：维护 HTTP API，支持 Swagger/OpenAPI 与 Postman Collection 导入、解析、展示、导出。
 8. 数据模型：团队级模型库，维护 DTO、VO、枚举、分页模型、统一返回体和版本快照。
-9. MCP 管理：为团队生成和管理 MCP 接入配置、Token、可用工具、调用审计和 IDE 接入说明。
+9. MCP 管理：通过后端 REST 管理当前项目的 MCP 接入配置、Token、可用工具、调用审计和 IDE 接入说明。
 10. 变更检测：对比新旧 OpenAPI/JSON Schema，识别 info、warning、breaking 三类变更。
-11. MCP Server：提供规范查询、依赖查询、变更检测、代码片段校验能力。
+11. 本地 MCP 服务：由 Electron 管理生命周期，向 IDE/AI 编码助手提供规范查询、依赖查询、变更检测、代码片段校验能力。
 12. Webhook 通知：支持钉钉/飞书机器人通知破坏性变更。
 13. Docker Compose 部署后端，Electron 客户端连接自托管后端实例。
 
@@ -66,84 +66,88 @@ Synkord 开源 MCP 规范协同平台需求文档
 
 3. 技术栈与部署需求
 
-1. 后端：Go 1.25+、Gin、GORM、SQLite、PostgreSQL 可选扩展、mark3labs mcp-go。
+1. 后端：Go 1.25+、Gin、GORM、SQLite、PostgreSQL 可选扩展。
 2. 前端：Electron、React 18、Ant Design 5、Vite、TypeScript。
-3. 部署方式：后端通过 Docker Compose 部署在本地、内网服务器或私有云主机；Electron 管理端在桌面机器安装运行。
-4. 基础环境：
+3. 本地 MCP 服务：由 Electron 管理生命周期，可按实现阶段选用 Go + mark3labs/mcp-go 或 Node.js MCP SDK。
+4. 部署方式：后端通过 Docker Compose 部署在本地、内网服务器或私有云主机；Electron 管理端在桌面机器安装运行。
+5. 基础环境：
    - 后端：Linux 服务器或本地开发环境，最低 2 核 4G。
    - 管理端：Windows、macOS、Linux 桌面环境。
-5. 数据存储：
+6. 数据存储：
    - MVP 默认 SQLite 单文件存储。
    - 团队规模扩大后可切换 PostgreSQL。
-6. 网络要求：
+7. 网络要求：
    - 支持本地、自托管、内网和私有云访问。
-   - 后端暴露 REST API 与 MCP Server。
+   - 后端暴露 REST API；本地 MCP 服务由 Electron 在桌面端管理，并连接后端 REST API。
    - Electron 客户端支持配置 synkord-core 服务地址。
 
 4. 技术架构
 
-   synkord-core 采用 Go 单体分层架构，同时提供 REST API 与 MCP Server。Electron 管理端通过 REST API 管理平台数据；IDE、AI 工具、Git Hook、CI 通过 MCP Server 消费规范约束。
+   synkord-core 是业务事实来源，提供 REST API、账号团队权限、项目接口模型、依赖、变更和审计能力。Electron 管理端通过 REST API 管理平台数据，并管理本机 MCP 服务生命周期；Codex、Cursor、VSCode、JetBrains 等 IDE/Agent 通过本地 MCP 服务消费规范上下文。
 
-   ```
-                       ┌──────────────────────────────────────┐
-                       │           synkord-core (Go)          │
-                       │                                      │
-     Cursor ──────────▶│  ┌────────────────────────────────┐ │
-     VSCode+Codex ────▶│  │        MCP Server (核心)        │ │
-     PyCharm+Copilot ─▶│  │                                │ │
-                       │  │  get_team_entities              │ │
-     CI Pipeline ─────▶│  │  get_project_entities           │ │
-     Git Hook ────────▶│  │  get_entity_dependencies        │ │
-                       │  │  detect_breaking_changes        │ │
-                       │  │  validate_entity_usage          │ │
-                       │  └───────────────┬────────────────┘ │
-                       │                  │                  │
-     Electron 管理端 ─▶│  ┌───────────────┴────────────────┐ │
-                       │  │          REST API (Gin)         │ │
-                       │  └───────────────┬────────────────┘ │
-                       │                  │                  │
-                       │  ┌───────────────┴────────────────┐ │
-                       │  │          核心引擎               │ │
-                       │  │                                │ │
-                       │  │  OpenAPI Store                  │ │
-                       │  │  Entity Store (JSON Schema)     │ │
-                       │  │  Dependency Graph               │ │
-                       │  │  Diff Engine                    │ │
-                       │  │  Validation Engine              │ │
-                       │  │  Notify Service (Webhook)       │ │
-                       │  └────────────────────────────────┘ │
-                       │                                      │
-                       │  存储: SQLite (MVP) / PG (扩展)      │
-                       └──────────────────────────────────────┘
+   ```text
+   ┌─────────────────────────────────────────────────────────────┐
+   │ synkord-core (Go)                                           │
+   │ REST API / 账号 / 团队 / 权限 / 项目 / 接口 / 模型 / 审计      │
+   └──────────────────────────▲──────────────────────────────────┘
+                              │ REST
+   ┌──────────────────────────┴──────────────────────────────────┐
+   │ Electron 管理端                                               │
+   │ 桌面 UI / 后端连接配置 / 当前团队项目上下文 / MCP 服务管理      │
+   └──────────────────────────▲──────────────────────────────────┘
+                              │ 本地进程管理 / localhost 管理
+   ┌──────────────────────────┴──────────────────────────────────┐
+   │ 本地 MCP 服务                                                 │
+   │ MCP tools/resources/prompts / 当前项目规范代理 / Token 校验     │
+   └──────────────────────────▲──────────────────────────────────┘
+                              │ MCP
+   ┌──────────────────────────┴──────────────────────────────────┐
+   │ Codex / Cursor / VSCode / JetBrains 等 IDE/Agent             │
+   │ MCP Client                                                   │
+   └─────────────────────────────────────────────────────────────┘
    ```
 
-   4.1 三层架构与协议分工
+   4.1 四层架构与协议分工
 
-   Synkord 运行时分为三层，协议严格分离：
+   Synkord 运行时分为四层，协议严格分离：
 
    ```text
    ┌─────────────────────────────────────────────────────────────┐
    │  Authority: synkord-core (Go)                              │
    │  ├─ 数据存储 (SQLite/PG)                                    │
    │  ├─ REST API (/api/*)                                      │
-   │  ├─ MCP Server (/mcp/sse, /mcp/message)                    │
-   │  └─ MCP 服务可独立启停，由 Electron 控制                    │
+   │  └─ 登录 / 团队 / 权限 / 业务资产 / 审计                     │
    └─────────────────────────────────────────────────────────────┘
-                 ▲                              ▲
-                 │ REST                         │ MCP (SSE)
-                 │                              │
-   ┌──────────────────────────┐  ┌──────────────────────────┐
-   │  Management: Electron    │  │  Consumption:            │
-   │  ├─ 团队资产 CRUD          │  │  ├─ Cursor / VSCode      │
-   │  ├─ MCP 服务开关          │  │  ├─ Git Pre-Commit (CLI) │
-   │  ├─ Token 管理            │  │  └─ CI Pipeline (CLI)    │
-   │  └─ 审计查看              │  │                          │
-   └──────────────────────────┘  └──────────────────────────┘
+                 ▲
+                 │ REST
+   ┌─────────────┴────────────┐
+   │  Management: Electron    │
+   │  ├─ 团队资产 CRUD          │
+   │  ├─ MCP 服务启停/配置/监控  │
+   │  ├─ 当前团队项目上下文       │
+   │  ├─ Token 管理入口与配置模板 │
+   │  └─ 审计查看              │
+   └─────────────▲────────────┘
+                 │ 本地进程管理 / localhost 管理
+   ┌─────────────┴────────────┐
+   │  Local MCP Service       │
+   │  ├─ tools/resources      │
+   │  ├─ Token 转发校验        │
+   │  └─ 后端 REST API 代理    │
+   └─────────────▲────────────┘
+                 │ MCP
+   ┌─────────────┴────────────┐
+   │  Consumption: IDE/Agent  │
+   │  ├─ Codex / Cursor       │
+   │  ├─ VSCode / JetBrains   │
+   │  └─ 其他 MCP Client       │
+   └──────────────────────────┘
    ```
 
-   - **Authority（synkord-core）**：数据存储、REST API、MCP Server 同进程部署。REST API 路径前缀 `/api`；MCP Server 路径 `/mcp/sse`、`/mcp/message`；MCP 服务可独立启停，由 Electron 通过 REST 控制。
-   - **Management（Electron 管理端）**：通过 REST API 完成项目、接口、模型、依赖、变更、通知、成员的 CRUD；通过 REST API 控制 MCP 服务开关、Token、工具范围、限流策略；通过 REST API 查看 MCP 调用审计。**不直接调用 MCP 工具**。
-   - **Consumption（消费方）**：IDE/AI 编码助手（Cursor、VSCode、Codex、PyCharm、Copilot 等）通过 MCP 协议读取规范；后端 CI 通过 REST 推送 OpenAPI 规范；前端/App Git Hook 通过 REST 校验引用；跨场景通用 CLI 工具封装 REST 调用，避免每个项目重复实现。
+   - **Authority（synkord-core）**：数据存储、REST API、登录、团队、权限、业务资产和审计。REST API 路径前缀 `/api`。后端不直接管理用户机器上的 MCP 服务进程。
+   - **Management（Electron 管理端）**：通过 REST API 完成项目、接口、模型、依赖、变更、通知、成员的 CRUD；负责本机唯一 MCP 服务的启动、停止、重启、配置、状态监控、日志查看、当前团队项目上下文设置和 IDE 配置生成。**不直接作为 MCP Client 调用 MCP 工具**。
+   - **Local MCP Service（本地 MCP 服务）**：由 Electron 管理生命周期，对 IDE/Agent 暴露 MCP tools/resources/prompts，同一时间只服务 Electron 当前激活的一个团队和一个项目；接收 MCP Token 并调用后端校验后，再按当前团队项目上下文调用后端 REST API 获取规范数据。
+   - **Consumption（消费方）**：IDE/AI 编码助手（Codex、Cursor、VSCode、PyCharm、Copilot 等）通过 MCP 协议连接本地 MCP 服务；CLI、Git Hook 和 CI 通过 REST 调用后端，不依赖 MCP 协议。
 
    4.2 同步渠道矩阵
 
@@ -155,7 +159,7 @@ Synkord 开源 MCP 规范协同平台需求文档
    | IDE/AI 读取最新 API/模型 | MCP | IDE/AI |
    | IDE/AI 校验代码片段 | MCP | IDE/AI |
    | 团队资产 CRUD | REST | Electron |
-   | 启停 MCP 服务 | REST | Electron |
+   | 启停 MCP 服务 | 本地进程管理 | Electron |
    | Token 管理 | REST | Electron |
    | 审计查看 | REST | Electron |
 
@@ -188,7 +192,7 @@ Synkord 开源 MCP 规范协同平台需求文档
 - 字段：名称、描述、所有者、团队成员、团队角色、创建时间、更新时间。
 - 用户首次登录后如果没有团队，必须先创建团队。
 - 用户可以创建多个团队，也可以被邀请加入多个团队。
-- 每个团队独立拥有项目管理、接口管理、数据模型、MCP 管理四个核心模块。
+- 每个团队独立拥有项目管理、接口管理、数据模型、项目 MCP 管理四个核心模块。
 - 依赖拓扑是团队下的一级分析模块，用于查看项目、接口、数据模型之间的引用和影响范围。
 - 团队之间默认数据隔离，跨团队共享需要后续显式授权或导出导入。
 
@@ -259,9 +263,9 @@ Synkord 开源 MCP 规范协同平台需求文档
 
    5.10 MCPConfig
 
-   表示团队内一个 MCP 接入配置。
+   表示当前项目内一个 MCP 接入配置。
 
-- 字段：团队、名称、用途、Token 摘要、项目范围、工具范围、启用状态、过期时间、创建人、最近调用时间。
+- 字段：团队、项目、名称、用途、Token 摘要、工具范围、启用状态、过期时间、创建人、最近调用时间。
 - Token 明文仅创建或重新生成时展示一次，后续只保存哈希或摘要。
 
    5.11 WebhookConfig
@@ -278,7 +282,7 @@ Synkord 开源 MCP 规范协同平台需求文档
 1. 产品只保留“我的团队”，团队是最高业务容器。
 2. 用户首次登录后如果没有团队，必须先创建团队才能进入业务功能。
 3. 用户可以创建多个团队，也可以被邀请加入其他团队。
-4. 每个团队拥有独立资产空间：项目管理、接口管理、数据模型、MCP 管理。
+4. 每个团队拥有独立资产空间：项目管理、接口管理、数据模型、项目 MCP 管理。
 5. 团队成员权限独立配置，管理员可管理团队成员和团队资产。
 6. 团队之间默认数据隔离，切换团队后所有业务数据按当前团队重新加载。
 7. 创建团队成功后，创建者自动成为该团队管理员。
@@ -316,26 +320,27 @@ Synkord 开源 MCP 规范协同平台需求文档
 
    6.5 MCP 管理
 
-1. 支持为每个团队生成独立 MCP 接入地址和 Token。
-2. 支持查看团队可用 MCP 工具列表。
-3. 支持生成 Cursor、VSCode、PyCharm 等 IDE 的 `.mcp.json` 配置示例。
-4. 支持 MCP Token 创建、禁用、轮换。
+1. 支持在项目详情中通过后端 REST 为当前项目创建 MCP 接入配置和 Token；接入地址由当前设备上的本地 MCP 服务提供。
+2. 支持查看当前项目可用 MCP 工具列表。
+3. 支持生成 Cursor、VSCode、PyCharm 等 IDE 的 `.mcp.json` 配置示例；IDE 配置中的本地 MCP 地址保持稳定，项目切换由 Electron 的当前激活项目上下文决定。
+4. 支持通过后端 REST 创建、禁用、轮换 MCP Token。
 5. 支持记录 MCP 调用审计，包括调用工具、调用方、时间、参数摘要和结果状态。
-6. 支持按团队隔离 MCP 返回内容，团队 A 的 Token 不得访问团队 B 的资产。
+6. 支持按当前激活团队和项目隔离 MCP 返回内容，团队 A 的 Token 不得访问团队 B 的资产；项目 A 的上下文不得返回项目 B 的私有规范。
+7. 从项目详情进入 MCP 页时，Electron 将该项目设为当前 MCP 激活项目；用户从项目 A 切换到项目 B 后，IDE/Agent 后续请求使用项目 B 的规范上下文。
 
    6.6 MCP 服务能力
 
-   后端部署完成后默认启用 MCP 服务，对外暴露以下 MVP 工具：
+   Electron 启动并管理本地 MCP 服务后，本地 MCP 服务对 IDE/AI 编码助手暴露以下 MVP 工具：
 
 - `get_team_entities`：获取当前团队的公共数据模型定义。
-- `get_project_entities`：获取指定项目的私有模型及引用的团队公共模型。
-- `get_project_apis`：获取指定项目的 API 列表与详情。
+- `get_project_entities`：获取当前激活项目的私有模型及引用的团队公共模型。
+- `get_project_apis`：获取当前激活项目的 API 列表与详情。
 - `get_entity_dependencies`：查询实体被哪些项目引用。
 - `get_api_dependencies`：查询 API 被哪些项目引用。
 - `detect_breaking_changes`：对比新旧 OpenAPI/JSON Schema，输出字段级变更清单和影响范围。
 - `validate_entity_usage`：校验代码片段中的实体使用是否符合平台规范。
 
-   MCP 工具需要 Token 鉴权。Git Hook 和 CI 使用独立 Token，便于审计和权限控制。
+   MCP 工具需要 MCPConfig.Token 鉴权。本地 MCP 服务携带该 Token、当前激活团队和当前激活项目调用后端的 Token 校验和规范查询专用 REST 端点；Git Hook 和 CI 走 REST 校验通道，使用 JWT 或独立 REST 凭据，便于审计和权限控制。
 
    6.7 破坏性变更检测
 
@@ -379,11 +384,11 @@ Webhook 是团队级通知出口，用于在接口或数据模型发生 warning 
 
    6.9 Git Hook 与 CI 兜底校验
 
-1. Git Pre-Commit 可调用 MCP 服务校验本地变更。
-2. CI 可调用 MCP 服务做全量校验。
-3. MCP 不可用时，Git Hook 使用本地缓存降级校验，并记录审计日志。
+1. Git Pre-Commit 可调用后端 REST 校验本地变更。
+2. CI 可调用后端 REST 做全量校验。
+3. 后端或网络不可用时，Git Hook 使用本地缓存降级校验，并记录审计日志。
 4. Git Hook 默认超时 3 秒，超时策略可配置为 warn 或 block。
-5. CI 默认不允许降级，MCP 不可用时失败。
+5. CI 默认不允许降级，后端 REST 校验不可用时失败。
 
    6.10 Electron 管理端
 
@@ -391,18 +396,18 @@ Webhook 是团队级通知出口，用于在接口或数据模型发生 warning 
 2. 支持账号密码登录，保存登录态。
 3. Token 需要存储在系统安全存储能力中，避免明文落盘。
 4. 登录后检查当前用户是否已有团队；无团队时进入创建团队引导页。
-5. 支持我的团队列表、团队创建、团队切换、项目管理、接口管理、数据模型、依赖拓扑、MCP 管理、变更检测、全局 MCP 服务器管理。
+5. 支持我的团队列表、团队创建、团队切换、项目管理、接口管理、数据模型、依赖拓扑、项目 MCP 管理、变更检测、本地 MCP 服务管理。
 6. 支持切换后端地址，用于连接本地、内网或私有云中的不同 synkord-core 实例；该能力属于客户端本地连接配置，不属于登录后的全局配置。
-7. 全局配置只保留 MCP 服务器管理，包括 MCP 服务开关、服务地址、传输端点、MCP 服务状态、全局工具开关和调用限流策略。
-8. 支持显示 MCP 服务状态、当前登录用户和权限；后端连接地址仅作为客户端本地连接配置，不作为登录后的状态入口。
+7. MCP 是否可用由本地 MCP 服务状态、当前激活项目、Token 状态和工具范围共同决定。
+8. 支持显示本地 MCP 服务状态、当前激活团队、当前激活项目、当前登录用户和权限；后端连接地址仅作为客户端本地连接配置，不作为登录后的状态入口。
 9. MVP 不要求自动更新，安装包可通过 GitHub Release、内部分发或离线包方式发布。
 
 7. 权限模型
 
 权限分为平台级和团队级：
 
-- 平台管理员：管理全局 MCP 服务器开关、服务地址、传输端点、全局工具开关和限流策略。
-- 团队管理员：管理当前团队成员、团队项目、接口、数据模型、依赖关系、团队 MCP Token 和团队 Webhook。
+- 平台管理员：拥有平台级账号和基础管理能力，不参与 MCP 配置管理。
+- 团队管理员：管理当前团队成员、团队项目、接口、数据模型、依赖关系、当前项目 MCP Token 和团队 Webhook。
 - 编辑者：编辑当前团队项目、接口、数据模型，执行变更检测。
 - 只读者：只查看当前团队资产和变更记录。
 - 平台管理员身份不自动获得任何团队业务数据权限；如果平台管理员也需要访问某个团队，必须同时拥有该团队内角色。
@@ -410,7 +415,6 @@ Webhook 是团队级通知出口，用于在接口或数据模型发生 warning 
 | 能力 | 平台管理员 | 团队管理员 | 编辑者 | 只读者 |
 | --- | --- | --- | --- | --- |
 | 登录管理端 | 是 | 是 | 是 | 是 |
-| 管理全局 MCP 服务器 | 是 | 否 | 否 | 否 |
 | 创建团队 | 是（普通用户能力） | 是 | 是 | 是 |
 | 管理团队成员 | 按团队角色 | 是 | 否 | 否 |
 | 查看项目/接口/数据模型 | 按团队角色 | 是 | 是 | 是 |
@@ -420,7 +424,7 @@ Webhook 是团队级通知出口，用于在接口或数据模型发生 warning 
 | 创建/编辑数据模型 | 按团队角色 | 是 | 是 | 否 |
 | 删除数据模型 | 按团队角色 | 是 | 否 | 否 |
 | 管理依赖关系 | 按团队角色 | 是 | 是 | 否 |
-| 管理团队 MCP Token | 按团队角色 | 是 | 否 | 否 |
+| 管理当前项目 MCP Token | 按团队角色 | 是 | 否 | 否 |
 | 执行变更检测 | 按团队角色 | 是 | 是 | 否 |
 | 查看变更记录/检测结果 | 按团队角色 | 是 | 是 | 是 |
 | 配置团队 Webhook | 按团队角色 | 是 | 否 | 否 |
@@ -448,10 +452,11 @@ Webhook 是团队级通知出口，用于在接口或数据模型发生 warning 
 
 1. 支持完全自托管部署，数据由部署方自行控制。
 2. 禁止匿名访问管理端 API。
-3. REST API 使用 JWT 鉴权。
-4. MCP Server 使用 Token 鉴权。
-5. 管理端 Token 不应明文存储。
-6. 所有修改操作记录操作人、时间和变更摘要。
+3. Electron 管理端访问管理类 REST API 使用 JWT 鉴权。
+4. 本地 MCP 服务使用 MCPConfig.Token 鉴权，并仅可调用后端 MCP Token 校验和规范查询专用 REST 端点。
+5. CLI、Git Hook 和 CI 访问 REST 校验/导入端点时使用 JWT 或专用 REST Token。
+6. 管理端 Token 不应明文存储。
+7. 所有修改操作记录操作人、时间和变更摘要。
 
    8.3 兼容性
 
@@ -464,11 +469,11 @@ Webhook 是团队级通知出口，用于在接口或数据模型发生 warning 
 
 1. 服务器安装 Docker 与 Docker Compose。
 2. 拉取 synkord 仓库，在后端部署目录执行 `docker compose up -d` 启动 synkord-core。
-3. 初始化管理员账号、JWT Secret、MCP Token、数据库路径。
+3. 初始化管理员账号、JWT Secret 和数据库路径。
 4. 安装 Electron 管理端。
 5. 首次启动管理端，配置 synkord-core 服务地址。
 6. 登录管理端；如果当前用户没有团队，先创建团队。
-7. 进入团队后创建项目、导入 Swagger/OpenAPI 或 Postman Collection、维护数据模型、配置 MCP。
+7. 进入团队后创建项目、导入 Swagger/OpenAPI 或 Postman Collection、维护数据模型，并在项目详情 MCP Tab 中创建当前项目 MCP Token。
 8. 团队管理员按需配置钉钉/飞书 Webhook；未配置时 breaking 变更仍生成站内通知和变更记录。
 9. 各 IDE 或项目仓库配置 `.mcp.json`、Git Hook、CI 调用参数。
 
@@ -478,20 +483,20 @@ Webhook 是团队级通知出口，用于在接口或数据模型发生 warning 
 
 1. Go 后端可通过 Docker Compose 在本地、内网服务器或私有云主机启动。
 2. `/health` 返回正常状态。
-3. REST API 需要登录后访问，未登录请求返回 401。
-4. MCP Server 能通过 Token 鉴权调用工具。
+3. 管理类 REST API 需要登录后访问，未登录请求返回 401。
+4. 本地 MCP 服务能通过 Token 鉴权调用工具。
 
    10.2 管理端
 
 1. Electron 管理端可配置后端地址并登录。
 2. 首次登录且无团队时，管理端进入创建团队引导页。
 3. 管理端可创建团队，并在“我的团队”之间切换。
-4. 每个团队拥有独立的项目管理、接口管理、数据模型、MCP 管理入口。
+4. 每个团队拥有独立的项目管理、接口管理、数据模型、项目 MCP 管理入口。
 5. 管理端可创建后端、Web、App 三类项目。
 6. 管理端可导入 Swagger/OpenAPI 文档和 Postman Collection 并展示接口列表。
 7. 管理端可创建团队级数据模型并查看版本历史。
 8. 管理端可查看接口与数据模型形成的依赖关系。
-9. 管理端可生成团队级 MCP 接入配置，并管理 Token。
+9. 管理端可通过后端 REST 创建当前项目 MCP 接入配置和 Token，并生成 IDE 配置模板。
 
    10.3 OpenAPI 与依赖
 

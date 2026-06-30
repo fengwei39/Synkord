@@ -22,6 +22,7 @@ type Project struct {
 	ProjectType    ProjectType `json:"project_type" gorm:"size:16;not null"`
 	Owner          string      `json:"owner" gorm:"size:128"`
 	RepoURL        string      `json:"repo_url" gorm:"size:512"`
+	SwaggerURL     string      `json:"swagger_url" gorm:"size:1024"`
 	OpenAPIVersion string      `json:"openapi_version" gorm:"size:32"`
 	OpenAPISpec    string      `json:"openapi_spec" gorm:"type:text"`
 	CreatedAt      time.Time   `json:"created_at"`

@@ -5,11 +5,17 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/synkord/core/models"
 	"gorm.io/gorm"
 )
+
+const CodexAutoConfigName = "Codex 自动接入"
+const CodexAutoConfigPurpose = "Codex"
+
+var activeMCPTeamID string
 
 var DefaultMCPTools = []string{
 	"get_team_entities",
@@ -36,12 +42,23 @@ type MCPConfigView struct {
 }
 
 type TeamMCPOverview struct {
-	Enabled         bool            `json:"enabled"`
-	GlobalEnabled   bool            `json:"global_enabled"`
-	SSEEndpoint     string          `json:"sse_endpoint"`
-	MessageEndpoint string          `json:"message_endpoint"`
-	Tools           []string        `json:"tools"`
-	Configs         []MCPConfigView `json:"configs"`
+	Enabled                bool             `json:"enabled"`
+	GlobalEnabled          bool             `json:"global_enabled"`
+	Status                 MCPServiceStatus `json:"status"`
+	StreamableHTTPEndpoint string           `json:"streamable_http_endpoint"`
+	SSEEndpoint            string           `json:"sse_endpoint"`
+	MessageEndpoint        string           `json:"message_endpoint"`
+	Tools                  []string         `json:"tools"`
+	Configs                []MCPConfigView  `json:"configs"`
+}
+
+type MCPServiceStatus struct {
+	State           string     `json:"state"`
+	Ready           bool       `json:"ready"`
+	Connected       bool       `json:"connected"`
+	Reason          string     `json:"reason"`
+	ActiveTokens    int        `json:"active_tokens"`
+	LastConnectedAt *time.Time `json:"last_connected_at,omitempty"`
 }
 
 func GetTeamMCPSetting(db *gorm.DB, teamID string) (*models.TeamMCPSetting, error) {
@@ -279,4 +296,90 @@ func previewToken(token string) string {
 		return token
 	}
 	return token[:8] + "..." + token[len(token)-4:]
+}
+
+func EnsureCodexMCPConfig(db *gorm.DB, teamID string, createdBy *string) (*MCPConfigView, error) {
+	var existing models.MCPConfig
+	if err := db.Where("team_id = ? AND name = ?", teamID, CodexAutoConfigName).First(&existing).Error; err == nil {
+		view := mcpConfigView(existing, "")
+		if existing.Status == models.MCPConfigActive {
+			view.Token = existing.Token
+		}
+		return &view, nil
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	return CreateMCPConfig(db, teamID, createdBy, MCPConfigInput{
+		Name:    CodexAutoConfigName,
+		Purpose: CodexAutoConfigPurpose,
+	})
+}
+
+func BuildMCPServiceStatus(globalEnabled, teamEnabled bool, configs []MCPConfigView) MCPServiceStatus {
+	status := MCPServiceStatus{
+		State:  "disabled",
+		Reason: "MCP 服务未启用",
+	}
+
+	if !globalEnabled {
+		status.Reason = "MCP 服务已在全局关闭"
+		return status
+	}
+	if !teamEnabled {
+		status.Reason = "当前团队未启用 MCP"
+		return status
+	}
+
+	activeCount := 0
+	var lastUsed *time.Time
+	for i := range configs {
+		if configs[i].Status == models.MCPConfigActive {
+			activeCount++
+			if configs[i].LastUsedAt != nil && (lastUsed == nil || configs[i].LastUsedAt.After(*lastUsed)) {
+				lastUsed = configs[i].LastUsedAt
+			}
+		}
+	}
+
+	status.ActiveTokens = activeCount
+
+	if activeCount == 0 {
+		status.State = "no_token"
+		status.Ready = false
+		status.Reason = "尚未生成 MCP Token"
+		return status
+	}
+
+	status.State = "ready"
+	status.Ready = true
+	status.Reason = "MCP 服务就绪，等待 Codex 连接"
+
+	if lastUsed != nil && time.Since(*lastUsed) < 5*time.Minute {
+		status.State = "connected"
+		status.Connected = true
+		status.Reason = "Codex 已连接"
+		status.LastConnectedAt = lastUsed
+	}
+
+	return status
+}
+
+func GetActiveMCPTeamID() string {
+	return activeMCPTeamID
+}
+
+func SetActiveMCPTeamID(db *gorm.DB, teamID string) error {
+	if teamID != "" {
+		setting, err := GetTeamMCPSetting(db, teamID)
+		if err != nil {
+			return err
+		}
+		if !setting.Enabled {
+			return fmt.Errorf("team MCP is disabled")
+		}
+		_, _ = EnsureCodexMCPConfig(db, teamID, nil)
+	}
+	activeMCPTeamID = teamID
+	return nil
 }

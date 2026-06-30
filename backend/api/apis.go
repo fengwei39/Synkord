@@ -1,9 +1,13 @@
 package api
 
 import (
+	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/synkord/core/database"
@@ -129,6 +133,48 @@ func RegisterTeamAPIRoutes(r *gin.RouterGroup) {
 			c.JSON(http.StatusOK, result)
 		})
 
+		a.POST("/import-from-project", func(c *gin.Context) {
+			teamID := c.Param("team_id")
+			if !requireTeamEditor(c, teamID) {
+				return
+			}
+
+			var req struct {
+				ProjectID string `json:"project_id" binding:"required"`
+			}
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+				return
+			}
+
+			var project models.Project
+			if err := database.DB.First(&project, "id = ? AND team_id = ?", req.ProjectID, teamID).Error; err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"detail": "Project not found"})
+				return
+			}
+			if project.SwaggerURL == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"detail": "Project swagger_url is empty"})
+				return
+			}
+
+			spec, err := fetchSwaggerSpec(project.SwaggerURL)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+				return
+			}
+
+			result, err := importAPISpec(project.ID, spec, "openapi")
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+				return
+			}
+			database.DB.Model(&project).Updates(map[string]any{
+				"open_api_spec":    spec,
+				"open_api_version": result.SpecVersion,
+			})
+			c.JSON(http.StatusOK, result)
+		})
+
 		a.GET("/:api_id", func(c *gin.Context) {
 			teamID := c.Param("team_id")
 			if _, err := services.GetTeamForUser(database.DB, teamID, c.GetString("user_id")); err != nil {
@@ -147,6 +193,46 @@ func RegisterTeamAPIRoutes(r *gin.RouterGroup) {
 			c.JSON(http.StatusOK, endpoint)
 		})
 	}
+}
+
+func fetchSwaggerSpec(rawURL string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", fmt.Errorf("invalid swagger_url")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("swagger_url must use http or https")
+	}
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequest(http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "application/json, application/yaml, text/yaml, */*")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetch swagger failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("fetch swagger failed: HTTP %d", resp.StatusCode)
+	}
+
+	const maxSpecSize = 10 << 20
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSpecSize+1))
+	if err != nil {
+		return "", fmt.Errorf("read swagger failed: %w", err)
+	}
+	if len(body) > maxSpecSize {
+		return "", fmt.Errorf("swagger spec exceeds 10MB")
+	}
+	if len(strings.TrimSpace(string(body))) == 0 {
+		return "", fmt.Errorf("swagger spec is empty")
+	}
+	return string(body), nil
 }
 
 func importAPISpec(projectID, spec, format string) (*services.ImportOpenAPIResult, error) {

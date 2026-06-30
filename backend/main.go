@@ -61,12 +61,14 @@ func main() {
 	})
 
 	mcpSrv := mcp_server.CreateMCPServer(cfg)
+	streamableHTTPServer := server.NewStreamableHTTPServer(mcpSrv)
 	sseServer := server.NewSSEServer(mcpSrv,
 		server.WithSSEEndpoint("/mcp/sse"),
 		server.WithMessageEndpoint("/mcp/message"),
 	)
 
 	mux := http.NewServeMux()
+	mux.Handle("/mcp", streamableHTTPServer)
 	mux.Handle("/mcp/", requireMCPToken(cfg, sseServer))
 	mux.Handle("/", r)
 

@@ -11,7 +11,7 @@
 
 ## 1. 开发目标
 
-把当前项目重构为开源、自托管的团队级 MCP 规范协同平台。
+把当前项目重构为开源、自托管的团队协同规范平台，并通过当前项目上下文向 IDE/Agent 提供 MCP 能力。
 
 核心闭环：
 
@@ -38,7 +38,9 @@
 ↓
 Webhook 通知外部群
 ↓
-MCP 向 IDE / Git Hook / CI 暴露规范和变更结果
+Electron 管理本地 MCP 服务
+↓
+本地 MCP 服务向 IDE / Agent 暴露规范和变更结果
 ```
 
 ## 2. 禁止继续沿用的旧概念
@@ -50,13 +52,13 @@ MCP 向 IDE / Git Hook / CI 暴露规范和变更结果
 | 组织 | 我的团队 |
 | 全局实体 / 全局模型 | 团队数据模型 |
 | 服务私有实体 | 项目私有模型 |
-| 系统设置 | 全局 MCP 服务器管理 |
+| 系统设置 | 删除；不设置通用系统设置页 |
 | 后端连接状态 | 客户端本地后端连接配置 |
 | 通知中心 | 顶部通知入口 / 通知抽屉 |
 | `get_global_entities` | `get_team_entities` |
 | `get_service_entities` | `get_project_entities` |
 
-全局配置只能管理 MCP 服务器，不能承载团队数据、Webhook、数据库、后端连接地址或其他系统配置。
+MCP 配置只服务 Electron 当前激活的团队和项目；后端连接地址是客户端本地配置。
 
 ## 3. 目标前端路由
 
@@ -70,21 +72,19 @@ MCP 向 IDE / Git Hook / CI 暴露规范和变更结果
 | `/teams/new` | 创建团队引导 | 已登录且无团队，或主动创建团队 |
 | `/team` | 团队首页 | 当前团队 |
 | `/projects` | 项目列表 | 当前团队 |
-| `/projects/:projectId` | 项目详情 | 当前团队 |
+| `/projects/:projectId` | 项目详情，包含 MCP Tab | 当前团队 |
 | `/apis` | 接口列表 | 当前团队 |
 | `/apis/:apiId` | 接口详情 | 当前团队 |
 | `/apis/import` | Swagger / Postman 导入 | 当前团队，团队管理员或编辑者 |
 | `/apis/import/result` | 导入结果 | 当前团队 |
 | `/models` | 数据模型列表 | 当前团队 |
 | `/models/:modelId` | 数据模型详情 | 当前团队 |
-| `/mcp` | 团队 MCP 管理 | 当前团队 |
 | `/dependencies` | 依赖拓扑 | 当前团队 |
 | `/diff` | 变更检测 | 当前团队，团队管理员或编辑者 |
 | `/changesets` | 变更记录 | 当前团队 |
 | `/members` | 团队成员与权限 | 当前团队，团队管理员 |
-| `/admin/mcp-server` | 全局 MCP 服务器管理 | 平台管理员 |
 
-当前代码中的 `/entities` 应逐步替换为 `/models`。当前 `Settings` 页面不再作为通用设置页，后续只保留或重构为全局 MCP 服务器管理。
+当前代码中的 `/entities` 应逐步替换为 `/models`。MCP 管理作为项目详情的 Tab 或子页实现，不再作为独立团队级页面。当前 `Settings` 页面不再作为通用设置页，后续应删除或仅保留非 MCP 的必要本地设置入口。
 
 ## 4. 前端模块拆分建议
 
@@ -131,7 +131,7 @@ frontend/src
 │  ├─ DiffChecker.tsx
 │  ├─ ChangeSets.tsx
 │  ├─ Members.tsx
-│  └─ GlobalMCPServer.tsx
+│  └─ MCPManagement.tsx
 ├─ types
 │  ├─ auth.ts
 │  ├─ team.ts
@@ -151,7 +151,7 @@ frontend/src
 - 所有团队业务请求必须携带 `teamId`，优先使用路径参数。
 - 页面不要直接拼业务权限，统一使用 `PermissionGuard` 或 `permissions.ts`。
 - Mock 数据可以短期保留，但必须集中标记并按阶段替换。
-- 顶部导航只显示 MCP 服务状态，不显示后端连接状态。
+- 顶部导航只显示本地 MCP 服务状态，不显示后端连接状态。
 - 后端连接地址只在启动、登录前或连接失败时处理。
 
 ## 5. 后端 API 设计约定
@@ -218,15 +218,22 @@ MCP：
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/teams/:teamId/mcp` | 团队 MCP 概览 |
-| PATCH | `/api/teams/:teamId/mcp` | 开启 / 关闭团队 MCP |
-| GET | `/api/teams/:teamId/mcp/tokens` | Token 列表 |
-| POST | `/api/teams/:teamId/mcp/tokens` | 创建 Token |
-| PATCH | `/api/teams/:teamId/mcp/tokens/:tokenId` | 停用、启用、更新范围 |
-| POST | `/api/teams/:teamId/mcp/tokens/:tokenId/rotate` | 重新生成 Token |
-| GET | `/api/teams/:teamId/mcp/audit` | 调用审计 |
-| GET | `/api/admin/mcp-server` | 全局 MCP 服务器配置 |
-| PATCH | `/api/admin/mcp-server` | 修改全局 MCP 开关、端点、工具、限流 |
+| GET | `/api/teams/:teamId/projects/:projectId/mcp` | 当前项目 MCP 概览 |
+| GET | `/api/teams/:teamId/projects/:projectId/mcp/tokens` | Token 列表 |
+| POST | `/api/teams/:teamId/projects/:projectId/mcp/tokens` | 创建 Token |
+| PATCH | `/api/teams/:teamId/projects/:projectId/mcp/tokens/:tokenId` | 停用、启用、更新工具范围 |
+| POST | `/api/teams/:teamId/projects/:projectId/mcp/tokens/:tokenId/rotate` | 重新生成 Token |
+| GET | `/api/teams/:teamId/projects/:projectId/mcp/audit` | 调用审计 |
+
+本地 MCP 服务代理接口：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/api/mcp/introspect` | 校验 MCPConfig.Token、当前团队和当前项目，返回是否可用和工具范围 |
+| POST | `/api/mcp/query` | 本地 MCP 服务按当前激活团队和项目查询当前上下文内的规范、模型、依赖或变更数据 |
+| POST | `/api/mcp/audit` | 本地 MCP 服务上报 MCP 调用审计 |
+
+这些接口只服务本地 MCP 服务，不作为 Electron 管理端、CLI、Git Hook 或 CI 的通用入口。
 
 ## 6. 后端模型命名建议
 
@@ -248,7 +255,6 @@ Notification
 WebhookConfig
 MCPConfig
 MCPAuditLog
-GlobalMCPServerConfig
 ```
 
 字段命名规则：
@@ -268,7 +274,7 @@ GlobalMCPServerConfig
 团队角色：team_admin / editor / viewer
 ```
 
-平台管理员只管理全局 MCP 服务器，不自动拥有团队数据权限。  
+平台管理员不拥有 MCP 配置管理入口，也不自动拥有团队数据权限。  
 用户要访问团队业务，必须是该团队成员。
 
 权限规则：
@@ -283,7 +289,7 @@ GlobalMCPServerConfig
 | 删除数据模型 | 是 | 否 | 否 |
 | 执行变更检测 | 是 | 是 | 否 |
 | 查看变更记录 | 是 | 是 | 是 |
-| 管理团队 MCP Token | 是 | 否 | 否 |
+| 管理当前项目 MCP Token | 是 | 否 | 否 |
 | 查看 MCP 接入说明 | 是 | 是 | 公开部分 |
 | 管理团队成员 | 是 | 否 | 否 |
 | 配置 Webhook | 是 | 否 | 否 |
@@ -292,7 +298,7 @@ GlobalMCPServerConfig
 
 ## 8. MCP 工具目标
 
-MCP Server 的目标工具：
+本地 MCP 服务的目标工具：
 
 | 工具 | 说明 |
 | --- | --- |
@@ -315,11 +321,10 @@ MCP Server 的目标工具：
 3. 接口管理列表和导入。
 4. 数据模型列表和详情。
 5. 团队成员与权限。
-6. 团队 MCP 管理。
+6. 当前项目 MCP 管理。
 7. 依赖拓扑。
 8. 变更检测和变更记录。
 9. 顶部通知和 Webhook 重试。
-10. 全局 MCP 服务器管理。
 
 每替换一个页面，应同时完成：
 
@@ -353,14 +358,13 @@ MCP Server 的目标工具：
 
 - 按树结构建立目标路由。
 - 重命名旧 `Entities` 为数据模型页面。
-- 将旧 `Settings` 重构为全局 MCP 服务器管理。
-- 去除通用系统设置入口。
+- 删除旧 `Settings` 的通用系统设置入口。
+- MCP 管理入口只保留在项目详情中，作为当前项目的 MCP Tab 或子页。
 
 验收：
 
 - 侧边菜单只展示当前团队业务模块。
-- 平台管理入口只对平台管理员可见。
-- 顶部只展示 MCP 状态，不展示后端连接状态。
+- 顶部只展示本地 MCP 服务状态，不展示后端连接状态。
 
 ### 阶段 3：团队资产 API
 
@@ -394,15 +398,17 @@ MCP Server 的目标工具：
 
 目标：
 
-- 团队 MCP 开关、Token、工具范围、项目范围生效。
-- 全局 MCP 服务器开关控制所有团队 Token。
+- 当前激活项目、Token 和工具范围生效。
+- 当前激活项目、Token 状态和当前设备的本地 MCP 服务状态共同决定本次 MCP 调用是否可用。
 - MCP 工具使用新命名和团队上下文。
+- 打开项目详情的 MCP Tab 后，该项目成为当前 MCP 激活项目。
+- 从一个项目切换到另一个项目时，Electron 更新本地 MCP 激活上下文，并提示 IDE 后续请求将使用新项目规范。
 
 验收：
 
-- 关闭全局 MCP 后所有 Token 不可用。
-- 关闭团队 MCP 后当前团队 Token 不可用。
-- Token 只能访问授权团队和项目范围。
+- 停用 Token 后该 IDE/Agent 不能继续调用 MCP。
+- MCP 调用只能访问 Electron 当前激活团队和项目范围。
+- IDE 配置中的本地 MCP 地址稳定，切换项目不需要修改 `.mcp.json`。
 
 ## 11. 测试与验收命令
 
@@ -430,23 +436,26 @@ pnpm electron
 
 ## 12. 同步架构与契约语言
 
-本文档确定整个产品的同步边界与协议分工。所有后续开发必须遵循本节定义。
+本文档确定整个产品的同步边界与协议分工。更完整的边界说明见 [架构边界约定](architecture-boundaries.md)，所有后续开发必须遵循该文档与本节定义。
 
-### 12.1 三层协议分工
+### 12.1 四层协议分工
 
 | 层 | 进程/工具 | 协议 | 用途 |
 | --- | --- | --- | --- |
-| Authority | synkord-core (Go) | 内部 | 数据 + REST API + MCP Server 同进程 |
-| Management | Electron 桌面端 | REST | 团队资产 CRUD + MCP 服务控制 + Token 管理 + 审计查看 |
-| Consumption | IDE / AI / Git Hook / CI | REST + MCP | 读取规范、推送规范、本地校验 |
+| Authority | synkord-core (Go) | REST `/api/*` | 登录、团队、权限、项目、接口、数据模型、变更、审计 |
+| Management | Electron 桌面端 | REST + 本地进程管理 | 团队资产 CRUD + 本地 MCP 服务启停/配置/监控 + 当前团队项目上下文 + Token 管理 + 审计查看 |
+| Capability | 本地 MCP 服务 | MCP + REST | 向 IDE/Agent 暴露当前激活团队和项目的 tools/resources/prompts，并调用后端 REST API |
+| Consumption | IDE / Agent | MCP | Codex、Cursor、VSCode、JetBrains 等 MCP Client 消费规范 |
 
 **核心约束**：
 
 - REST API 路径前缀 `/api`，所有团队业务请求走 `/api/teams/:teamId/...`
-- MCP 端点 `/mcp/sse`、`/mcp/message`，**仅供 IDE/AI 编码助手使用**
-- Electron 不调 MCP 工具，只通过 REST 控制 MCP 服务进程
+- MCP 端点由本地 MCP 服务提供，**仅供 IDE/AI 编码助手使用**
+- 本地 MCP 服务同一时间只服务 Electron 当前激活的一个团队和一个项目
+- Electron 不调 MCP 工具，只管理本地 MCP 服务进程和配置
 - 后端 CI 推送 spec、前端 Git Hook 校验、CI 校验都走 REST
 - CLI 工具 `synkord` 是 REST 客户端封装，**不是 MCP 客户端**
+- synkord-core 不直接启动、停止或监控用户机器上的 MCP 服务进程
 
 ### 12.2 同步渠道矩阵
 
@@ -459,9 +468,9 @@ pnpm electron
 | IDE/AI 读取团队模型 | MCP | `get_team_entities` |
 | IDE/AI 校验代码片段 | MCP | `validate_entity_usage` |
 | Electron 增删改查 | REST | REST 客户端 |
-| Electron 启停 MCP 服务 | REST | `PATCH /api/admin/mcp-server` |
-| Electron 管理 Token | REST | `/api/teams/:teamId/mcp/tokens` |
-| Electron 查看审计 | REST | `/api/teams/:teamId/mcp/audit` |
+| Electron 启停 MCP 服务 | 本地进程管理 | 本机 MCP 服务管理器 |
+| Electron 管理 Token | REST | `/api/teams/:teamId/projects/:projectId/mcp/tokens` |
+| Electron 查看审计 | REST | `/api/teams/:teamId/projects/:projectId/mcp/audit` |
 
 ### 12.3 契约语言：OpenAPI 3.x
 
@@ -516,7 +525,7 @@ CLI 不调 MCP。如需 MCP 能力，配置 IDE 的 `.mcp.json`。
 
 ### 12.5 IDE 接入（MCP 消费方）
 
-在 Cursor/VSCode/PyCharm 中配置 MCP 客户端连接 synkord-core：
+在 Cursor/VSCode/PyCharm/Codex 中配置 MCP 客户端连接本地 MCP 服务：
 
 `.cursor/mcp.json` 模板：
 
@@ -526,14 +535,14 @@ CLI 不调 MCP。如需 MCP 能力，配置 IDE 的 `.mcp.json`。
     "synkord": {
       "url": "${SYNKORD_MCP_URL}",
       "headers": {
-        "Authorization": "Bearer ${SYNKORD_TOKEN}"
+        "Authorization": "Bearer ${SYNKORD_MCP_TOKEN}"
       }
     }
   }
 }
 ```
 
-**鉴权**：MCP 客户端使用 `MCPConfig.Token`（不是 JWT）。Token 由 Electron 在「MCP 管理」页创建，明文仅展示一次，之后只保存哈希或摘要。
+**鉴权与上下文**：MCP 客户端使用 `MCPConfig.Token`（不是 JWT）。Token 由 Electron 在项目详情 MCP Tab 通过后端 REST 创建，明文仅展示一次，之后后端只保存哈希或摘要。本地 MCP 服务收到请求后，必须同时携带 Token、Electron 当前激活团队和当前激活项目调用后端 REST API。IDE/Agent 不通过 Token 在多个团队或项目之间路由。
 
 ### 12.5.1 鉴权凭据矩阵
 
@@ -543,19 +552,21 @@ CLI 不调 MCP。如需 MCP 能力，配置 IDE 的 `.mcp.json`。
 | --- | --- | --- | --- |
 | Electron 管理端 | **JWT**（用户密码登录） | `POST /api/auth/login` → `access_token` | 所有 `/api/teams/:teamId/...` |
 | synkord CLI | **JWT**（用户密码登录） | `synkord login` → 缓存到 `~/.synkord/token` | 所有 `/api/teams/:teamId/...` |
-| IDE/AI 编码助手 | **`MCPConfig.Token`** | Electron「MCP 管理」创建 | `/mcp/sse`、`/mcp/message` |
+| IDE/AI 编码助手 | **`MCPConfig.Token`** | Electron 在项目详情 MCP Tab 通过后端 REST 创建，建议环境变量名 `SYNKORD_MCP_TOKEN` | 本地 MCP 服务端点，消费当前激活团队和项目 |
+| 本地 MCP 服务 | **`MCPConfig.Token` + 当前团队项目上下文** | IDE/Agent 请求携带 Token，Electron 提供当前上下文 | 后端 MCP Token 校验/规范查询专用 REST 端点 |
 | Git Hook / CI | JWT（沿用 synkord CLI） | CI env `SYNKORD_TOKEN` | REST 校验/导入端点 |
 
 **为什么 CLI 用 JWT 而不是 MCPConfig.Token？**
 
-- CLI 调用的是 REST（push-spec、validate-deps），REST 鉴权只验 JWT
-- MCPConfig.Token 只能用于 `/mcp/*`，scope 更窄
+- CLI 调用的是管理和校验类 REST（push-spec、validate-deps），这些端点验 JWT 或专用 REST Token
+- MCPConfig.Token 只用于 IDE/Agent 到本地 MCP 服务，以及本地 MCP 服务向后端校验当前激活团队和项目是否可访问，scope 更窄
 - 团队成员本来就有 JWT，CLI 复用账号体系比另发服务 token 简单
 
 **反例**：
 
 - ❌ 把 JWT 放到 `.cursor/mcp.json` 头里 → MCP 端点会拒
-- ❌ 把 MCPConfig.Token 当作 CLI 的 `--token` → REST 端点会拒
+- ❌ 把 CLI/Git Hook/CI 使用的 `SYNKORD_TOKEN` 直接复用为 `SYNKORD_MCP_TOKEN` → 凭据类型混用
+- ❌ 把 MCPConfig.Token 当作 CLI 的 `--token` 调用 push-spec / validate-deps → REST 校验端点会拒
 - ❌ CLI 调 MCP → 协议不匹配，绕一层反而不稳
 
 ### 12.6 Git Hook 前置校验
@@ -596,7 +607,7 @@ fi
                                                               ▼
                                             ┌─────────────────┴────────────────┐
                                             │                                  │
-                                       MCP (SSE)                          REST
+                                  Local MCP Service                       REST
                                             │                                  │
                             [Cursor AI / VSCode AI]              [Git Pre-Commit]
                             get_project_apis                      synkord validate-deps
@@ -606,16 +617,18 @@ fi
 
 ### 12.8 Electron 管理职责
 
-按 [prototype-structure.md 4.6](docs/prototype-structure.md) 规范，Electron 在「MCP 管理」页提供：
+按 [prototype-structure.md 4.6](prototype-structure.md) 规范，Electron 在项目详情的 MCP Tab 提供：
 
-- 全局 MCP 服务开关（启停 synkord-core 上的 MCP 进程）
-- 当前 SSE / Message 端点（只读展示）
-- 工具列表（按全局开关过滤）
-- Token CRUD（含项目范围、工具范围、过期时间）
+- 本地 MCP 服务启动、停止、重启、配置和健康检查
+- 当前激活团队和当前激活项目
+- 当前本地 MCP 接入端点（只读展示，具体传输方式由实现决定）
+- 工具列表（按当前 Token 工具范围过滤）
+- Token CRUD（含工具范围、过期时间）
 - IDE 接入说明（一键复制 .cursor/mcp.json 等模板）
 - 调用审计（按时间、Token、工具筛选）
+- 项目详情 MCP Tab 打开时，自动把该项目设置为当前 MCP 激活项目
 
-平台管理员可在用户菜单进入「全局配置 - MCP 服务器管理」修改服务地址、限流策略。
+本机 MCP 服务的进程状态和当前项目上下文由 Electron 在当前设备上管理。
 
 ## 13. AI 开发工作规则
 

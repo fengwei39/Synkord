@@ -147,6 +147,12 @@ export default function Projects() {
             { title: '描述', dataIndex: 'description', ellipsis: true },
             { title: '负责人', dataIndex: 'owner', width: 120, render: (v) => v || '-' },
             {
+              title: 'Swagger',
+              dataIndex: 'swagger_url',
+              ellipsis: true,
+              render: (v, record) => record.project_type === 'backend' ? (v || '-') : '-',
+            },
+            {
               title: '操作',
               width: 140,
               render: (_, record) => (
@@ -189,7 +195,22 @@ export default function Projects() {
           <Form.Item name="repo_url" label="仓库地址">
             <Input />
           </Form.Item>
-          <Text type="secondary">Swagger/OpenAPI 与 Postman Collection 建议在团队资产页签中导入。</Text>
+          <Form.Item
+            noStyle
+            shouldUpdate={(prev, next) => prev.project_type !== next.project_type}
+          >
+            {({ getFieldValue }) => getFieldValue('project_type') === 'backend' ? (
+              <Form.Item
+                name="swagger_url"
+                label="Swagger / OpenAPI 地址"
+                tooltip="例如 http://127.0.0.1:8080/v3/api-docs 或 http://127.0.0.1:8000/openapi.json"
+                rules={[{ type: 'url', message: '请输入有效的 HTTP/HTTPS 地址' }]}
+              >
+                <Input placeholder="http://127.0.0.1:8080/v3/api-docs" />
+              </Form.Item>
+            ) : null}
+          </Form.Item>
+          <Text type="secondary">后端项目配置 Swagger 地址后，可在接口管理中一键拉取并导入。</Text>
         </Form>
       </Modal>
     </div>

@@ -14,3 +14,8 @@ export async function importAPISpec(teamId: string, values: { project_id: string
   const resp = await apiClient.post(`/teams/${teamId}/apis/import`, values);
   return resp.data;
 }
+
+export async function importAPISpecFromProject(teamId: string, values: { project_id: string }) {
+  const resp = await apiClient.post(`/teams/${teamId}/apis/import-from-project`, values);
+  return resp.data;
+}

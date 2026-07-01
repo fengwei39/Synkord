@@ -22,6 +22,7 @@ const ALLOWED_INVOKES = new Set([
   'mcp:restart',
   'mcp:set-active-project',
   'mcp:get-ide-config',
+  'mcp:get-access-log',
 ]);
 
 const ALLOWED_EVENTS = new Set([
@@ -48,6 +49,9 @@ contextBridge.exposeInMainWorld('synkord', {
 
   // ---- IDE 配置 ----
   mcpGetIDEConfig: () => ipcRenderer.invoke('mcp:get-ide-config'),
+
+  // ---- 访问日志 ----
+  mcpGetAccessLog: (limit) => ipcRenderer.invoke('mcp:get-access-log', limit),
 
   // ---- 事件订阅（状态变更通知）----
   onMcpEvent: (callback) => {

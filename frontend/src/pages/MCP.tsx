@@ -24,12 +24,14 @@ import {
   Space,
   Spin,
   Statistic,
+  Table,
   Tag,
   Tooltip,
   Typography,
   message,
 } from 'antd';
 import {
+  ApiOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
   CopyOutlined,
@@ -105,11 +107,24 @@ export default function MCP() {
   const [uptime, setUptime] = useState(0);
   const uptimeTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // 自动刷新设置
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [refreshInterval, setRefreshInterval] = useState<number>(3); // 秒
+  const [lastRefreshTime, setLastRefreshTime] = useState<string>('');
+
   // IDE 配置
   const [clientId, setClientId] = useState<ClientId>('codex');
   const [transport, setTransport] = useState<'stdio' | 'http'>('stdio');
   const [ideUrl, setIdeUrl] = useState('http://127.0.0.1:37991/mcp');
   const [ideConfig, setIdeConfig] = useState<string>('');
+
+  // 最近访问日志
+  const [accessLogs, setAccessLogs] = useState<MCPAccessLogEntry[]>([]);
+  const [accessTotal, setAccessTotal] = useState<number>(0);
+  const [accessPage, setAccessPage] = useState<number>(1);
+  const [accessPageSize, setAccessPageSize] = useState<number>(20);
+  const [lastClientUA, setLastClientUA] = useState<string>('');
+  const [lastClientTime, setLastClientTime] = useState<string>('');
 
   // ==========================================================================
   // 初始加载
@@ -146,14 +161,12 @@ export default function MCP() {
       console.log('[MCP.tsx] subscribed to mcp:event');
     }
 
-    // 兜底：每 1 秒轮询一次状态（防止事件丢失）
+    // 兜底：每秒轮询状态（防止事件丢失）
     const pollInterval = setInterval(async () => {
       try {
         const s = await window.synkord?.mcpGetStatus?.();
         if (s) {
-          console.log('[MCP.tsx] poll status:', s.state);
           setStatus((prev) => {
-            // 只有状态变化或缺失字段时才更新（避免无谓重渲染）
             if (prev.state !== s.state ||
                 prev.port !== s.port ||
                 prev.pid !== s.pid ||
@@ -172,15 +185,34 @@ export default function MCP() {
           if (s.state === 'running') startUptimeTimer();
         }
       } catch (e) {
-        console.error('[MCP.tsx] poll error:', e);
+        // ignore
       }
     }, 1000);
+
+    // 拉取访问日志（间隔可调）
+    const logInterval = setInterval(async () => {
+      if (!autoRefresh) return;
+      try {
+        const logs = await window.synkord?.mcpGetAccessLog?.(20);
+        if (logs && logs.length > 0) {
+          setAccessLogs(logs);
+          if (logs[0].ua !== lastClientUA) {
+            setLastClientUA(logs[0].ua);
+            setLastClientTime(logs[0].ts);
+          }
+          setLastRefreshTime(new Date().toLocaleTimeString());
+        }
+      } catch {
+        // ignore
+      }
+    }, refreshInterval * 1000);
 
     return () => {
       if (typeof unsubscribe === 'function') unsubscribe();
       clearInterval(pollInterval);
+      clearInterval(logInterval);
     };
-  }, []);
+  }, [autoRefresh, refreshInterval]);
 
   // ==========================================================================
   // 操作
@@ -196,6 +228,31 @@ export default function MCP() {
       }
     } catch (e: any) {
       messageApi.error('获取状态失败：' + (e?.message || '未知错误'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 手动刷新全部数据：状态 + 访问日志
+  const refreshAll = async () => {
+    setLoading(true);
+    try {
+      const [s, logs] = await Promise.all([
+        window.synkord?.mcpGetStatus?.(),
+        window.synkord?.mcpGetAccessLog?.(20),
+      ]);
+      if (s) {
+        setStatus(s);
+        if (s.state === 'running') startUptimeTimer();
+      }
+      if (logs && logs.length > 0) {
+        setAccessLogs(logs);
+        setLastClientUA(logs[0].ua);
+        setLastClientTime(logs[0].ts);
+      }
+      messageApi.success('已刷新');
+    } catch (e: any) {
+      messageApi.error('刷新失败：' + (e?.message || '未知错误'));
     } finally {
       setLoading(false);
     }
@@ -388,9 +445,11 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
           ← 返回项目详情
         </Button>
         <Title level={3} style={{ margin: 0 }}>MCP 管理</Title>
-        <Button icon={<ReloadOutlined />} onClick={refreshStatus}>
-          刷新
-        </Button>
+        <Space>
+          <Button icon={<ReloadOutlined spin={loading} />} onClick={refreshAll} loading={loading}>
+            刷新全部
+          </Button>
+        </Space>
       </div>
 
       {/* 状态卡片 */}
@@ -527,6 +586,127 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
           description="服务已优雅关闭，重新启动后可继续接收 IDE 请求。"
           style={{ marginBottom: 16 }}
         />
+      )}
+
+      {/* 最近访问日志 */}
+      {status.state === 'running' && (
+        <Card
+          title={
+            <Space>
+              <ApiOutlined />
+              <span>最近访问</span>
+              {lastClientUA && (
+                <Tag color="processing">
+                  最近客户端：{lastClientUA.slice(0, 60)}
+                </Tag>
+              )}
+              {lastClientTime && (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {new Date(lastClientTime).toLocaleTimeString()}
+                </Text>
+              )}
+            </Space>
+          }
+          extra={
+            <Space>
+              <Space size={4}>
+                <Text type="secondary" style={{ fontSize: 12 }}>自动刷新</Text>
+                <input
+                  type="checkbox"
+                  checked={autoRefresh}
+                  onChange={(e) => setAutoRefresh(e.target.checked)}
+                />
+              </Space>
+              <Select
+                size="small"
+                value={refreshInterval}
+                onChange={setRefreshInterval}
+                style={{ width: 90 }}
+                disabled={!autoRefresh}
+                options={[
+                  { value: 1, label: '1 秒' },
+                  { value: 3, label: '3 秒' },
+                  { value: 5, label: '5 秒' },
+                  { value: 10, label: '10 秒' },
+                ]}
+              />
+              <Button
+                size="small"
+                icon={<ReloadOutlined spin={loading} />}
+                onClick={async () => {
+                  try {
+                    const logs = await window.synkord?.mcpGetAccessLog?.(20);
+                    if (logs) {
+                      setAccessLogs(logs);
+                      if (logs.length > 0) {
+                        setLastClientUA(logs[0].ua);
+                        setLastClientTime(logs[0].ts);
+                      }
+                      setLastRefreshTime(new Date().toLocaleTimeString());
+                    }
+                    messageApi.success('访问日志已刷新');
+                  } catch (e: any) {
+                    messageApi.error('刷新失败：' + (e?.message || ''));
+                  }
+                }}
+              >
+                刷新
+              </Button>
+            </Space>
+          }
+          style={{ marginBottom: 16 }}
+          size="small"
+        >
+          {accessLogs.length === 0 ? (
+            <Text type="secondary">暂无访问记录（Codex/IDE 连接后会在此显示）</Text>
+          ) : (
+            <Table
+              size="small"
+              dataSource={accessLogs.slice(0, 10)}
+              rowKey={(record, idx) => `${record.ts}-${idx}`}
+              pagination={false}
+              columns={[
+                {
+                  title: '时间',
+                  dataIndex: 'ts',
+                  width: 200,
+                  render: (v: string) => (
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {new Date(v).toLocaleTimeString()}
+                    </Text>
+                  ),
+                },
+                {
+                  title: '方法',
+                  dataIndex: 'rpc',
+                  width: 100,
+                  render: (v: string) => v ? <Tag color="blue">{v}</Tag> : '-',
+                },
+                {
+                  title: '客户端',
+                  dataIndex: 'ua',
+                  render: (v: string) => (
+                    <Text style={{ fontSize: 12 }}>{v || '-'}</Text>
+                  ),
+                },
+                {
+                  title: '耗时',
+                  dataIndex: 'dur_ms',
+                  width: 80,
+                  render: (v: number) => <Text type="secondary">{v}ms</Text>,
+                },
+                {
+                  title: '状态',
+                  dataIndex: 'status',
+                  width: 60,
+                  render: (s: number) => (
+                    <Tag color={s >= 400 ? 'red' : 'green'}>{s}</Tag>
+                  ),
+                },
+              ]}
+            />
+          )}
+        </Card>
       )}
 
       {/* IDE 接入配置 */}

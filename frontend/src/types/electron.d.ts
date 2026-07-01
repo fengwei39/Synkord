@@ -11,6 +11,7 @@ declare global {
       mcpRestart: () => Promise<MCPStatus>;
       mcpSetActiveProject: (project: null | { teamId: string; projectId: string; projectName: string }) => Promise<MCPStatus>;
       mcpGetIDEConfig: () => Promise<{ url: string; host: string; port: number; path: string }>;
+      mcpGetAccessLog: (limit?: number) => Promise<MCPAccessLogEntry[]>;
       mcpSetUserAuth: (auth: { token: string; user_id: string; user_name: string } | null) => Promise<{ ok: boolean }>;
       onMcpEvent: (callback: (payload: MCPEvent) => void) => () => void;
       windowControl: (action: 'minimize' | 'maximize' | 'close') => void;
@@ -38,5 +39,18 @@ declare global {
     pid?: number;
     reason?: string;
     timestamp?: string;
+  }
+
+  // MCP 访问日志条目
+  interface MCPAccessLogEntry {
+    ts: string;
+    conn: number;
+    method: string;
+    path: string;
+    status: number;
+    dur_ms: number;
+    remote: string;
+    ua: string;
+    rpc?: string;
   }
 }

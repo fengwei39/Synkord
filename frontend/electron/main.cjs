@@ -366,6 +366,20 @@ function getAPIBase() {
   return process.env.SYNKORD_API_BASE || 'http://127.0.0.1:8000/api';
 }
 
+function getRecentAccessLog(limit = 50) {
+  try {
+    const logPath = path.join(SYNKORD_HOME, 'mcp-access.log');
+    if (!fs.existsSync(logPath)) return [];
+    const content = fs.readFileSync(logPath, 'utf8');
+    const lines = content.trim().split('\n').filter(Boolean);
+    return lines.slice(-limit).reverse().map((line) => {
+      try { return JSON.parse(line); } catch { return null; }
+    }).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 function registerIpc() {
   ipcMain.handle('mcp:get-api-base', () => getAPIBase());
   ipcMain.handle('mcp:get-status', () => mcpStatus());
@@ -379,6 +393,7 @@ function registerIpc() {
     port: DEFAULT_HTTP_PORT,
     path: '/mcp',
   }));
+  ipcMain.handle('mcp:get-access-log', (_e, limit) => getRecentAccessLog(limit || 50));
 }
 
 // ============================================================================

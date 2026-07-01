@@ -344,6 +344,67 @@ select {
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
 }
 
+.project-title-row {
+  gap: 12px;
+}
+
+.project-header-description {
+  margin-top: 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.7;
+}
+
+.project-info-card .ant-card-body {
+  padding: 26px 28px;
+}
+
+.project-info-descriptions .ant-descriptions-row > th,
+.project-info-descriptions .ant-descriptions-row > td {
+  padding-bottom: 22px;
+}
+
+.project-info-descriptions .ant-descriptions-item-label {
+  min-width: 104px;
+  color: #6b778d;
+}
+
+.project-info-descriptions .ant-descriptions-item-content {
+  min-width: 0;
+  color: #1f2d46;
+}
+
+.project-editable-value {
+  width: 100%;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.project-field-content {
+  min-width: 0;
+  flex: 1;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.project-editable-value .field-edit-button {
+  flex: none;
+  margin-left: auto;
+}
+
+.field-edit-button {
+  color: #8a94a6;
+}
+
+.field-edit-button:hover {
+  color: #2563eb;
+  background: #eff6ff;
+}
+
 .project-sidebar-section {
   gap: 8px;
 }

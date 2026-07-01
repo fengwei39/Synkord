@@ -153,24 +153,28 @@ function notifyUI(event) {
 
 async function startMCPServer() {
   if (mcpState === 'starting' || mcpState === 'running') {
+    console.log('[synkord] startMCPServer ignored, state=' + mcpState);
     return mcpStatus();
   }
 
+  console.log('[synkord] startMCPServer: step 1/6 - state=starting');
   mcpState = 'starting';
   notifyUI('starting');
 
-  // 1. 写一次激活上下文（确保 MCP Server 启动时能读到）
+  // 1. 写一次激活上下文
+  console.log('[synkord] step 2/6 - write active context');
   writeActiveContext();
 
   // 2. 预检端口
   let port;
   try {
     port = await findAvailablePort();
+    console.log('[synkord] step 3/6 - port allocated: ' + port);
   } catch (e) {
+    console.error('[synkord] step 3/6 FAILED: no available port -', e.message);
     mcpState = 'failed';
     lastFailureReason = '无可用端口：' + e.message;
     notifyUI('failed');
-    console.error('[synkord] no available port:', e.message);
     return mcpStatus();
   }
   mcpActualPort = port;
@@ -178,33 +182,40 @@ async function startMCPServer() {
   // 3. fork 子进程
   const servicePath = path.join(__dirname, 'local-mcp-service.cjs');
   if (!fs.existsSync(servicePath)) {
+    console.error('[synkord] step 4/6 FAILED: service script not found: ' + servicePath);
     mcpState = 'failed';
     lastFailureReason = `服务脚本不存在: ${servicePath}`;
     notifyUI('failed');
-    console.error('[synkord] local-mcp-service.cjs not found:', servicePath);
     return mcpStatus();
   }
 
+  console.log('[synkord] step 4/6 - forking: ' + servicePath);
   mcpProcess = fork(servicePath, ['--mode', 'http', '--port', String(port)], {
     env: {
       ...process.env,
       SYNKORD_HOME,
     },
-    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+    // 注意：stdin 必须用 'pipe'，不能用 'ignore'，否则 Electron 下 IPC 通道会断
+    stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
   });
+  console.log('[synkord] step 4/6 - forked, pid=' + mcpProcess.pid + ' hasSend=' + (typeof mcpProcess.send));
+
+  // 静默 stdin
+  mcpProcess.stdin?.on('data', () => {});
+  mcpProcess.stdin?.on('error', () => {});
 
   // 4. 转发日志
   mcpProcess.stdout?.on('data', (chunk) => {
     process.stdout.write(`[mcp-server] ${chunk}`);
   });
   mcpProcess.stderr?.on('data', (chunk) => {
-    process.stderr.write(`[mcp-server] ${chunk}`);
+    process.stderr.write(`[mcp-server-err] ${chunk}`);
   });
 
   // 5. 启动超时
   const timer = setTimeout(() => {
     if (mcpState === 'starting') {
-      console.error('[synkord] MCP server startup timeout');
+      console.error('[synkord] step 6/6 TIMEOUT: 5s 内未收到 ready 信号');
       mcpProcess?.kill('SIGKILL');
       mcpProcess = null;
       mcpState = 'failed';
@@ -216,7 +227,7 @@ async function startMCPServer() {
   // 6. 等待 ready 信号
   mcpProcess.once('error', (error) => {
     clearTimeout(timer);
-    console.error('[synkord] MCP server process error:', error.message);
+    console.error('[synkord] step 6/6 ERROR:', error.message);
     mcpProcess = null;
     mcpState = 'failed';
     lastFailureReason = '进程错误：' + error.message;
@@ -224,19 +235,33 @@ async function startMCPServer() {
   });
 
   mcpProcess.on('message', (message) => {
+    console.log('[synkord] step 5/6 - got message:', JSON.stringify(message));
     if (message?.type === 'ready') {
       clearTimeout(timer);
       mcpState = 'running';
       mcpRestartCount = 0;
+      console.log('[synkord] step 6/6 - running! port=' + message.port);
       notifyUI('running');
     }
   });
 
   // 7. 监听异常退出
   mcpProcess.on('exit', (code, signal) => {
-    if (mcpState === 'stopped') return; // 主动停止，不重启
+    console.log('[synkord] mcp-server exited: code=' + code + ' signal=' + signal);
+    if (mcpState === 'stopped') return;
     handleUnexpectedExit(code, signal);
   });
+
+  // 8. 周期性心跳日志（每秒一次，仅在 starting 时）
+  const heartbeat = setInterval(() => {
+    const alive = mcpProcess && !mcpProcess.killed && mcpProcess.exitCode === null;
+    const portInfo = mcpActualPort ? `port=${mcpActualPort}` : 'port=?';
+    const ipcInfo = mcpProcess?.connected ? 'IPC=connected' : (mcpProcess ? 'IPC=?' : 'IPC=no-proc');
+    console.log(`[synkord] heartbeat: state=${mcpState} alive=${alive} ${portInfo} ${ipcInfo}`);
+    if (mcpState !== 'starting') {
+      clearInterval(heartbeat);
+    }
+  }, 1000);
 
   return mcpStatus();
 }

@@ -121,9 +121,10 @@ export default function MCP() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 订阅主进程事件
+  // 订阅主进程事件 + 定时轮询 fallback
   useEffect(() => {
     const unsubscribe = window.synkord?.onMcpEvent?.((payload: MCPEvent) => {
+      console.log('[MCP.tsx] received mcp:event:', JSON.stringify(payload));
       setStatus((prev) => ({
         ...prev,
         state: payload.state,
@@ -139,8 +140,45 @@ export default function MCP() {
         stopUptimeTimer();
       }
     });
+    if (!window.synkord?.onMcpEvent) {
+      console.error('[MCP.tsx] window.synkord.onMcpEvent is NOT available');
+    } else {
+      console.log('[MCP.tsx] subscribed to mcp:event');
+    }
+
+    // 兜底：每 1 秒轮询一次状态（防止事件丢失）
+    const pollInterval = setInterval(async () => {
+      try {
+        const s = await window.synkord?.mcpGetStatus?.();
+        if (s) {
+          console.log('[MCP.tsx] poll status:', s.state);
+          setStatus((prev) => {
+            // 只有状态变化或缺失字段时才更新（避免无谓重渲染）
+            if (prev.state !== s.state ||
+                prev.port !== s.port ||
+                prev.pid !== s.pid ||
+                (s.reason && !prev.reason)) {
+              return {
+                ...prev,
+                state: s.state,
+                port: s.port,
+                url: s.url,
+                pid: s.pid,
+                reason: s.reason ?? prev.reason,
+              };
+            }
+            return prev;
+          });
+          if (s.state === 'running') startUptimeTimer();
+        }
+      } catch (e) {
+        console.error('[MCP.tsx] poll error:', e);
+      }
+    }, 1000);
+
     return () => {
       if (typeof unsubscribe === 'function') unsubscribe();
+      clearInterval(pollInterval);
     };
   }, []);
 

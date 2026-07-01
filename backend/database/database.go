@@ -62,7 +62,6 @@ func autoMigrate(db *gorm.DB) error {
 		&models.DataModel{},
 		&models.DataModelVersion{},
 		&models.Dependency{},
-		&models.MCPConfig{},
 		&models.MCPAuditLog{},
 	)
 }
@@ -110,7 +109,6 @@ func resetIncompatibleSQLiteTables(db *gorm.DB) error {
 	}{
 		{table: "api_endpoints", columns: []string{"team_id"}},
 		{table: "dependencies", columns: []string{"team_id"}},
-		{table: "mcp_configs", columns: []string{"project_id", "token_hash"}},
 		{table: "mcp_audit_logs", columns: []string{"project_id"}},
 	}
 

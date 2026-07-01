@@ -35,7 +35,10 @@ declare global {
         activeProject: null | { teamId: string; projectId: string; projectName: string };
       }>;
       mcpGetIDEConfig: () => Promise<{ url: string; template: Record<string, unknown> }>;
+      mcpSetUserAuth: (auth: { token: string; user_id: string; user_name: string } | null) => Promise<{ ok: boolean }>;
       windowControl: (action: 'minimize' | 'maximize' | 'close') => void;
     };
+    // 同步可用的 API 地址（在 Electron preload 中设置）
+    synkordApiBase?: string;
   }
 }

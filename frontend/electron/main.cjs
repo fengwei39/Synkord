@@ -13,9 +13,12 @@ const mcpPath = '/mcp';
 // 激活上下文文件目录：优先使用 SYNKORD_HOME，否则回退到用户主目录下 ~/.synkord
 const synkordHome = process.env.SYNKORD_HOME || path.join(os.homedir(), '.synkord');
 const activeContextPath = path.join(synkordHome, 'active-context.json');
+const userAuthPath = path.join(synkordHome, 'user-auth.json');
 
 let localMCPProcess = null;
+let stdioMCPProcess = null; // 用于 Codex 的 stdio 模式
 let activeProject = null;
+let currentUserAuth = null; // { token, user_id, user_name }
 
 function getAPIBase() {
   return process.env.SYNKORD_API_BASE || 'http://127.0.0.1:8000/api';
@@ -70,15 +73,27 @@ function writeActiveContext() {
   }
 }
 
+function writeUserAuth() {
+  ensureSynkordHome();
+  const payload = currentUserAuth || null;
+  try {
+    fs.writeFileSync(userAuthPath, JSON.stringify(payload, null, 2), { mode: 0o600 });
+  } catch (e) {
+    console.error('[synkord] failed to write user-auth.json', userAuthPath, e);
+  }
+}
+
 function mcpStatus() {
   return {
     running: !!localMCPProcess,
+    stdioRunning: !!stdioMCPProcess,
     port: mcpPort,
     url: `http://127.0.0.1:${mcpPort}${mcpPath}`,
     activeProject,
     synkordHome,
     activeContextPath,
     pid: localMCPProcess?.pid || null,
+    stdioPid: stdioMCPProcess?.pid || null,
   };
 }
 
@@ -91,7 +106,7 @@ function startLocalMCPServer() {
   writeActiveContext();
 
   const servicePath = path.join(__dirname, 'local-mcp-service.cjs');
-  localMCPProcess = fork(servicePath, ['--synkord-home', synkordHome], {
+  localMCPProcess = fork(servicePath, ['--mode', 'http', '--synkord-home', synkordHome], {
     env: {
       ...process.env,
       SYNKORD_API_BASE: getAPIBase(),
@@ -159,6 +174,97 @@ function sendActiveProjectToLocalMCP() {
       project: activeProject,
     });
   }
+  // stdio 模式也需要通知
+  if (stdioMCPProcess?.connected) {
+    stdioMCPProcess.send({
+      type: 'set-active-project',
+      project: activeProject,
+    });
+  }
+}
+
+function sendUserAuthToLocalMCP() {
+  writeUserAuth();
+  if (localMCPProcess?.connected) {
+    localMCPProcess.send({
+      type: 'set-user-auth',
+      auth: currentUserAuth,
+    });
+  }
+  if (stdioMCPProcess?.connected) {
+    stdioMCPProcess.send({
+      type: 'set-user-auth',
+      auth: currentUserAuth,
+    });
+  }
+}
+
+/**
+ * 启动 STDIO 模式的 MCP 服务（用于 Codex 等 CLI 工具）
+ * 通过 fork 子进程并连接 stdin/stdout 来实现
+ */
+function startStdioMCPServer() {
+  if (stdioMCPProcess) {
+    return;
+  }
+
+  // 写入 active-context.json
+  writeActiveContext();
+
+  const servicePath = path.join(__dirname, 'local-mcp-service.cjs');
+  stdioMCPProcess = fork(servicePath, ['--mode', 'stdio', '--synkord-home', synkordHome], {
+    env: {
+      ...process.env,
+      SYNKORD_API_BASE: getAPIBase(),
+    },
+    stdio: ['pipe', 'pipe', 'pipe', 'ipc'], // 连接 stdin/stdout
+  });
+
+  stdioMCPProcess.stdout?.on('data', (chunk) => {
+    // 来自 MCP 服务器的 JSON-RPC 响应，直接输出到 stdout
+    process.stdout.write(chunk);
+  });
+
+  stdioMCPProcess.stderr?.on('data', (chunk) => {
+    // MCP 服务器的日志输出到 stderr
+    console.error(`[synkord-stdio-mcp] ${chunk.toString().trim()}`);
+  });
+
+  stdioMCPProcess.on('exit', (code) => {
+    console.error(`[synkord-stdio-mcp] exited with code ${code}`);
+    stdioMCPProcess = null;
+  });
+
+  stdioMCPProcess.on('error', (error) => {
+    console.error('[synkord-stdio-mcp] error:', error.message);
+    stdioMCPProcess = null;
+  });
+
+  // 将激活项目信息发送给 stdio MCP 进程
+  if (stdioMCPProcess?.connected) {
+    stdioMCPProcess.send({
+      type: 'set-active-project',
+      project: activeProject,
+    });
+  }
+}
+
+/**
+ * 停止 STDIO MCP 服务
+ */
+function stopStdioMCPServer() {
+  if (!stdioMCPProcess) {
+    return;
+  }
+  const proc = stdioMCPProcess;
+  stdioMCPProcess = null;
+  proc.once('exit', () => {});
+  proc.kill();
+  setTimeout(() => {
+    if (!proc.killed) {
+      proc.kill('SIGKILL');
+    }
+  }, 1000);
 }
 
 async function createWindow() {
@@ -221,6 +327,14 @@ app.whenReady().then(() => {
       projectName: String(project.projectName || ''),
     } : null;
     sendActiveProjectToLocalMCP();
+    // 同时更新 stdio MCP 进程的激活项目
+    if (stdioMCPProcess?.connected) {
+      stdioMCPProcess.send({
+        type: 'set-active-project',
+        project: activeProject,
+      });
+    }
+    writeActiveContext(); // 确保写入最新上下文
     return mcpStatus();
   });
   ipcMain.handle('synkord:mcp:get-ide-config', () => {
@@ -230,11 +344,34 @@ app.whenReady().then(() => {
         mcpServers: {
           synkord: {
             url: `http://127.0.0.1:${mcpPort}${mcpPath}`,
-            headers: { Authorization: 'Bearer ${SYNKORD_MCP_TOKEN}' },
+          },
+        },
+      },
+      stdioTemplate: {
+        mcpServers: {
+          synkord: {
+            command: 'node',
+            args: [
+              path.join(__dirname, 'local-mcp-service.cjs'),
+              '--mode', 'stdio',
+              '--synkord-home', synkordHome,
+            ],
           },
         },
       },
     };
+  });
+
+  // 设置当前用户认证（MCP 服务内部调用后端用）
+  ipcMain.handle('synkord:mcp:set-user-auth', (_event, auth) => {
+    currentUserAuth = auth && auth.token ? {
+      token: String(auth.token),
+      user_id: String(auth.user_id || ''),
+      user_name: String(auth.user_name || ''),
+      updated_at: new Date().toISOString(),
+    } : null;
+    sendUserAuthToLocalMCP();
+    return { ok: true };
   });
   ipcMain.on('synkord:window-control', (event, action) => {
     const win = BrowserWindow.fromWebContents(event.sender);

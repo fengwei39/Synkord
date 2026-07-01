@@ -3,69 +3,69 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   App as AntApp,
   Alert,
+  Badge,
   Button,
   Card,
-  Checkbox,
-  DatePicker,
-  Descriptions,
-  Drawer,
+  Empty,
   Form,
   Input,
-  Modal,
-  Popconfirm,
   Skeleton,
   Space,
   Table,
   Tabs,
   Tag,
   Typography,
+  message,
+  Radio,
 } from 'antd';
 import {
+  ApiOutlined,
   ArrowLeftOutlined,
+  CheckCircleOutlined,
+  CloudServerOutlined,
   CopyOutlined,
-  PlusOutlined,
   ReloadOutlined,
-  SafetyCertificateOutlined,
+  RocketOutlined,
 } from '@ant-design/icons';
-import dayjs from 'dayjs';
 import {
-  createProjectMCPToken,
   getProjectMCPOnboarding,
   getProjectMCPOverview,
   listProjectMCPAuditLogs,
-  rotateProjectMCPToken,
-  updateProjectMCPToken,
   type MCPAuditLog,
-  type MCPConfig,
   type MCPOnboarding,
   type ProjectMCPOverview,
 } from '../api/mcp';
 import { useTeam } from '../contexts/TeamContext';
 import { useProject } from '../contexts/ProjectContext';
+import { useAuth } from '../api/auth';
 
 const { Title, Paragraph, Text } = Typography;
 
 const TOOL_OPTIONS = [
-  { value: 'get_project_entities', label: 'get_project_entities — 当前项目数据模型' },
-  { value: 'get_project_apis', label: 'get_project_apis — 当前项目 API 列表' },
-  { value: 'get_entity_dependencies', label: 'get_entity_dependencies — 实体被哪些项目引用' },
-  { value: 'get_api_dependencies', label: 'get_api_dependencies — API 被哪些项目引用' },
-  { value: 'validate_entity_usage', label: 'validate_entity_usage — 代码片段校验' },
+  { value: 'get_project_entities', label: '查询当前项目的数据模型列表', icon: '📊' },
+  { value: 'get_project_apis', label: '查询当前项目的 API 端点列表', icon: '🔌' },
+  { value: 'get_entity_dependencies', label: '查询数据模型的依赖关系', icon: '🔗' },
+  { value: 'get_api_dependencies', label: '查询 API 的依赖关系', icon: '🔗' },
+  { value: 'validate_entity_usage', label: '校验代码中的实体使用是否正确', icon: '✅' },
 ];
+
+// ============================================================================
+// 主页面
+// ============================================================================
 
 export default function MCP() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
-  const { message } = AntApp.useApp();
+  const { message: antMessage } = AntApp.useApp();
   const { currentTeamId } = useTeam();
   const { setCurrentProjectId } = useProject();
+  const { token, user } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [overview, setOverview] = useState<ProjectMCPOverview | null>(null);
   const [auditLogs, setAuditLogs] = useState<MCPAuditLog[]>([]);
   const [onboarding, setOnboarding] = useState<MCPOnboarding | null>(null);
 
-  // 打开 MCP Tab 时把该项目设为当前激活项目，并通知 Electron 写入 active-context.json
   useEffect(() => {
     if (!currentTeamId || !projectId) return;
     setCurrentProjectId(projectId);
@@ -76,7 +76,17 @@ export default function MCP() {
     }).catch(() => undefined);
   }, [currentTeamId, overview?.project_name, projectId, setCurrentProjectId]);
 
-  // 跨团队 URL 防护
+  // 通知 Electron 当前用户认证信息（用于 MCP 服务调用后端）
+  useEffect(() => {
+    if (token && user) {
+      window.synkord?.mcpSetUserAuth?.({
+        token,
+        user_id: user.id,
+        user_name: user.username || '',
+      }).catch(() => undefined);
+    }
+  }, [token, user]);
+
   useEffect(() => {
     if (projectId && currentTeamId && overview?.team_id && overview.team_id !== currentTeamId) {
       navigate('/projects', { replace: true });
@@ -96,7 +106,7 @@ export default function MCP() {
       setAuditLogs(audit.items || []);
       setOnboarding(onb);
     } catch (err: any) {
-      message.error('加载 MCP 信息失败：' + (err?.response?.data?.detail || err.message));
+      antMessage.error('加载 MCP 信息失败：' + (err?.response?.data?.detail || err.message));
     } finally {
       setLoading(false);
     }
@@ -104,11 +114,10 @@ export default function MCP() {
 
   useEffect(() => {
     loadAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTeamId, projectId]);
 
   if (loading && !overview) {
-    return <Skeleton active paragraph={{ rows: 6 }} />;
+    return <Skeleton active paragraph={{ rows: 8 }} />;
   }
 
   if (!overview) {
@@ -126,36 +135,40 @@ export default function MCP() {
       </div>
 
       <Tabs
-        defaultActiveKey="overview"
+        defaultActiveKey="access"
+        size="large"
         items={[
           {
-            key: 'overview',
-            label: '概览',
-            children: <OverviewTab overview={overview} />,
-          },
-          {
-            key: 'tokens',
-            label: 'Token 管理',
-            children: <TokensTab
-              teamId={currentTeamId!}
-              projectId={projectId!}
-              configs={overview.configs || []}
-              onChanged={loadAll}
-            />,
+            key: 'access',
+            label: (
+              <span>
+                <RocketOutlined />
+                IDE 接入
+              </span>
+            ),
+            children: <IDEAccessTab onboarding={onboarding} />,
           },
           {
             key: 'tools',
-            label: '工具列表',
-            children: <ToolsTab tools={overview.tools || []} toolOptions={TOOL_OPTIONS} />,
-          },
-          {
-            key: 'onboarding',
-            label: 'IDE 接入说明',
-            children: <OnboardingTab onboarding={onboarding} />,
+            label: (
+              <span>
+                <ApiOutlined />
+                可用工具
+              </span>
+            ),
+            children: <ToolsTab tools={overview.tools || []} />,
           },
           {
             key: 'audit',
-            label: '调用审计',
+            label: (
+              <span>
+                <CloudServerOutlined />
+                调用记录
+                {auditLogs.length > 0 && (
+                  <Badge count={Math.min(auditLogs.length, 99)} style={{ marginLeft: 8 }} />
+                )}
+              </span>
+            ),
             children: <AuditTab logs={auditLogs} />,
           },
         ]}
@@ -164,349 +177,209 @@ export default function MCP() {
   );
 }
 
-function OverviewTab({ overview }: { overview: ProjectMCPOverview }) {
-  return (
-    <Space direction="vertical" style={{ width: '100%' }} size="large">
-      <Card title="本地 MCP 服务状态" size="small">
-        <Descriptions column={2}>
-          <Descriptions.Item label="运行状态">
-            <Tag color={overview.status?.ready ? 'green' : 'red'}>
-              {overview.status?.ready ? '已就绪' : '未就绪'}
-            </Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="连接状态">
-            {overview.status?.connected ? '已连接' : '未连接'}
-          </Descriptions.Item>
-          <Descriptions.Item label="激活 Token 数">{overview.status?.active_tokens ?? 0}</Descriptions.Item>
-          <Descriptions.Item label="本地访问地址">
-            <Text code>{overview.local_hint_url}</Text>
-          </Descriptions.Item>
-        </Descriptions>
-        {!overview.status?.ready && (
-          <Alert
-            style={{ marginTop: 12 }}
-            type="warning"
-            showIcon
-            message="本地 MCP 服务未就绪"
-            description="请在 Electron 主窗口顶部检查 MCP 状态，或在系统托盘中启动本地 MCP 服务。"
-          />
-        )}
-      </Card>
-      <Card title="提示" size="small">
-        <Paragraph>
-          MCP 管理只在当前项目内有效。打开本页面时，Electron 自动把项目 <Text strong>{overview.project_id}</Text> 设为本地 MCP 服务的激活项目。
-        </Paragraph>
-        <Paragraph>
-          团队和项目由 Electron 当前激活上下文决定，IDE 配置文件只需指向本地 MCP 服务地址，<Text strong>切换项目无需修改 .mcp.json</Text>。
-        </Paragraph>
-      </Card>
-    </Space>
-  );
-}
+// ============================================================================
+// Tab 1: IDE 接入（无需 Token）
+// ============================================================================
 
-function TokensTab({
-  teamId,
-  projectId,
-  configs,
-  onChanged,
-}: {
-  teamId: string;
-  projectId: string;
-  configs: MCPConfig[];
-  onChanged: () => void;
-}) {
-  const { modal, message } = AntApp.useApp();
-  const [createOpen, setCreateOpen] = useState(false);
-  const [editing, setEditing] = useState<MCPConfig | null>(null);
-  const [revealedToken, setRevealedToken] = useState<{ token: string; name: string } | null>(null);
-  const [form] = Form.useForm<{ name: string; purpose: string; tool_scope: string[]; expires_at?: any }>();
+type TransportType = 'stdio' | 'streamable-http';
 
-  const openCreate = () => {
-    form.resetFields();
-    form.setFieldsValue({ tool_scope: TOOL_OPTIONS.map((t) => t.value) });
-    setCreateOpen(true);
+function IDEAccessTab({ onboarding }: { onboarding: MCPOnboarding | null }) {
+  const [messageApi, contextHolder] = message.useMessage();
+  const [transport, setTransport] = useState<TransportType>('stdio');
+
+  // HTTP 配置
+  const httpUrl = 'http://127.0.0.1:37991/mcp';
+
+  // STDIO 配置
+  const stdioCommand = 'node';
+  const stdioArgs = 'local-mcp-service.cjs --mode stdio';
+
+  const copyText = async (text: string, label: string) => {
+    await navigator.clipboard.writeText(text);
+    messageApi.success(`${label} 已复制`);
   };
 
-  const submitCreate = async () => {
-    const values = await form.validateFields();
-    const payload = {
-      name: values.name,
-      purpose: values.purpose,
-      tool_scope: values.tool_scope,
-      expires_at: values.expires_at ? dayjs(values.expires_at).format('YYYY-MM-DD') : undefined,
-    };
-    try {
-      const created = await createProjectMCPToken(teamId, projectId, payload);
-      setCreateOpen(false);
-      message.success('Token 已创建');
-      if (created.token) {
-        setRevealedToken({ token: created.token, name: created.name });
-      }
-      onChanged();
-    } catch (err: any) {
-      message.error('创建失败：' + (err?.response?.data?.detail || err.message));
+  const copyConfig = async () => {
+    let config: any;
+    if (transport === 'stdio') {
+      config = {
+        mcpServers: {
+          synkord: {
+            command: stdioCommand,
+            args: stdioArgs.split(' ').filter(Boolean),
+          },
+        },
+      };
+    } else {
+      config = {
+        mcpServers: {
+          synkord: {
+            type: 'streamable-http',
+            url: httpUrl,
+          },
+        },
+      };
     }
+    await navigator.clipboard.writeText(JSON.stringify(config, null, 2));
+    messageApi.success('配置已复制');
   };
 
-  const submitEdit = async () => {
-    if (!editing) return;
-    const values = await form.validateFields();
-    try {
-      await updateProjectMCPToken(teamId, projectId, editing.id, {
-        status: editing.status,
-        tool_scope: values.tool_scope,
-      });
-      setEditing(null);
-      message.success('已更新');
-      onChanged();
-    } catch (err: any) {
-      message.error('更新失败：' + (err?.response?.data?.detail || err.message));
-    }
-  };
-
-  const doRotate = async (config: MCPConfig) => {
-    try {
-      const rotated = await rotateProjectMCPToken(teamId, projectId, config.id);
-      message.success('Token 已轮换');
-      if (rotated.token) {
-        setRevealedToken({ token: rotated.token, name: rotated.name });
-      }
-      onChanged();
-    } catch (err: any) {
-      message.error('轮换失败：' + (err?.response?.data?.detail || err.message));
-    }
-  };
-
-  const doToggle = async (config: MCPConfig) => {
-    const next = config.status === 'active' ? 'disabled' : 'active';
-    try {
-      await updateProjectMCPToken(teamId, projectId, config.id, { status: next });
-      message.success(next === 'active' ? '已启用' : '已停用');
-      onChanged();
-    } catch (err: any) {
-      message.error('操作失败：' + (err?.response?.data?.detail || err.message));
-    }
-  };
+  const configJson = transport === 'stdio'
+    ? { mcpServers: { synkord: { command: stdioCommand, args: stdioArgs.split(' ').filter(Boolean) } } }
+    : { mcpServers: { synkord: { type: 'streamable-http', url: httpUrl } } };
 
   return (
-    <Card
-      title="当前项目 MCP Token"
-      size="small"
-      extra={<Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建 Token</Button>}
-    >
-      <Table<MCPConfig>
-        rowKey="id"
-        size="small"
-        dataSource={configs}
-        pagination={false}
-        columns={[
-          { title: '名称', dataIndex: 'name' },
-          { title: '用途', dataIndex: 'purpose' },
-          { title: 'Token 摘要', dataIndex: 'token_preview', render: (v) => <Text code>{v}</Text> },
-          {
-            title: '状态',
-            dataIndex: 'status',
-            render: (s: string) => <Tag color={s === 'active' ? 'green' : 'red'}>{s === 'active' ? '启用' : '停用'}</Tag>,
-          },
-          {
-            title: '工具范围',
-            dataIndex: 'tool_scope',
-            render: (scopes: string[]) => (scopes || []).map((s) => <Tag key={s}>{s}</Tag>),
-          },
-          {
-            title: '最近使用',
-            dataIndex: 'last_used_at',
-            render: (v) => (v ? new Date(v).toLocaleString() : '从未'),
-          },
-          {
-            title: '操作',
-            render: (_, record) => (
-              <Space>
-                <Button size="small" onClick={() => {
-                  setEditing(record);
-                  form.resetFields();
-                  form.setFieldsValue({ tool_scope: record.tool_scope });
-                }}>编辑</Button>
-                <Button size="small" onClick={() => doToggle(record)}>
-                  {record.status === 'active' ? '停用' : '启用'}
-                </Button>
-                <Popconfirm
-                  title="轮换 Token？"
-                  description="旧 Token 将立即失效"
-                  onConfirm={() => doRotate(record)}
-                >
-                  <Button size="small">轮换</Button>
-                </Popconfirm>
-              </Space>
-            ),
-          },
-        ]}
-      />
-
-      <Modal
-        title="新建 MCP Token"
-        open={createOpen}
-        onCancel={() => setCreateOpen(false)}
-        onOk={submitCreate}
-        okText="创建"
-        cancelText="取消"
-        destroyOnClose
-      >
-        <Form form={form} layout="vertical" preserve={false}>
-          <Form.Item name="name" label="名称" rules={[{ required: true, max: 128 }]}>
-            <Input placeholder="例如：Cursor 开发环境" />
-          </Form.Item>
-          <Form.Item name="purpose" label="用途" rules={[{ required: true, max: 64 }]}>
-            <Input placeholder="例如：本地 IDE 接入" />
-          </Form.Item>
-          <Form.Item name="tool_scope" label="工具范围" rules={[{ required: true, min: 1 }]}>
-            <Checkbox.Group options={TOOL_OPTIONS} />
-          </Form.Item>
-          <Form.Item name="expires_at" label="过期时间（可选）">
-            <DatePicker style={{ width: '100%' }} />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      <Modal
-        title={`编辑 Token：${editing?.name || ''}`}
-        open={!!editing}
-        onCancel={() => setEditing(null)}
-        onOk={submitEdit}
-        okText="保存"
-        cancelText="取消"
-        destroyOnClose
-      >
-        <Form form={form} layout="vertical" preserve={false}>
-          <Form.Item name="tool_scope" label="工具范围" rules={[{ required: true, min: 1 }]}>
-            <Checkbox.Group options={TOOL_OPTIONS} />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      <Modal
-        title="Token 明文（仅显示一次）"
-        open={!!revealedToken}
-        onCancel={() => setRevealedToken(null)}
-        footer={[
-          <Button key="copy" type="primary" icon={<CopyOutlined />}
-            onClick={async () => {
-              if (revealedToken) {
-                await navigator.clipboard.writeText(revealedToken.token);
-                message.success('已复制到剪贴板');
-              }
-            }}
-          >
-            复制
-          </Button>,
-          <Button key="close" onClick={() => setRevealedToken(null)}>关闭</Button>,
-        ]}
-      >
-        <Paragraph>
-          请妥善保存 <Text strong>{revealedToken?.name}</Text> 的 Token：
-        </Paragraph>
-        <Paragraph copyable={{ text: revealedToken?.token || '' }}>
-          <Text code style={{ wordBreak: 'break-all' }}>{revealedToken?.token}</Text>
-        </Paragraph>
+    <>
+      {contextHolder}
+      <Space direction="vertical" style={{ width: '100%' }} size="large">
+        {/* 说明 */}
         <Alert
-          type="warning"
+          type="info"
           showIcon
-          message="Token 仅在创建或轮换时完整展示一次，请立即保存到 IDE 配置或安全存储。"
-        />
-      </Modal>
-    </Card>
-  );
-}
-
-function ToolsTab({ tools, toolOptions }: { tools: string[]; toolOptions: typeof TOOL_OPTIONS }) {
-  return (
-    <Card size="small" title="本地 MCP 服务工具列表">
-      {toolOptions.map((opt) => {
-        const enabled = tools.includes(opt.value);
-        return (
-          <div key={opt.value} style={{ padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
-            <Space>
-              <Tag color={enabled ? 'green' : 'default'}>{enabled ? '已启用' : '未启用'}</Tag>
-              <Text code>{opt.value}</Text>
+          message="无需 Token"
+          description={
+            <Space direction="vertical" size={4}>
+              <Text>IDE/Codex 无需任何认证即可连接本地 MCP 服务。</Text>
+              <Text>MCP 服务内部使用当前登录用户身份调用后端 API。</Text>
+              <Text>切换项目后无需修改任何配置。</Text>
             </Space>
-            <Paragraph type="secondary" style={{ marginTop: 4, marginBottom: 0 }}>{opt.label}</Paragraph>
-          </div>
-        );
-      })}
+          }
+        />
+
+        {/* 传输方式 */}
+        <Card title="传输方式">
+          <Radio.Group
+            value={transport}
+            onChange={e => setTransport(e.target.value)}
+          >
+            <Space direction="vertical">
+              <Radio value="stdio">
+                <Space>
+                  <Text strong>STDIO</Text>
+                  <Text type="secondary">（适用于 Codex CLI、Claude CLI 等）</Text>
+                </Space>
+              </Radio>
+              <Radio value="streamable-http">
+                <Space>
+                  <Text strong>Streamable HTTP</Text>
+                  <Text type="secondary">（适用于 VS Code、Cursor、JetBrains 等 IDE）</Text>
+                </Space>
+              </Radio>
+            </Space>
+          </Radio.Group>
+        </Card>
+
+        {/* 配置预览 + 复制 */}
+        <Card title="IDE MCP 配置">
+          <Text type="secondary">配置预览：</Text>
+          <Input.TextArea
+            value={JSON.stringify(configJson, null, 2)}
+            readOnly
+            autoSize={{ minRows: 4, maxRows: 8 }}
+            style={{ fontFamily: 'monospace', marginTop: 8, marginBottom: 12 }}
+          />
+          <Button type="primary" icon={<CopyOutlined />} onClick={copyConfig}>
+            复制配置
+          </Button>
+        </Card>
+
+        {/* 预设模板 */}
+        {onboarding?.templates && Object.keys(onboarding.templates).length > 0 && (
+          <Card title="预设模板">
+            <Space direction="vertical" style={{ width: '100%' }} size="middle">
+              {Object.entries(onboarding.templates).map(([key, tpl]) => (
+                <Card key={key} size="small" styles={{ body: { padding: 12 } }}>
+                  <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                    <Space direction="vertical" size={4}>
+                      <Text strong>{key.toUpperCase()}</Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>写入路径：{tpl.path}</Text>
+                    </Space>
+                    <Button
+                      icon={<CopyOutlined />}
+                      onClick={() => copyText(tpl.value, `${key} 模板`)}
+                    >
+                      复制
+                    </Button>
+                  </Space>
+                </Card>
+              ))}
+            </Space>
+          </Card>
+        )}
+      </Space>
+    </>
+  );
+}
+
+// ============================================================================
+// Tab 2: 可用工具
+// ============================================================================
+
+function ToolsTab({ tools }: { tools: string[] }) {
+  return (
+    <Card title={<Space><ApiOutlined /><span>可用的 MCP 工具</span><Tag>{tools.length} 个</Tag></Space>}>
+      <Paragraph type="secondary" style={{ marginBottom: 16 }}>
+        以下工具可通过 MCP 协议调用，用于查询和操作 Synkord 项目数据。
+      </Paragraph>
+      <Space direction="vertical" style={{ width: '100%' }} size="middle">
+        {TOOL_OPTIONS.map((item) => {
+          const enabled = tools.includes(item.value);
+          return (
+            <Card key={item.value} size="small" styles={{ body: { padding: 12 } }}>
+              <Space style={{ width: '100%', justifyContent: 'space-between' }} align="center">
+                <Space direction="vertical" size={2}>
+                  <Space>
+                    <Text style={{ fontSize: 16 }}>{item.icon}</Text>
+                    <Text code>{item.value}</Text>
+                  </Space>
+                  <Text type="secondary">{item.label}</Text>
+                </Space>
+                <Tag color={enabled ? 'green' : 'default'} icon={enabled ? <CheckCircleOutlined /> : undefined}>
+                  {enabled ? '已启用' : '未启用'}
+                </Tag>
+              </Space>
+            </Card>
+          );
+        })}
+      </Space>
     </Card>
   );
 }
 
-function OnboardingTab({ onboarding }: { onboarding: MCPOnboarding | null }) {
-  const { message } = AntApp.useApp();
-  if (!onboarding) {
-    return <Alert type="info" showIcon message="IDE 接入说明加载失败或无权限" />;
-  }
-  return (
-    <Space direction="vertical" style={{ width: '100%' }} size="large">
-      <Card size="small" title="使用步骤">
-        <Paragraph>{onboarding.description}</Paragraph>
-        <Paragraph strong>环境变量：</Paragraph>
-        <ul>
-          {onboarding.env_vars.map((v) => (
-            <li key={v.name}>
-              <Text code>{v.name}</Text>：{v.description}
-            </li>
-          ))}
-        </ul>
-        <Paragraph strong>说明：</Paragraph>
-        <ul>
-          {onboarding.notes.map((n, i) => <li key={i}>{n}</li>)}
-        </ul>
-      </Card>
-      {Object.entries(onboarding.templates).map(([key, tpl]) => (
-        <Card
-          key={key}
-          size="small"
-          title={`${key.toUpperCase()} · 写入路径：${tpl.path}`}
-          extra={
-            <Button
-              icon={<CopyOutlined />}
-              onClick={async () => {
-                await navigator.clipboard.writeText(tpl.value);
-                message.success('已复制模板');
-              }}
-            >
-              复制
-            </Button>
-          }
-        >
-          <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 6, overflow: 'auto' }}>
-            {tpl.value}
-          </pre>
-        </Card>
-      ))}
-    </Space>
-  );
-}
+// ============================================================================
+// Tab 3: 调用记录
+// ============================================================================
 
 function AuditTab({ logs }: { logs: MCPAuditLog[] }) {
   return (
-    <Card size="small" title="MCP 调用审计（最近 100 条）">
-      <Table<MCPAuditLog>
-        rowKey="id"
-        size="small"
-        dataSource={logs}
-        pagination={{ pageSize: 20 }}
-        columns={[
-          { title: '时间', dataIndex: 'created_at', render: (v) => new Date(v).toLocaleString() },
-          { title: '工具', dataIndex: 'tool_name', render: (v) => <Text code>{v}</Text> },
-          { title: 'Token 摘要', dataIndex: 'mcp_config_id', render: (v) => <Text code>{(v || '').slice(0, 8)}</Text> },
-          { title: '调用方', dataIndex: 'caller' },
-          { title: '参数摘要', dataIndex: 'params_summary' },
-          {
-            title: '结果',
-            dataIndex: 'result_status',
-            render: (s: string) => <Tag color={s === 'success' || s === 'ok' ? 'green' : 'red'}>{s}</Tag>,
-          },
-          { title: '错误', dataIndex: 'error_message' },
-        ]}
-      />
+    <Card title={<Space><CloudServerOutlined /><span>调用记录</span><Badge count={logs.length} style={{ backgroundColor: '#52c41a' }} /></Space>}>
+      {logs.length === 0 ? (
+        <Empty description="暂无调用记录" />
+      ) : (
+        <Table
+          dataSource={logs}
+          rowKey="id"
+          pagination={{ pageSize: 20, showSizeChanger: false }}
+          columns={[
+            { title: '时间', dataIndex: 'created_at', width: 160, render: (v: string) => new Date(v).toLocaleString() },
+            { title: '工具', dataIndex: 'tool_name', width: 200, render: (v: string) => <Text code>{v}</Text> },
+            { title: '调用方', dataIndex: 'caller', width: 100 },
+            { title: '参数', dataIndex: 'params_summary', ellipsis: true },
+            {
+              title: '结果', dataIndex: 'result_status', width: 80,
+              render: (s: string) => (
+                <Tag color={s === 'success' || s === 'ok' ? 'green' : 'red'}>
+                  {s === 'success' || s === 'ok' ? '成功' : '失败'}
+                </Tag>
+              ),
+            },
+            {
+              title: '错误', dataIndex: 'error_message', ellipsis: true,
+              render: (v: string) => v ? <Text type="danger">{v}</Text> : '-',
+            },
+          ]}
+        />
+      )}
     </Card>
   );
 }

@@ -1,34 +1,71 @@
+#!/usr/bin/env node
 /**
- * Synkord Local MCP Service
+ * local-mcp-service.cjs
  *
- * 支持两种模式：
- * - stdio: 通过标准输入/输出进行 JSON-RPC 通信（默认，用于 Codex/CLI）
- * - http: 启动 HTTP 服务器监听请求（用于 IDE 代理）
+ * Synkord MCP Server 主进程
+ * 阶段 5：双模式（HTTP + STDIO）
  *
- * 无需 Token：MCP 服务内部调用后端时使用当前登录用户身份
+ * 严格遵循冻结版 mcp-server-design.md：
+ *  - §4.2 STDIO 模式
+ *  - §4.3 Streamable HTTP 模式
+ *  - §10 仅 127.0.0.1 监听（HTTP）
+ *  - §13.1 访问日志 JSON Lines（HTTP）
+ *  - §9.3 生命周期
+ *
+ * 用法：
+ *   node local-mcp-service.cjs --mode stdio
+ *   node local-mcp-service.cjs --mode http --port 37991
+ *   node local-mcp-service.cjs stdio
+ *   node local-mcp-service.cjs http --port 37991
  */
-
 'use strict';
 
-const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const os = require('os');
+const net = require('net');
+const fs = require('fs');
+const readline = require('readline');
 
 // ============================================================================
-// 命令行参数解析
+// 配置常量（HTTP 模式）
+// ============================================================================
+
+const HOST = '127.0.0.1';
+const DEFAULT_PORT = 37991;
+const DEFAULT_PATH = '/mcp';
+const MAX_BODY_SIZE = 4 * 1024 * 1024;
+const SSE_KEEPALIVE_MS = 15000;
+const SSE_MAX_EVENTS = 100;
+const SSE_EVENT_TTL_MS = 5 * 60 * 1000;
+const SHUTDOWN_TIMEOUT_MS = 5000;
+
+const SYNKORD_HOME = process.env.SYNKORD_HOME || path.join(os.homedir(), '.synkord');
+process.env.SYNKORD_HOME = SYNKORD_HOME;
+
+// ============================================================================
+// 参数解析（支持两种模式）
 // ============================================================================
 
 function parseArgs(argv) {
-  const out = { mode: 'stdio' };
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === '--mode' && argv[i + 1]) {
+  // 兼容两种调用：
+  // 1. node local-mcp-service.cjs --mode http --port 37991
+  // 2. node local-mcp-service.cjs stdio
+  // 3. node local-mcp-service.cjs http --port 37991
+  const out = { mode: 'http', port: DEFAULT_PORT };
+  let i = 0;
+
+  // 第一种：第一参数就是模式名（无 -- 前缀）
+  if (argv[0] === 'stdio' || argv[0] === 'http') {
+    out.mode = argv[0];
+    i = 1;
+  }
+
+  for (; i < argv.length; i++) {
+    if (argv[i] === '--mode' && argv[i + 1]) {
       out.mode = argv[++i];
-    } else if (arg === '--synkord-home' && argv[i + 1]) {
-      out.synkordHome = argv[++i];
-    } else if (arg === '--port' && argv[i + 1]) {
-      out.port = parseInt(argv[++i], 10);
+    } else if (argv[i] === '--port' && argv[i + 1]) {
+      out.port = parseInt(argv[++i], 10) || DEFAULT_PORT;
     }
   }
   return out;
@@ -37,540 +74,446 @@ function parseArgs(argv) {
 const args = parseArgs(process.argv.slice(2));
 
 // ============================================================================
-// 配置
+// 公共依赖
 // ============================================================================
 
-const synkordHome = args.synkordHome || process.env.SYNKORD_HOME || path.join(os.homedir(), '.synkord');
-const activeContextPath = path.join(synkordHome, 'active-context.json');
-const userAuthPath = path.join(synkordHome, 'user-auth.json');
-const POLL_INTERVAL_MS = 5000;
+const { ConfigLoader } = require('./mcp-core/config-loader.cjs');
+const { globalRegistry } = require('./mcp-core/tool-registry.cjs');
+const { registerBuiltinTools } = require('./mcp-tools/index.cjs');
+const { codeError, CODES, rpcError, serializeError, RPC_ERRORS } = require('./mcp-core/errors.cjs');
+const { initAccessLog, logAccess, closeAccessLog, info, warn, error, debug } = require('./mcp-core/logging.cjs');
+const { redactSensitive, getClientIp, readJsonFile } = require('./mcp-core/utils.cjs');
 
-const httpPort = args.port || Number(process.env.SYNKORD_LOCAL_MCP_PORT || 37991);
-const httpPath = '/mcp';
-
-let apiBase = process.env.SYNKORD_API_BASE || 'http://127.0.0.1:8000/api';
-
-const defaultTools = [
-  'get_project_entities',
-  'get_project_apis',
-  'get_entity_dependencies',
-  'get_api_dependencies',
-  'validate_entity_usage',
-];
+// 注册 5 个内置工具（仅一次）
+registerBuiltinTools();
 
 // ============================================================================
-// 激活上下文 + 用户认证管理
+// 公共：ConfigLoader + 轮询
 // ============================================================================
 
-let activeProject = null; // { teamId, projectId, projectName, synkord_core_url, updated_at }
-let userAuth = null;       // { token, user_id, user_name, updated_at }
-let lastUpdatedAt = null;
+const loader = new ConfigLoader();
 
-function readActiveContext() {
-  try {
-    if (!fs.existsSync(activeContextPath)) {
-      return false;
-    }
-    const raw = fs.readFileSync(activeContextPath, 'utf8');
-    const data = JSON.parse(raw);
-    if (data?.updated_at && data.updated_at === lastUpdatedAt) {
-      return false;
-    }
-    lastUpdatedAt = data.updated_at || null;
-    if (data.synkord_core_url) {
-      apiBase = data.synkord_core_url;
-    }
-    if (data.team_id && data.project_id) {
-      activeProject = {
-        teamId: data.team_id,
-        projectId: data.project_id,
-        projectName: data.project_name || '',
-      };
-    } else {
-      activeProject = null;
-    }
-    return true;
-  } catch (e) {
-    console.error('[local-mcp] failed to read active-context', e);
-    return false;
-  }
+async function loadFromDisk() {
+  const authPath = path.join(SYNKORD_HOME, 'user-auth.json');
+  const ctxPath = path.join(SYNKORD_HOME, 'active-context.json');
+  const auth = await readJsonFile(authPath);
+  const ctx = await readJsonFile(ctxPath);
+  // 文件不存在时也调用，setMemory* 会清空旧值
+  loader.setMemoryContext(ctx);
+  loader.setMemoryAuth(auth);
+  return { ctx, auth };
 }
 
-// 读取当前登录用户的认证信息
-function readUserAuth() {
-  try {
-    if (!fs.existsSync(userAuthPath)) {
-      userAuth = null;
-      return false;
-    }
-    const raw = fs.readFileSync(userAuthPath, 'utf8');
-    userAuth = JSON.parse(raw);
-    return true;
-  } catch (e) {
-    console.error('[local-mcp] failed to read user-auth', e);
-    userAuth = null;
-    return false;
-  }
-}
+// 启动时加载
+loadFromDisk().catch((e) => error('initial load failed', { error: e.message }));
 
-// 启动时读取一次
-readActiveContext();
-readUserAuth();
+// 1s 轮询
+setInterval(() => {
+  loadFromDisk().catch(() => {});
+}, 1000).unref();
 
 // ============================================================================
-// MCP 核心业务逻辑
+// 公共：JSON-RPC 工具
 // ============================================================================
 
 /**
- * 获取工具列表
+ * 标准化 JSON-RPC 响应
  */
-async function getTools() {
-  return defaultTools;
+function buildRpcResponse(id, result) {
+  return { jsonrpc: '2.0', id, result };
 }
 
-/**
- * 调用后端 API（携带当前用户 JWT）
- */
-async function backendPOST(pathname, payload) {
-  if (!userAuth?.token) {
-    throw new Error('用户未登录：请先在 Synkord 主程序中登录');
-  }
-  const resp = await fetch(`${apiBase}${pathname}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${userAuth.token}`,
-    },
-    body: JSON.stringify(payload),
-  });
-  const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    throw new Error(data.detail || `backend request failed: ${resp.status}`);
-  }
-  return data;
-}
-
-/**
- * 报告审计日志
- */
-async function reportAudit(tool, args, resultStatus, errorMessage) {
-  const payload = {
-    team_id: activeProject?.teamId,
-    project_id: activeProject?.projectId,
-    tool_name: tool,
-    caller: 'local-mcp',
-    params_summary: summarizeArgs(args),
-    result_status: resultStatus,
-    error_message: errorMessage || '',
-  };
-  try {
-    await backendPOST('/mcp/audit', payload);
-  } catch (e) {
-    console.error('[local-mcp] audit report failed:', e.message);
-  }
-}
-
-/**
- * 参数脱敏摘要
- */
-function summarizeArgs(args) {
-  if (!args || typeof args !== 'object') return '{}';
-  const out = {};
-  for (const [k, v] of Object.entries(args)) {
-    if (k === 'code_snippet' && typeof v === 'string') {
-      out[k] = `<string len=${v.length} preview="${v.slice(0, 32).replace(/\n/g, ' ')}...">`;
-    } else {
-      out[k] = v;
-    }
-  }
-  return JSON.stringify(out).slice(0, 480);
-}
-
-/**
- * 工具描述符
- */
-function toolDescriptor(name) {
-  return {
-    name,
-    description: `Synkord 当前激活项目工具：${name}`,
-    inputSchema: {
-      type: 'object',
-      additionalProperties: true,
-      properties: {},
-    },
-  };
+function buildRpcError(id, errorObj) {
+  return { jsonrpc: '2.0', id, error: errorObj };
 }
 
 // ============================================================================
-// STDIO 模式 (MCP Protocol)
+// 公共：进程信号处理
 // ============================================================================
 
-async function handleStdioMessage(id, method, params) {
-  switch (method) {
-    case 'initialize': {
-      return {
-        protocolVersion: '2024-11-05',
-        serverInfo: { name: 'synkord-local-mcp', version: '0.3.0' },
-        capabilities: { tools: {} },
-      };
+let isShuttingDown = false;
+function gracefulShutdown(signal, cleanup) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  info('shutting down', { signal, mode: args.mode });
+  const exitFn = () => {
+    if (typeof cleanup === 'function') {
+      try { cleanup(); } catch { /* ignore */ }
     }
-
-    case 'notifications/initialized': {
-      return null;
-    }
-
-    case 'tools/list': {
-      const tools = await getTools();
-      return { tools: tools.map(toolDescriptor) };
-    }
-
-    case 'tools/call': {
-      const name = params?.name;
-      const toolArgs = params?.arguments || {};
-
-      if (!activeProject?.teamId || !activeProject?.projectId) {
-        return {
-          content: [{ type: 'text', text: JSON.stringify({ error: 'Synkord MCP active project is not configured' }) }],
-          isError: true,
-        };
-      }
-
-      if (!userAuth?.token) {
-        return {
-          content: [{ type: 'text', text: JSON.stringify({ error: '用户未登录：请先在 Synkord 主程序中登录' }) }],
-          isError: true,
-        };
-      }
-
-      let result, errorMessage = null;
-      try {
-        const data = await backendPOST('/mcp/query', {
-          team_id: activeProject.teamId,
-          project_id: activeProject.projectId,
-          tool: name,
-          args: toolArgs,
-        });
-        result = data.result;
-      } catch (e) {
-        errorMessage = e.message;
-        reportAudit(name, toolArgs, 'error', errorMessage).catch(() => undefined);
-        return {
-          content: [{ type: 'text', text: JSON.stringify({ error: errorMessage }) }],
-          isError: true,
-        };
-      }
-
-      reportAudit(name, toolArgs, 'ok').catch(() => undefined);
-      return {
-        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-      };
-    }
-
-    default:
-      throw new Error(`Unsupported method: ${method}`);
-  }
-}
-
-function startStdioMode() {
-  console.error('[local-mcp] Started in stdio mode');
-
-  let rawBuffer = '';
-
-  if (process.stdin.isTTY) {
-    process.stdin.setRawMode?.(true);
-  }
-  process.stdin.setEncoding('utf8');
-
-  process.stdin.on('data', async (chunk) => {
-    rawBuffer += chunk;
-    const lines = rawBuffer.split('\n');
-    rawBuffer = lines.pop() || '';
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        const request = JSON.parse(trimmed);
-        await processStdioRequest(request);
-      } catch (e) {
-        if (e instanceof SyntaxError) continue;
-        console.error('[local-mcp] stdio error:', e.message);
-        sendStdioResponse(null, null, { code: -32603, message: e.message });
-      }
-    }
-  });
-
-  process.stdin.on('end', () => {
-    console.error('[local-mcp] stdin closed, exiting');
     process.exit(0);
-  });
-
-  process.stdin.on('error', (e) => {
-    console.error('[local-mcp] stdin error:', e.message);
-    process.exit(1);
-  });
+  };
+  // 超时强退
+  setTimeout(() => {
+    warn('shutdown timeout, force exit');
+    process.exit(0);
+  }, SHUTDOWN_TIMEOUT_MS).unref();
+  exitFn();
 }
 
-async function processStdioRequest(request) {
-  const id = request.id;
-  const method = request.method;
-  const params = request.params;
-  try {
-    const result = await handleStdioMessage(id, method, params);
-    sendStdioResponse(id, result, null);
-  } catch (e) {
-    sendStdioResponse(id, null, { code: getErrorCode(e), message: e.message });
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+// IPC 关闭信号
+process.on('message', (msg) => {
+  if (msg?.type === 'shutdown') {
+    gracefulShutdown('ipc-shutdown');
   }
-}
+});
 
-function sendStdioResponse(id, result, error) {
-  const response = { jsonrpc: '2.0', id };
-  if (error) {
-    response.error = error;
-  } else {
-    response.result = result;
-  }
-  const output = JSON.stringify(response) + '\n';
-  process.stdout.write(output);
-}
+process.on('uncaughtException', (err) => {
+  error('uncaughtException', { error: err.message, stack: err.stack });
+});
 
-function getErrorCode(e) {
-  if (e.message.includes('Unsupported method')) return -32601;
-  if (e.message.includes('not configured')) return -32001;
-  if (e.message.includes('required')) return -32002;
-  return -32603;
+process.on('unhandledRejection', (reason) => {
+  error('unhandledRejection', { reason: String(reason) });
+});
+
+// ============================================================================
+// 模式选择
+// ============================================================================
+
+if (args.mode === 'stdio') {
+  runStdioMode();
+} else {
+  runHttpMode();
 }
 
 // ============================================================================
-// HTTP 模式
+// STDIO 模式（阶段 5）
 // ============================================================================
 
-function startHttpMode() {
-  console.error(`[local-mcp] Started in http mode, listening on http://127.0.0.1:${httpPort}`);
+function runStdioMode() {
+  info('STDIO mode starting', { pid: process.pid, synkord_home: SYNKORD_HOME });
 
-  // 定期轮询 active-context.json 和 user-auth.json
-  setInterval(() => {
-    if (readActiveContext()) {
-      console.log('[local-mcp] active context updated:', activeProject ? `${activeProject.teamId}/${activeProject.projectId}` : 'none');
-    }
-    readUserAuth();
-  }, POLL_INTERVAL_MS).unref();
+  // 通知父进程 ready
+  if (process.send) {
+    process.send({ type: 'ready', mode: 'stdio' });
+  }
 
-  const server = http.createServer(async (req, res) => {
+  // 配置 readline
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout, // 注意：实际不写，由我们控制
+    terminal: false,
+    crlfDelay: Infinity,
+  });
+
+  // 强制：所有日志走 stderr，stdout 仅输出 JSON-RPC
+  // 禁用 console.log（防止误用）
+  console.log = (...args) => {
+    process.stderr.write(`[console.log intercepted] ${args.join(' ')}\n`);
+  };
+  console.info = (...args) => {
+    process.stderr.write(`[console.info intercepted] ${args.join(' ')}\n`);
+  };
+  // console.error / console.warn 保留（已经走 stderr）
+
+  // 逐行处理
+  rl.on('line', async (line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+
+    let req;
     try {
-      if (req.method === 'GET' && req.url === '/health') {
-        writeJSON(res, 200, {
-          status: 'ok',
-          activeProject,
-          user: userAuth ? { user_id: userAuth.user_id, user_name: userAuth.user_name } : null,
-        });
-        return;
-      }
-
-      if (req.method === 'POST' && req.url === httpPath) {
-        await handleHttpRequest(req, res);
-        return;
-      }
-
-      if (req.method === 'GET' && req.url === httpPath) {
-        handleHttpStream(req, res);
-        return;
-      }
-
-      writeJSON(res, 404, { error: 'not found' });
-    } catch (error) {
-      console.error('[local-mcp] http error:', error);
-      writeJSON(res, 500, jsonRPCError(null, -32603, error.message || 'internal error'));
-    }
-  });
-
-  server.listen(httpPort, '127.0.0.1', () => {
-    console.error(`[local-mcp] http server ready on port ${httpPort}`);
-    if (process.send) {
-      process.send({ type: 'ready', port: httpPort });
-    }
-  });
-
-  server.on('error', (error) => {
-    console.error('[local-mcp] http server error:', error.message);
-    if (process.send) {
-      process.send({ type: 'error', error: error.message });
-    }
-  });
-
-  process.on('message', (message) => {
-    if (message?.type === 'shutdown') {
-      console.error('[local-mcp] received shutdown signal');
-      server.close(() => process.exit(0));
-    }
-    if (message?.type === 'set-active-project') {
-      activeProject = message.project || null;
-      lastUpdatedAt = null;
-      readActiveContext();
-    }
-    if (message?.type === 'set-user-auth') {
-      userAuth = message.auth || null;
-    }
-  });
-}
-
-async function handleHttpRequest(req, res) {
-  const body = await readJSON(req);
-  const id = body?.id ?? null;
-  const method = body?.method;
-  const params = body?.params || {};
-
-  if (!activeProject?.teamId || !activeProject?.projectId) {
-    writeJSON(res, 200, jsonRPCError(id, -32001, 'Synkord MCP active project is not configured'));
-    return;
-  }
-  if (!userAuth?.token) {
-    writeJSON(res, 200, jsonRPCError(id, -32002, '用户未登录'));
-    return;
-  }
-
-  try {
-    let result;
-
-    if (method === 'initialize') {
-      result = {
-        protocolVersion: '2024-11-05',
-        serverInfo: { name: 'synkord-local-mcp', version: '0.3.0' },
-        capabilities: { tools: {} },
-      };
-    } else if (method === 'notifications/initialized') {
-      result = {};
-    } else if (method === 'tools/list') {
-      const tools = await getTools();
-      result = { tools: tools.map(toolDescriptor) };
-    } else if (method === 'tools/call') {
-      const name = params?.name;
-      const toolArgs = params?.arguments || {};
-
-      let data, errorMessage = null;
-      try {
-        data = await backendPOST('/mcp/query', {
-          team_id: activeProject.teamId,
-          project_id: activeProject.projectId,
-          tool: name,
-          args: toolArgs,
-        });
-      } catch (e) {
-        errorMessage = e.message;
-        reportAudit(name, toolArgs, 'error', errorMessage).catch(() => undefined);
-        writeJSON(res, 200, {
-          jsonrpc: '2.0', id,
-          error: { code: -32003, message: errorMessage },
-        });
-        return;
-      }
-
-      reportAudit(name, toolArgs, 'ok').catch(() => undefined);
-      result = { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
-    } else {
-      writeJSON(res, 200, jsonRPCError(id, -32601, `Unsupported method: ${method}`));
+      req = JSON.parse(trimmed);
+    } catch (e) {
+      sendRpcErrorToStdout(null, rpcError('PARSE_ERROR', 'parse error: ' + e.message));
       return;
     }
 
-    writeJSON(res, 200, { jsonrpc: '2.0', id, result });
+    if (typeof req !== 'object' || req === null) {
+      sendRpcErrorToStdout(req?.id, rpcError('INVALID_REQUEST', 'invalid request'));
+      return;
+    }
+
+    // 通知消息（无 id）不响应
+    const isNotification = req.id === undefined || req.id === null;
+
+    try {
+      // 已知非工具方法：直接处理（不走 dispatch）
+      if (req.method === 'initialize' ||
+          req.method === 'notifications/initialized' ||
+          req.method === 'tools/list' ||
+          req.method === 'tools/call' ||
+          req.method === 'ping') {
+        const result = await handleRpcMethod(req);
+        if (!isNotification) {
+          sendRpcResponseToStdout(req.id, result);
+        }
+      } else {
+        // 未知方法：直接返回 JSON-RPC 错误
+        sendRpcErrorToStdout(req.id, rpcError('METHOD_NOT_FOUND', `method not found: ${req.method}`));
+      }
+    } catch (e) {
+      error('RPC handler error', { method: req.method, error: e.message });
+      if (!isNotification) {
+        const rpcErr = codeError(CODES.INTERNAL, e.message || 'internal error');
+        sendRpcErrorToStdout(req.id, rpcErr);
+      }
+    }
+  });
+
+  rl.on('close', () => {
+    info('stdin closed, exiting');
+    process.exit(0);
+  });
+
+  // 输出提示到 stderr（不污染 stdout）
+  process.stderr.write(`[synkord-mcp] stdio mode ready (pid=${process.pid})\n`);
+}
+
+/**
+ * 通过 stdout 输出 JSON-RPC 响应
+ * 严格单行 JSON + \n
+ */
+function sendRpcResponseToStdout(id, result) {
+  const response = buildRpcResponse(id, result);
+  try {
+    process.stdout.write(JSON.stringify(response) + '\n');
   } catch (e) {
-    writeJSON(res, 200, jsonRPCError(id, -32603, e.message));
+    // 序列化失败（极少见），回退到错误
+    const err = buildRpcError(id, rpcError('INTERNAL_ERROR', 'response serialize failed: ' + e.message));
+    process.stdout.write(JSON.stringify(err) + '\n');
   }
 }
 
-function handleHttpStream(req, res) {
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'Access-Control-Allow-Origin': '*',
-  });
-  res.write('event: message\ndata: {}\n\n');
-  const keepAlive = setInterval(() => res.write(': ping\n\n'), 30000);
-  req.on('close', () => clearInterval(keepAlive));
+function sendRpcErrorToStdout(id, errorObj) {
+  const response = buildRpcError(id, errorObj);
+  try {
+    process.stdout.write(JSON.stringify(response) + '\n');
+  } catch (e) {
+    // 兜底
+    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32603, message: 'fatal' } }) + '\n');
+  }
 }
 
-function readJSON(req) {
+/**
+ * 路由 RPC 方法
+ */
+async function handleRpcMethod(req) {
+  const method = req.method;
+  const params = req.params || {};
+
+  if (method === 'initialize') {
+    return {
+      protocolVersion: '2024-11-05',
+      serverInfo: { name: 'synkord-mcp', version: '0.1.0' },
+      capabilities: { tools: {} },
+    };
+  }
+
+  if (method === 'notifications/initialized') {
+    // 通知消息，无需返回
+    return null;
+  }
+
+  if (method === 'tools/list') {
+    return { tools: globalRegistry.list() };
+  }
+
+  if (method === 'tools/call') {
+    const { name, arguments: args } = params;
+    const r = await globalRegistry.dispatch({ tool: name, args: args || {}, loader });
+    return r;
+  }
+
+  if (method === 'ping') {
+    return { status: 'pong' };
+  }
+
+  // 未知方法：抛 JSON-RPC 标准错误
+  throw rpcError('METHOD_NOT_FOUND', `method not found: ${method}`);
+}
+
+// ============================================================================
+// HTTP 模式（阶段 4，保留）
+// ============================================================================
+
+function runHttpMode() {
+  // ... 复用阶段 4 逻辑
+  startHttpServer();
+}
+
+async function startHttpServer() {
+  // 端口预检
+  const port = await findAvailablePort(args.port);
+  if (!port) {
+    error('no available port', { preferred: args.port });
+    if (process.send) process.send({ type: 'error', error: 'no available port' });
+    process.exit(1);
+  }
+  const serverPort = port;
+
+  // 初始化访问日志
+  initAccessLog();
+
+  const server = http.createServer(httpRequestHandler);
+
+  server.on('error', (err) => {
+    error('server error', { error: err.message });
+    process.exit(1);
+  });
+
+  server.listen(port, HOST, () => {
+    info('HTTP MCP server listening', { host: HOST, port, path: DEFAULT_PATH, pid: process.pid, synkord_home: SYNKORD_HOME });
+    if (process.send) process.send({ type: 'ready', port });
+  });
+}
+
+function findAvailablePort(preferred) {
+  return new Promise((resolve) => {
+    let p = preferred;
+    function tryOne() {
+      const tester = net.createServer()
+        .once('error', () => {
+          p++;
+          if (p < preferred + 10) tryOne();
+          else resolve(null);
+        })
+        .once('listening', () => tester.close(() => resolve(p)))
+        .listen(p, HOST);
+    }
+    tryOne();
+  });
+}
+
+// HTTP handler（简化版，沿用阶段 4）
+function httpRequestHandler(req, res) {
+  applyCORS(req, res);
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+  const url = new URL(req.url, `http://${HOST}`);
+  if (url.pathname !== DEFAULT_PATH) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+    return;
+  }
+  if (url.method === undefined) { /* ignore */ }
+  if (req.method === 'GET') {
+    handleMcpGET(req, res);
+  } else if (req.method === 'POST') {
+    handleMcpPOST(req, res);
+  } else {
+    res.writeHead(405, { 'Content-Type': 'application/json', Allow: 'GET, POST, OPTIONS' });
+    res.end(JSON.stringify({ error: 'method not allowed' }));
+  }
+}
+
+function applyCORS(req, res) {
+  const origin = req.headers.origin;
+  if (isLocalOrigin(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    res.setHeader('Vary', 'Origin');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Last-Event-ID');
+  res.setHeader('Access-Control-Max-Age', '86400');
+}
+
+function isLocalOrigin(origin) {
+  if (!origin) return true;
+  try {
+    const u = new URL(origin);
+    return u.hostname === '127.0.0.1' || u.hostname === 'localhost' || u.hostname === '::1';
+  } catch {
+    return false;
+  }
+}
+
+let httpConnectionCounter = 0;
+async function handleMcpPOST(req, res) {
+  const start = Date.now();
+  const connId = ++httpConnectionCounter;
+
+  let body;
+  try {
+    body = await readBody(req);
+  } catch {
+    const err = codeError(CODES.INVALID_ARGS, 'body too large');
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ jsonrpc: '2.0', error: err }));
+    logAccess({ conn: connId, method: 'POST', path: '/mcp', status: 400, durMs: Date.now() - start, remote: getClientIp(req), ua: req.headers['user-agent'] || '', rpc: 'body_error' });
+    return;
+  }
+
+  let rpcReq;
+  try {
+    rpcReq = JSON.parse(body);
+  } catch {
+    const err = rpcError('PARSE_ERROR');
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ jsonrpc: '2.0', error: err }));
+    logAccess({ conn: connId, method: 'POST', path: '/mcp', status: 400, durMs: Date.now() - start, remote: getClientIp(req), ua: req.headers['user-agent'] || '', rpc: 'parse_error' });
+    return;
+  }
+
+  const rpcMethod = rpcReq?.method || '';
+  let result, errOut, httpStatus = 200;
+
+  try {
+    if (rpcMethod === 'initialize') {
+      result = { protocolVersion: '2024-11-05', serverInfo: { name: 'synkord-mcp', version: '0.1.0' }, capabilities: { tools: {} } };
+    } else if (rpcMethod === 'notifications/initialized') {
+      res.writeHead(202);
+      res.end();
+      logAccess({ conn: connId, method: 'POST', path: '/mcp', status: 202, durMs: Date.now() - start, remote: getClientIp(req), ua: req.headers['user-agent'] || '', rpc: rpcMethod });
+      return;
+    } else if (rpcMethod === 'tools/list') {
+      result = { tools: globalRegistry.list() };
+    } else if (rpcMethod === 'tools/call') {
+      const { name, arguments: args } = rpcReq.params || {};
+      result = await globalRegistry.dispatch({ tool: name, args: args || {}, loader });
+    } else if (rpcMethod === 'ping') {
+      result = { status: 'pong' };
+    } else {
+      errOut = rpcError('METHOD_NOT_FOUND', `method not found: ${rpcMethod}`);
+      httpStatus = 400;
+    }
+  } catch (e) {
+    errOut = codeError(CODES.INTERNAL, e.message);
+    httpStatus = 500;
+  }
+
+  const response = { jsonrpc: '2.0', id: rpcReq.id };
+  if (errOut) response.error = errOut;
+  else response.result = result;
+
+  res.writeHead(httpStatus, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(response));
+  logAccess({ conn: connId, method: 'POST', path: '/mcp', status: httpStatus, durMs: Date.now() - start, remote: getClientIp(req), ua: req.headers['user-agent'] || '', rpc: rpcMethod });
+}
+
+function handleMcpGET(req, res) {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.writeHead(200);
+  const ka = setInterval(() => {
+    if (res.writableEnded) { clearInterval(ka); return; }
+    res.write(': keepalive\n\n');
+  }, SSE_KEEPALIVE_MS);
+  res.write('event: connected\ndata: {}\n\n');
+  req.on('close', () => clearInterval(ka));
+}
+
+function readBody(req) {
   return new Promise((resolve, reject) => {
-    let raw = '';
-    req.setEncoding('utf8');
+    let size = 0;
+    const chunks = [];
     req.on('data', (chunk) => {
-      raw += chunk;
-      if (raw.length > 1024 * 1024) {
-        reject(new Error('request body too large'));
+      size += chunk.length;
+      if (size > MAX_BODY_SIZE) {
         req.destroy();
+        reject(new Error('body too large'));
+        return;
       }
+      chunks.push(chunk);
     });
-    req.on('end', () => {
-      try {
-        resolve(raw ? JSON.parse(raw) : {});
-      } catch (error) {
-        reject(error);
-      }
-    });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
   });
 }
-
-function writeJSON(res, status, body) {
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  });
-  res.end(JSON.stringify(body));
-}
-
-function jsonRPCError(id, code, message) {
-  return { jsonrpc: '2.0', id, error: { code, message } };
-}
-
-// ============================================================================
-// 主入口
-// ============================================================================
-
-function main() {
-  const mode = args.mode || 'stdio';
-
-  if (mode === 'stdio' || mode === 'both') {
-    if (mode === 'both') {
-      setInterval(() => {
-        if (readActiveContext()) {
-          console.error('[local-mcp] active context updated:', activeProject ? `${activeProject.teamId}/${activeProject.projectId}` : 'none');
-        }
-        readUserAuth();
-      }, POLL_INTERVAL_MS).unref();
-    }
-
-    process.on('message', (message) => {
-      if (message?.type === 'set-active-project') {
-        activeProject = message.project || null;
-        lastUpdatedAt = null;
-        readActiveContext();
-      }
-      if (message?.type === 'set-user-auth') {
-        userAuth = message.auth || null;
-      }
-      if (message?.type === 'shutdown') {
-        console.error('[local-mcp] received shutdown signal');
-        process.exit(0);
-      }
-    });
-
-    startStdioMode();
-  }
-
-  if (mode === 'http' || mode === 'both') {
-    startHttpMode();
-  }
-
-  if (process.send && mode !== 'stdio') {
-    process.send({ type: 'ready', mode, port: httpPort });
-  }
-}
-
-if (require.main === module) {
-  main();
-}
-
-module.exports = { parseArgs, readActiveContext, readUserAuth, main };

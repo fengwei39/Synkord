@@ -39,7 +39,7 @@ export default function AppLayout() {
 
   useEffect(() => {
     window.synkord?.mcpGetStatus?.()
-      .then((status) => setMcpStatus(status?.running ? 'enabled' : (status?.activeProject ? 'disabled' : 'not_configured')))
+      .then((status) => setMcpStatus(status?.state === 'running' ? 'enabled' : (status?.activeProject ? 'disabled' : 'not_configured')))
       .catch(() => setMcpStatus('not_configured'));
   }, [location.pathname]);
 

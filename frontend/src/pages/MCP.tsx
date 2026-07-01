@@ -1,385 +1,587 @@
-import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+/**
+ * MCP.tsx - MCP Server 管理控制面板（阶段 6 终版）
+ *
+ * 严格遵循设计文档：
+ *  - §3 启动方式（UI 控制启停）
+ *  - §8 目录结构
+ *  - §9.3 生命周期（状态机）
+ *  - §10 安全（仅白名单 IPC、不暴露 Token）
+ *
+ * 硬性约束：
+ *  - 不修改任何阶段 1-5 底层代码
+ *  - 仅依赖 preload 暴露的 IPC 白名单
+ *  - 不主动轮询，依赖主进程事件推送
+ */
 import {
-  App as AntApp,
   Alert,
   Badge,
   Button,
   Card,
-  Empty,
-  Form,
-  Input,
-  Skeleton,
+  Col,
+  Row,
+  Segmented,
+  Select,
   Space,
-  Table,
-  Tabs,
+  Spin,
+  Statistic,
   Tag,
+  Tooltip,
   Typography,
   message,
-  Radio,
 } from 'antd';
 import {
-  ApiOutlined,
-  ArrowLeftOutlined,
   CheckCircleOutlined,
-  CloudServerOutlined,
+  CloseCircleOutlined,
   CopyOutlined,
+  ExclamationCircleOutlined,
+  FileTextOutlined,
+  LoadingOutlined,
+  PauseCircleOutlined,
+  PlayCircleOutlined,
+  PoweroffOutlined,
   ReloadOutlined,
-  RocketOutlined,
 } from '@ant-design/icons';
-import {
-  getProjectMCPOnboarding,
-  getProjectMCPOverview,
-  listProjectMCPAuditLogs,
-  type MCPAuditLog,
-  type MCPOnboarding,
-  type ProjectMCPOverview,
-} from '../api/mcp';
-import { useTeam } from '../contexts/TeamContext';
-import { useProject } from '../contexts/ProjectContext';
-import { useAuth } from '../api/auth';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import type { ReactNode } from 'react';
 
-const { Title, Paragraph, Text } = Typography;
-
-const TOOL_OPTIONS = [
-  { value: 'get_project_entities', label: '查询当前项目的数据模型列表', icon: '📊' },
-  { value: 'get_project_apis', label: '查询当前项目的 API 端点列表', icon: '🔌' },
-  { value: 'get_entity_dependencies', label: '查询数据模型的依赖关系', icon: '🔗' },
-  { value: 'get_api_dependencies', label: '查询 API 的依赖关系', icon: '🔗' },
-  { value: 'validate_entity_usage', label: '校验代码中的实体使用是否正确', icon: '✅' },
-];
+const { Title, Text, Paragraph } = Typography;
 
 // ============================================================================
-// 主页面
+// 类型别名（与全局类型对齐）
+// ============================================================================
+
+type MCPState = MCPStatus['state'];
+
+// ============================================================================
+// IDE 客户端预设
+// ============================================================================
+
+const MCP_CLIENTS = [
+  { id: 'codex', name: 'Codex', description: 'OpenAI Codex CLI', mode: 'stdio' },
+  { id: 'claude', name: 'Claude CLI', description: 'Anthropic Claude Code', mode: 'stdio' },
+  { id: 'cursor', name: 'Cursor', description: 'Cursor IDE', mode: 'http' },
+  { id: 'vscode', name: 'VS Code', description: 'VS Code + Copilot', mode: 'http' },
+  { id: 'jetbrains', name: 'JetBrains', description: 'IntelliJ / PyCharm / GoLand', mode: 'http' },
+] as const;
+
+type ClientId = (typeof MCP_CLIENTS)[number]['id'];
+
+// ============================================================================
+// 状态展示辅助
+// ============================================================================
+
+const STATE_META: Record<MCPState, { color: string; text: string; icon: ReactNode }> = {
+  idle: { color: 'default', text: '未启动', icon: <PauseCircleOutlined /> },
+  starting: { color: 'processing', text: '启动中', icon: <LoadingOutlined spin /> },
+  running: { color: 'success', text: '运行中', icon: <CheckCircleOutlined /> },
+  stopped: { color: 'default', text: '已停止', icon: <PauseCircleOutlined /> },
+  failed: { color: 'error', text: '启动失败', icon: <CloseCircleOutlined /> },
+  restarting: { color: 'processing', text: '重启中', icon: <ReloadOutlined spin /> },
+};
+
+// ============================================================================
+// 主组件
 // ============================================================================
 
 export default function MCP() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
-  const { message: antMessage } = AntApp.useApp();
-  const { currentTeamId } = useTeam();
-  const { setCurrentProjectId } = useProject();
-  const { token, user } = useAuth();
+  const [messageApi, contextHolder] = message.useMessage();
 
+  // 当前状态
+  const [status, setStatus] = useState<MCPStatus>({
+    state: 'idle',
+    port: null,
+    url: null,
+    pid: null,
+    activeProject: null,
+    restartCount: 0,
+  });
   const [loading, setLoading] = useState(true);
-  const [overview, setOverview] = useState<ProjectMCPOverview | null>(null);
-  const [auditLogs, setAuditLogs] = useState<MCPAuditLog[]>([]);
-  const [onboarding, setOnboarding] = useState<MCPOnboarding | null>(null);
+  const [acting, setActing] = useState(false);
+
+  // 运行时长
+  const [uptime, setUptime] = useState(0);
+  const uptimeTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // IDE 配置
+  const [clientId, setClientId] = useState<ClientId>('codex');
+  const [transport, setTransport] = useState<'stdio' | 'http'>('stdio');
+  const [ideUrl, setIdeUrl] = useState('http://127.0.0.1:37991/mcp');
+  const [ideConfig, setIdeConfig] = useState<string>('');
+
+  // ==========================================================================
+  // 初始加载
+  // ==========================================================================
 
   useEffect(() => {
-    if (!currentTeamId || !projectId) return;
-    setCurrentProjectId(projectId);
-    window.synkord?.mcpSetActiveProject?.({
-      teamId: currentTeamId,
-      projectId,
-      projectName: overview?.project_name || projectId,
-    }).catch(() => undefined);
-  }, [currentTeamId, overview?.project_name, projectId, setCurrentProjectId]);
+    refreshStatus();
+    return () => stopUptimeTimer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // 通知 Electron 当前用户认证信息（用于 MCP 服务调用后端）
+  // 订阅主进程事件
   useEffect(() => {
-    if (token && user) {
-      window.synkord?.mcpSetUserAuth?.({
-        token,
-        user_id: user.id,
-        user_name: user.username || '',
-      }).catch(() => undefined);
-    }
-  }, [token, user]);
+    const unsubscribe = window.synkord?.onMcpEvent?.((payload: MCPEvent) => {
+      setStatus((prev) => ({
+        ...prev,
+        state: payload.state,
+        port: payload.port ?? prev.port,
+        url: payload.url ?? prev.url,
+        pid: payload.pid ?? prev.pid,
+        reason: payload.reason,
+      }));
+      // running 时启动计时器
+      if (payload.state === 'running') {
+        startUptimeTimer();
+      } else if (['stopped', 'failed', 'idle'].includes(payload.state)) {
+        stopUptimeTimer();
+      }
+    });
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, []);
 
-  useEffect(() => {
-    if (projectId && currentTeamId && overview?.team_id && overview.team_id !== currentTeamId) {
-      navigate('/projects', { replace: true });
-    }
-  }, [projectId, currentTeamId, overview, navigate]);
+  // ==========================================================================
+  // 操作
+  // ==========================================================================
 
-  const loadAll = async () => {
-    if (!currentTeamId || !projectId) return;
+  const refreshStatus = async () => {
     setLoading(true);
     try {
-      const [ov, audit, onb] = await Promise.all([
-        getProjectMCPOverview(currentTeamId, projectId),
-        listProjectMCPAuditLogs(currentTeamId, projectId).catch(() => ({ items: [], total: 0 })),
-        getProjectMCPOnboarding(currentTeamId, projectId).catch(() => null),
-      ]);
-      setOverview(ov);
-      setAuditLogs(audit.items || []);
-      setOnboarding(onb);
-    } catch (err: any) {
-      antMessage.error('加载 MCP 信息失败：' + (err?.response?.data?.detail || err.message));
+      const s = await window.synkord?.mcpGetStatus?.();
+      if (s) {
+        setStatus(s);
+        if (s.state === 'running') startUptimeTimer();
+      }
+    } catch (e: any) {
+      messageApi.error('获取状态失败：' + (e?.message || '未知错误'));
     } finally {
       setLoading(false);
     }
   };
 
+  const handleStart = async () => {
+    setActing(true);
+    try {
+      const s = await window.synkord?.mcpStart?.();
+      if (s) setStatus(s);
+      messageApi.success('已发送启动信号');
+    } catch (e: any) {
+      messageApi.error('启动失败：' + (e?.message || '未知错误'));
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const handleStop = async () => {
+    setActing(true);
+    try {
+      const s = await window.synkord?.mcpStop?.();
+      if (s) setStatus(s);
+      messageApi.success('已发送停止信号');
+    } catch (e: any) {
+      messageApi.error('停止失败：' + (e?.message || '未知错误'));
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const handleRestart = async () => {
+    setActing(true);
+    try {
+      const s = await window.synkord?.mcpRestart?.();
+      if (s) setStatus(s);
+      messageApi.success('已发送重启信号');
+    } catch (e: any) {
+      messageApi.error('重启失败：' + (e?.message || '未知错误'));
+    } finally {
+      setActing(false);
+    }
+  };
+
+  // ==========================================================================
+  // 运行时长
+  // ==========================================================================
+
+  const startUptimeTimer = () => {
+    if (uptimeTimer.current) return;
+    setUptime(0);
+    uptimeTimer.current = setInterval(() => {
+      setUptime((u) => u + 1);
+    }, 1000);
+  };
+
+  const stopUptimeTimer = () => {
+    if (uptimeTimer.current) {
+      clearInterval(uptimeTimer.current);
+      uptimeTimer.current = null;
+    }
+    setUptime(0);
+  };
+
+  // ==========================================================================
+  // IDE 配置生成
+  // ==========================================================================
+
+  // 客户端选择变更时自动切换 transport
   useEffect(() => {
-    loadAll();
-  }, [currentTeamId, projectId]);
+    const client = MCP_CLIENTS.find((c) => c.id === clientId);
+    if (client) setTransport(client.mode);
+  }, [clientId]);
 
-  if (loading && !overview) {
-    return <Skeleton active paragraph={{ rows: 8 }} />;
-  }
+  // 拉取 IDE 配置
+  useEffect(() => {
+    if (status.state === 'running' && status.url) {
+      setIdeUrl(status.url);
+    } else {
+      // 未运行时用默认 37991
+      window.synkord?.mcpGetIDEConfig?.().then((cfg: any) => {
+        if (cfg?.url) setIdeUrl(cfg.url);
+      }).catch(() => {});
+    }
+  }, [status.state, status.url]);
 
-  if (!overview) {
-    return <Alert type="error" message="无法加载 MCP 概览" showIcon />;
+  // 生成配置
+  useEffect(() => {
+    if (transport === 'http') {
+      setIdeConfig(JSON.stringify(
+        {
+          mcpServers: {
+            synkord: {
+              type: 'streamable-http',
+              url: ideUrl,
+            },
+          },
+        },
+        null,
+        2,
+      ));
+    } else {
+      setIdeConfig(JSON.stringify(
+        {
+          mcpServers: {
+            synkord: {
+              command: 'node',
+              args: ['<path-to>/local-mcp-service.cjs', 'stdio'],
+              env: {
+                SYNKORD_API_BASE: 'http://127.0.0.1:8000/api',
+                SYNKORD_HOME: '~/.synkord',
+              },
+            },
+          },
+        },
+        null,
+        2,
+      ));
+    }
+  }, [transport, ideUrl]);
+
+  const copyConfig = async () => {
+    try {
+      await navigator.clipboard.writeText(ideConfig);
+      messageApi.success('配置已复制到剪贴板');
+    } catch {
+      messageApi.error('复制失败');
+    }
+  };
+
+  const copyShellScript = async () => {
+    const script = `export SYNKORD_MCP_TOKEN="<your-token>"
+export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
+    try {
+      await navigator.clipboard.writeText(script);
+      messageApi.success('Shell 脚本已复制');
+    } catch {
+      messageApi.error('复制失败');
+    }
+  };
+
+  // ==========================================================================
+  // 计算属性
+  // ==========================================================================
+
+  const stateMeta = STATE_META[status.state] || STATE_META.idle;
+
+  const canStart = useMemo(
+    () => ['idle', 'stopped', 'failed'].includes(status.state) && !acting,
+    [status.state, acting],
+  );
+  const canStop = useMemo(
+    () => ['running'].includes(status.state) && !acting,
+    [status.state, acting],
+  );
+  const canRestart = useMemo(
+    () => ['running', 'failed'].includes(status.state) && !acting,
+    [status.state, acting],
+  );
+
+  const uptimeStr = useMemo(() => {
+    const h = Math.floor(uptime / 3600);
+    const m = Math.floor((uptime % 3600) / 60);
+    const s = uptime % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }, [uptime]);
+
+  // ==========================================================================
+  // 渲染
+  // ==========================================================================
+
+  if (loading && status.state === 'idle') {
+    return (
+      <div className="page-mcp">
+        <Spin description="加载中..." />
+      </div>
+    );
   }
 
   return (
     <div className="page-mcp">
+      {contextHolder}
+
+      {/* 页头 */}
       <div className="page-header">
-        <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate(`/projects/${projectId}`)}>
-          返回项目详情
+        <Button
+          type="text"
+          onClick={() => navigate(`/projects/${projectId}`)}
+        >
+          ← 返回项目详情
         </Button>
         <Title level={3} style={{ margin: 0 }}>MCP 管理</Title>
-        <Button icon={<ReloadOutlined />} onClick={loadAll}>刷新</Button>
+        <Button icon={<ReloadOutlined />} onClick={refreshStatus}>
+          刷新
+        </Button>
       </div>
 
-      <Tabs
-        defaultActiveKey="access"
-        size="large"
-        items={[
-          {
-            key: 'access',
-            label: (
-              <span>
-                <RocketOutlined />
-                IDE 接入
-              </span>
-            ),
-            children: <IDEAccessTab onboarding={onboarding} />,
-          },
-          {
-            key: 'tools',
-            label: (
-              <span>
-                <ApiOutlined />
-                可用工具
-              </span>
-            ),
-            children: <ToolsTab tools={overview.tools || []} />,
-          },
-          {
-            key: 'audit',
-            label: (
-              <span>
-                <CloudServerOutlined />
-                调用记录
-                {auditLogs.length > 0 && (
-                  <Badge count={Math.min(auditLogs.length, 99)} style={{ marginLeft: 8 }} />
-                )}
-              </span>
-            ),
-            children: <AuditTab logs={auditLogs} />,
-          },
-        ]}
-      />
-    </div>
-  );
-}
+      {/* 状态卡片 */}
+      <Card
+        title={
+          <Space>
+            <span>运行状态</span>
+            <Badge
+              status={status.state === 'running' ? 'success' : status.state === 'failed' ? 'error' : 'default'}
+              text={
+                <Space size={4}>
+                  {stateMeta.icon}
+                  <Text strong>{stateMeta.text}</Text>
+                </Space>
+              }
+            />
+          </Space>
+        }
+        extra={
+          <Space>
+            <Button
+              type="primary"
+              icon={<PlayCircleOutlined />}
+              disabled={!canStart}
+              loading={acting && status.state === 'starting'}
+              onClick={handleStart}
+            >
+              启动
+            </Button>
+            <Button
+              danger
+              icon={<PoweroffOutlined />}
+              disabled={!canStop}
+              loading={acting && status.state === 'stopped'}
+              onClick={handleStop}
+            >
+              停止
+            </Button>
+            <Button
+              icon={<ReloadOutlined />}
+              disabled={!canRestart}
+              loading={acting && status.state === 'restarting'}
+              onClick={handleRestart}
+            >
+              重启
+            </Button>
+          </Space>
+        }
+        style={{ marginBottom: 16 }}
+      >
+        <Row gutter={16}>
+          <Col span={6}>
+            <Statistic title="模式" value={transport.toUpperCase()} styles={{ content: { fontSize: 16 } }} />
+          </Col>
+          <Col span={6}>
+            <Statistic
+              title="端口"
+              value={status.port || 37991}
+              styles={{ content: { fontSize: 16 } }}
+            />
+          </Col>
+          <Col span={6}>
+            <Statistic
+              title="PID"
+              value={status.pid || '-'}
+              styles={{ content: { fontSize: 16 } }}
+            />
+          </Col>
+          <Col span={6}>
+            <Statistic
+              title="运行时长"
+              value={status.state === 'running' ? uptimeStr : '--:--:--'}
+              styles={{ content: { fontSize: 16 } }}
+            />
+          </Col>
+        </Row>
 
-// ============================================================================
-// Tab 1: IDE 接入（无需 Token）
-// ============================================================================
+        <Row gutter={16} style={{ marginTop: 16 }}>
+          <Col span={24}>
+            <Space size={16}>
+              <Text type="secondary">项目：</Text>
+              {status.activeProject ? (
+                <Tag color="blue">
+                  {status.activeProject.projectName || status.activeProject.projectId}
+                </Tag>
+              ) : (
+                <Text type="warning">未设置激活项目</Text>
+              )}
+              {status.activeProject && (
+                <>
+                  <Text type="secondary">团队：</Text>
+                  <Tag>{status.activeProject.teamId.slice(0, 8)}...</Tag>
+                </>
+              )}
+              <Text type="secondary">地址：</Text>
+              <Text code style={{ fontSize: 12 }}>{status.url || `http://127.0.0.1:${status.port || 37991}/mcp`}</Text>
+            </Space>
+          </Col>
+        </Row>
+      </Card>
 
-type TransportType = 'stdio' | 'streamable-http';
+      {/* 异常提示 */}
+      {status.state === 'failed' && status.reason && (
+        <Alert
+          type="error"
+          showIcon
+          icon={<ExclamationCircleOutlined />}
+          title="MCP Server 启动失败"
+          description={status.reason}
+          style={{ marginBottom: 16 }}
+          action={
+            <Button size="small" onClick={handleRestart}>
+              重试
+            </Button>
+          }
+        />
+      )}
 
-function IDEAccessTab({ onboarding }: { onboarding: MCPOnboarding | null }) {
-  const [messageApi, contextHolder] = message.useMessage();
-  const [transport, setTransport] = useState<TransportType>('stdio');
-
-  // HTTP 配置
-  const httpUrl = 'http://127.0.0.1:37991/mcp';
-
-  // STDIO 配置
-  const stdioCommand = 'node';
-  const stdioArgs = 'local-mcp-service.cjs --mode stdio';
-
-  const copyText = async (text: string, label: string) => {
-    await navigator.clipboard.writeText(text);
-    messageApi.success(`${label} 已复制`);
-  };
-
-  const copyConfig = async () => {
-    let config: any;
-    if (transport === 'stdio') {
-      config = {
-        mcpServers: {
-          synkord: {
-            command: stdioCommand,
-            args: stdioArgs.split(' ').filter(Boolean),
-          },
-        },
-      };
-    } else {
-      config = {
-        mcpServers: {
-          synkord: {
-            type: 'streamable-http',
-            url: httpUrl,
-          },
-        },
-      };
-    }
-    await navigator.clipboard.writeText(JSON.stringify(config, null, 2));
-    messageApi.success('配置已复制');
-  };
-
-  const configJson = transport === 'stdio'
-    ? { mcpServers: { synkord: { command: stdioCommand, args: stdioArgs.split(' ').filter(Boolean) } } }
-    : { mcpServers: { synkord: { type: 'streamable-http', url: httpUrl } } };
-
-  return (
-    <>
-      {contextHolder}
-      <Space direction="vertical" style={{ width: '100%' }} size="large">
-        {/* 说明 */}
+      {status.state === 'idle' && (
         <Alert
           type="info"
           showIcon
-          message="无需 Token"
-          description={
-            <Space direction="vertical" size={4}>
-              <Text>IDE/Codex 无需任何认证即可连接本地 MCP 服务。</Text>
-              <Text>MCP 服务内部使用当前登录用户身份调用后端 API。</Text>
-              <Text>切换项目后无需修改任何配置。</Text>
+          title="MCP Server 未启动"
+          description="点击右上角「启动」按钮启动本地 MCP 服务，让 IDE/Codex 接入 Synkord 项目数据。"
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
+      {status.state === 'stopped' && (
+        <Alert
+          type="warning"
+          showIcon
+          title="MCP Server 已停止"
+          description="服务已优雅关闭，重新启动后可继续接收 IDE 请求。"
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
+      {/* IDE 接入配置 */}
+      <Card
+        title={
+          <Space>
+            <FileTextOutlined />
+            <span>IDE 接入</span>
+          </Space>
+        }
+      >
+        <Row gutter={16} style={{ marginBottom: 16 }}>
+          <Col span={12}>
+            <Space>
+              <Text type="secondary">客户端：</Text>
+              <Select
+                value={clientId}
+                onChange={setClientId}
+                style={{ width: 180 }}
+                options={MCP_CLIENTS.map((c) => ({
+                  label: c.name,
+                  value: c.id,
+                }))}
+              />
+            </Space>
+          </Col>
+          <Col span={12}>
+            <Space>
+              <Text type="secondary">模式：</Text>
+              <Segmented
+                value={transport}
+                onChange={(v) => setTransport(v as 'stdio' | 'http')}
+                options={[
+                  { label: 'STDIO', value: 'stdio' },
+                  { label: 'Streamable HTTP', value: 'http' },
+                ]}
+              />
+            </Space>
+          </Col>
+        </Row>
+
+        <Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 12 }}>
+          {transport === 'http'
+            ? `将以下配置写入 IDE 的 MCP 配置文件（如 Cursor 的 .cursor/mcp.json）`
+            : `将以下配置写入 ~/.codex/mcp.json 或 Claude CLI 的 MCP 配置`}
+        </Paragraph>
+
+        <Card size="small" style={{ background: '#fafafa' }}>
+          <pre
+            style={{
+              margin: 0,
+              fontFamily: 'Monaco, Menlo, monospace',
+              fontSize: 12,
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-all',
+              maxHeight: 300,
+              overflow: 'auto',
+            }}
+          >
+            {ideConfig}
+          </pre>
+        </Card>
+
+        <Space style={{ marginTop: 12 }}>
+          <Button
+            type="primary"
+            icon={<CopyOutlined />}
+            onClick={copyConfig}
+          >
+            复制配置
+          </Button>
+          <Tooltip title="复制到 ~/.bashrc 或 ~/.zshrc">
+            <Button
+              icon={<CopyOutlined />}
+              onClick={copyShellScript}
+            >
+              复制 Shell 脚本
+            </Button>
+          </Tooltip>
+        </Space>
+
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginTop: 16 }}
+          title={
+            <Space>
+              <Text>需要以 STDIO 模式接入？</Text>
+              <Text code>node local-mcp-service.cjs stdio</Text>
             </Space>
           }
         />
-
-        {/* 传输方式 */}
-        <Card title="传输方式">
-          <Radio.Group
-            value={transport}
-            onChange={e => setTransport(e.target.value)}
-          >
-            <Space direction="vertical">
-              <Radio value="stdio">
-                <Space>
-                  <Text strong>STDIO</Text>
-                  <Text type="secondary">（适用于 Codex CLI、Claude CLI 等）</Text>
-                </Space>
-              </Radio>
-              <Radio value="streamable-http">
-                <Space>
-                  <Text strong>Streamable HTTP</Text>
-                  <Text type="secondary">（适用于 VS Code、Cursor、JetBrains 等 IDE）</Text>
-                </Space>
-              </Radio>
-            </Space>
-          </Radio.Group>
-        </Card>
-
-        {/* 配置预览 + 复制 */}
-        <Card title="IDE MCP 配置">
-          <Text type="secondary">配置预览：</Text>
-          <Input.TextArea
-            value={JSON.stringify(configJson, null, 2)}
-            readOnly
-            autoSize={{ minRows: 4, maxRows: 8 }}
-            style={{ fontFamily: 'monospace', marginTop: 8, marginBottom: 12 }}
-          />
-          <Button type="primary" icon={<CopyOutlined />} onClick={copyConfig}>
-            复制配置
-          </Button>
-        </Card>
-
-        {/* 预设模板 */}
-        {onboarding?.templates && Object.keys(onboarding.templates).length > 0 && (
-          <Card title="预设模板">
-            <Space direction="vertical" style={{ width: '100%' }} size="middle">
-              {Object.entries(onboarding.templates).map(([key, tpl]) => (
-                <Card key={key} size="small" styles={{ body: { padding: 12 } }}>
-                  <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-                    <Space direction="vertical" size={4}>
-                      <Text strong>{key.toUpperCase()}</Text>
-                      <Text type="secondary" style={{ fontSize: 12 }}>写入路径：{tpl.path}</Text>
-                    </Space>
-                    <Button
-                      icon={<CopyOutlined />}
-                      onClick={() => copyText(tpl.value, `${key} 模板`)}
-                    >
-                      复制
-                    </Button>
-                  </Space>
-                </Card>
-              ))}
-            </Space>
-          </Card>
-        )}
-      </Space>
-    </>
-  );
-}
-
-// ============================================================================
-// Tab 2: 可用工具
-// ============================================================================
-
-function ToolsTab({ tools }: { tools: string[] }) {
-  return (
-    <Card title={<Space><ApiOutlined /><span>可用的 MCP 工具</span><Tag>{tools.length} 个</Tag></Space>}>
-      <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-        以下工具可通过 MCP 协议调用，用于查询和操作 Synkord 项目数据。
-      </Paragraph>
-      <Space direction="vertical" style={{ width: '100%' }} size="middle">
-        {TOOL_OPTIONS.map((item) => {
-          const enabled = tools.includes(item.value);
-          return (
-            <Card key={item.value} size="small" styles={{ body: { padding: 12 } }}>
-              <Space style={{ width: '100%', justifyContent: 'space-between' }} align="center">
-                <Space direction="vertical" size={2}>
-                  <Space>
-                    <Text style={{ fontSize: 16 }}>{item.icon}</Text>
-                    <Text code>{item.value}</Text>
-                  </Space>
-                  <Text type="secondary">{item.label}</Text>
-                </Space>
-                <Tag color={enabled ? 'green' : 'default'} icon={enabled ? <CheckCircleOutlined /> : undefined}>
-                  {enabled ? '已启用' : '未启用'}
-                </Tag>
-              </Space>
-            </Card>
-          );
-        })}
-      </Space>
-    </Card>
-  );
-}
-
-// ============================================================================
-// Tab 3: 调用记录
-// ============================================================================
-
-function AuditTab({ logs }: { logs: MCPAuditLog[] }) {
-  return (
-    <Card title={<Space><CloudServerOutlined /><span>调用记录</span><Badge count={logs.length} style={{ backgroundColor: '#52c41a' }} /></Space>}>
-      {logs.length === 0 ? (
-        <Empty description="暂无调用记录" />
-      ) : (
-        <Table
-          dataSource={logs}
-          rowKey="id"
-          pagination={{ pageSize: 20, showSizeChanger: false }}
-          columns={[
-            { title: '时间', dataIndex: 'created_at', width: 160, render: (v: string) => new Date(v).toLocaleString() },
-            { title: '工具', dataIndex: 'tool_name', width: 200, render: (v: string) => <Text code>{v}</Text> },
-            { title: '调用方', dataIndex: 'caller', width: 100 },
-            { title: '参数', dataIndex: 'params_summary', ellipsis: true },
-            {
-              title: '结果', dataIndex: 'result_status', width: 80,
-              render: (s: string) => (
-                <Tag color={s === 'success' || s === 'ok' ? 'green' : 'red'}>
-                  {s === 'success' || s === 'ok' ? '成功' : '失败'}
-                </Tag>
-              ),
-            },
-            {
-              title: '错误', dataIndex: 'error_message', ellipsis: true,
-              render: (v: string) => v ? <Text type="danger">{v}</Text> : '-',
-            },
-          ]}
-        />
-      )}
-    </Card>
+      </Card>
+    </div>
   );
 }

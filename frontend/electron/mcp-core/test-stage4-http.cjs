@@ -401,8 +401,10 @@ async function test4_normalTools() {
   });
   assertEq(r.status, 200, 'initialize 200');
   let parsed = JSON.parse(r.body);
-  assertEq(parsed.result.protocolVersion, '2024-11-05', 'protocolVersion');
+  // 客户端未声明 → 服务端默认返回 2025-03-26（Streamable HTTP 适配版本）
+  assertEq(parsed.result.protocolVersion, '2025-03-26', 'protocolVersion（默认 2025-03-26）');
   assertEq(parsed.result.serverInfo.name, 'synkord-mcp', 'serverInfo.name');
+  assert(!!r.headers['mcp-session-id'], 'initialize 响应携带 Mcp-Session-Id 头');
 
   // tools/list
   r = await httpRequest('POST', '/mcp', {

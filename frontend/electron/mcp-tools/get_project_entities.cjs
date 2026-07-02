@@ -12,6 +12,7 @@ const definition = {
   inputSchema: {
     type: 'object',
     properties: {},
+    required: [],
     additionalProperties: false,
   },
 };

@@ -40,6 +40,36 @@ const SSE_MAX_EVENTS = 100;
 const SSE_EVENT_TTL_MS = 5 * 60 * 1000;
 const SHUTDOWN_TIMEOUT_MS = 5000;
 
+// ============================================================================
+// MCP 协议版本协商（Streamable HTTP / STDIO 通用）
+// 适配 Codex 等强校验客户端：
+//  - 客户端可声明 protocolVersion，服务端按以下规则协商：
+//    1. 客户端未声明 → 返回 DEFAULT_PROTOCOL_VERSION
+//    2. 客户端声明的版本在 SUPPORTED_PROTOCOL_VERSIONS 中 → 原样回显
+//    3. 其它情况 → 返回 DEFAULT_PROTOCOL_VERSION（向下兼容客户端）
+//  - STDIO 模式：无状态，跳过 Mcp-Session-Id 强制校验
+//  - HTTP 模式：有状态，initialize 响应中输出 Mcp-Session-Id，
+//               后续请求必须携带相同 header
+// ============================================================================
+const SUPPORTED_PROTOCOL_VERSIONS = Object.freeze([
+  '2024-11-05',
+  '2025-03-26',
+  '2025-06-18',
+]);
+const DEFAULT_PROTOCOL_VERSION = '2025-03-26';
+
+function negotiateProtocolVersion(clientVersion) {
+  if (!clientVersion) return DEFAULT_PROTOCOL_VERSION;
+  if (SUPPORTED_PROTOCOL_VERSIONS.includes(clientVersion)) return clientVersion;
+  return DEFAULT_PROTOCOL_VERSION;
+}
+
+function generateSessionId() {
+  // 16 字节随机 → base64url
+  const crypto = require('crypto');
+  return crypto.randomBytes(16).toString('base64url');
+}
+
 const SYNKORD_HOME = process.env.SYNKORD_HOME || path.join(os.homedir(), '.synkord');
 process.env.SYNKORD_HOME = SYNKORD_HOME;
 
@@ -295,8 +325,10 @@ async function handleRpcMethod(req) {
   const params = req.params || {};
 
   if (method === 'initialize') {
+    const clientVersion = params.protocolVersion;
+    const negotiated = negotiateProtocolVersion(clientVersion);
     return {
-      protocolVersion: '2024-11-05',
+      protocolVersion: negotiated,
       serverInfo: { name: 'synkord-mcp', version: '0.1.0' },
       capabilities: { tools: {} },
     };
@@ -304,6 +336,7 @@ async function handleRpcMethod(req) {
 
   if (method === 'notifications/initialized') {
     // 通知消息，无需返回
+    // STDIO 模式下视为握手完成的标记；保持空响应行为，不抛错
     return null;
   }
 
@@ -424,6 +457,21 @@ function isLocalOrigin(origin) {
 }
 
 let httpConnectionCounter = 0;
+// 会话表：sessionId → { createdAt, lastSeenAt, ua }
+// 用于 Mcp-Session-Id 头校验与回收
+const sessionRegistry = new Map();
+const SESSION_TTL_MS = 30 * 60 * 1000;
+
+// 定期回收过期 session（避免无限增长）
+setInterval(() => {
+  const now = Date.now();
+  for (const [sid, info] of sessionRegistry.entries()) {
+    if (now - info.lastSeenAt > SESSION_TTL_MS) {
+      sessionRegistry.delete(sid);
+    }
+  }
+}, 60 * 1000).unref();
+
 async function handleMcpPOST(req, res) {
   const start = Date.now();
   const connId = ++httpConnectionCounter;
@@ -451,16 +499,57 @@ async function handleMcpPOST(req, res) {
   }
 
   const rpcMethod = rpcReq?.method || '';
+  const isNotification = rpcReq.id === undefined || rpcReq.id === null;
   let result, errOut, httpStatus = 200;
+  let newSessionId = null; // 仅 initialize 时分配
+
+  // 会话头校验（仅 initialize 之外的方法强制；initialize 自身允许无 header）
+  if (rpcMethod !== 'initialize') {
+    const headerSid = req.headers['mcp-session-id'];
+    if (headerSid) {
+      // 客户端携带了 session 头：必须存在于会话表中
+      const info = sessionRegistry.get(headerSid);
+      if (!info) {
+        const err = rpcError('INVALID_REQUEST', 'unknown or expired Mcp-Session-Id');
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ jsonrpc: '2.0', id: rpcReq.id, error: err }));
+        logAccess({ conn: connId, method: 'POST', path: '/mcp', status: 400, durMs: Date.now() - start, remote: getClientIp(req), ua: req.headers['user-agent'] || '', rpc: rpcMethod });
+        return;
+      }
+      info.lastSeenAt = Date.now();
+    }
+    // 无 session 头：视为无状态调用，跳过强制校验（与 STDIO 行为一致）
+  }
 
   try {
     if (rpcMethod === 'initialize') {
-      result = { protocolVersion: '2024-11-05', serverInfo: { name: 'synkord-mcp', version: '0.1.0' }, capabilities: { tools: {} } };
+      const clientVersion = (rpcReq.params || {}).protocolVersion;
+      const negotiated = negotiateProtocolVersion(clientVersion);
+      newSessionId = generateSessionId();
+      sessionRegistry.set(newSessionId, {
+        createdAt: Date.now(),
+        lastSeenAt: Date.now(),
+        ua: req.headers['user-agent'] || '',
+        negotiatedVersion: negotiated,
+      });
+      result = {
+        protocolVersion: negotiated,
+        serverInfo: { name: 'synkord-mcp', version: '0.1.0' },
+        capabilities: { tools: {} },
+      };
     } else if (rpcMethod === 'notifications/initialized') {
-      res.writeHead(202);
-      res.end();
-      logAccess({ conn: connId, method: 'POST', path: '/mcp', status: 202, durMs: Date.now() - start, remote: getClientIp(req), ua: req.headers['user-agent'] || '', rpc: rpcMethod });
-      return;
+      // 通知消息：HTTP 返回 202 Accepted（无 body），不抛错，不断开
+      // 这是 Codex 等客户端标准握手第三步
+      if (isNotification) {
+        res.writeHead(202, {
+          'Content-Type': 'application/json',
+        });
+        res.end();
+        logAccess({ conn: connId, method: 'POST', path: '/mcp', status: 202, durMs: Date.now() - start, remote: getClientIp(req), ua: req.headers['user-agent'] || '', rpc: rpcMethod });
+        return;
+      }
+      // 非通知形式（异常带 id）：返回空成功结果
+      result = {};
     } else if (rpcMethod === 'tools/list') {
       result = { tools: globalRegistry.list() };
     } else if (rpcMethod === 'tools/call') {
@@ -477,11 +566,25 @@ async function handleMcpPOST(req, res) {
     httpStatus = 500;
   }
 
+  // 通知消息无 id 时不响应 body
+  if (isNotification && rpcMethod !== 'notifications/initialized') {
+    res.writeHead(204);
+    res.end();
+    logAccess({ conn: connId, method: 'POST', path: '/mcp', status: 204, durMs: Date.now() - start, remote: getClientIp(req), ua: req.headers['user-agent'] || '', rpc: rpcMethod });
+    return;
+  }
+
   const response = { jsonrpc: '2.0', id: rpcReq.id };
   if (errOut) response.error = errOut;
   else response.result = result;
 
-  res.writeHead(httpStatus, { 'Content-Type': 'application/json' });
+  const headers = { 'Content-Type': 'application/json' };
+  // 仅 initialize 响应携带 Mcp-Session-Id（Streamable HTTP 规范）
+  if (newSessionId) {
+    headers['Mcp-Session-Id'] = newSessionId;
+  }
+
+  res.writeHead(httpStatus, headers);
   res.end(JSON.stringify(response));
   logAccess({ conn: connId, method: 'POST', path: '/mcp', status: httpStatus, durMs: Date.now() - start, remote: getClientIp(req), ua: req.headers['user-agent'] || '', rpc: rpcMethod });
 }

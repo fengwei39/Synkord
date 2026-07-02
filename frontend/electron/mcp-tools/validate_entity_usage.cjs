@@ -27,6 +27,7 @@ const definition = {
       },
     },
     required: ['model_name', 'code_snippet'],
+    additionalProperties: false,
   },
 };
 

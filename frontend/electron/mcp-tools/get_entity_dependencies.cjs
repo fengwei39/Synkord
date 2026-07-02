@@ -18,6 +18,7 @@ const definition = {
       },
     },
     required: ['model_name'],
+    additionalProperties: false,
   },
 };
 

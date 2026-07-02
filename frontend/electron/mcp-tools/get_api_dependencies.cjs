@@ -19,9 +19,11 @@ const definition = {
       api_method: {
         type: 'string',
         description: 'HTTP 方法（GET/POST/PUT/DELETE/PATCH），不区分大小写。可选。',
+        enum: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
       },
     },
     required: ['api_path'],
+    additionalProperties: false,
   },
 };
 

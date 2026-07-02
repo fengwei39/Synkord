@@ -185,6 +185,7 @@ export default function MCP() {
   // STDIO 接入：clientId 仅表示"STDIO 区块的目标 IDE 预设"
   const [clientId, setClientId] = useState<ClientId>('codex')
   // STDIO 表单（Codex 风格：command / args / env / pass_env / cwd）
+  // args[0] 默认填 <path-to> 占位符，启动时会被 detectInstallPath() 替换为真实路径
   const [stdioCommand, setStdioCommand] = useState('node')
   const [stdioArgs, setStdioArgs] = useState<string[]>([
     '<path-to>/local-mcp-service.cjs',
@@ -198,6 +199,39 @@ export default function MCP() {
   ])
   const [stdioPassEnv, setStdioPassEnv] = useState<string[]>([])
   const [stdioCwd, setStdioCwd] = useState('')
+  const [installPath, setInstallPath] = useState<string>('')
+  const [installPathStatus, setInstallPathStatus] = useState<
+    'pending' | 'ok' | 'failed'
+  >('pending')
+
+  // ==========================================================================
+  // 自动检测 local-mcp-service.cjs 绝对路径
+  // ==========================================================================
+  // 调用主进程 mcp:get-install-path 拿到真实路径，
+  // 替换 stdioArgs[0] 中的 <path-to> 占位符。
+  const detectInstallPath = async () => {
+    try {
+      const r = await window.synkord?.mcpGetInstallPath?.()
+      if (r?.servicePath) {
+        setInstallPath(r.servicePath)
+        setInstallPathStatus('ok')
+        setStdioArgs((prev) => {
+          // 只替换仍是占位符的那一项（用户可能已自定义过）
+          const next = [...prev]
+          const idx = next.findIndex(
+            (a) => a === '<path-to>/local-mcp-service.cjs' || a === ''
+          )
+          if (idx >= 0) next[idx] = r.servicePath
+          else if (next.length === 0) next.push(r.servicePath)
+          return next
+        })
+      } else {
+        setInstallPathStatus('failed')
+      }
+    } catch {
+      setInstallPathStatus('failed')
+    }
+  }
 
   // 最近访问日志
   const [accessLogs, setAccessLogs] = useState<MCPAccessLogEntry[]>([])
@@ -213,6 +247,7 @@ export default function MCP() {
 
   useEffect(() => {
     refreshStatus()
+    detectInstallPath()
     return () => stopUptimeTimer()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -882,7 +917,31 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
           </Form.Item>
 
           {/* 参数 */}
-          <Form.Item label="参数">
+          <Form.Item
+            label={
+              <Space size={8}>
+                <span>参数</span>
+                <Tooltip
+                  title={
+                    installPathStatus === 'ok'
+                      ? `已检测到安装路径：${installPath}`
+                      : installPathStatus === 'failed'
+                        ? '未检测到安装路径，请手动填写'
+                        : '正在检测安装路径…'
+                  }
+                >
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    onClick={detectInstallPath}
+                  >
+                    重新检测路径
+                  </Button>
+                </Tooltip>
+              </Space>
+            }
+          >
             {stdioArgs.map((arg, i) => (
               <div key={i} style={{ marginBottom: 8 }}>
                 <Space.Compact style={{ width: '100%' }}>
@@ -1050,14 +1109,29 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
         </Space>
 
         <Alert
-          type="warning"
+          type={installPathStatus === 'failed' ? 'warning' : 'info'}
           showIcon
           style={{ marginTop: 16 }}
-          title="把 <path-to> 替换为 Synkord 安装目录"
+          title={
+            installPathStatus === 'failed'
+              ? '未检测到安装路径，请手动填写「参数」第一项'
+              : installPathStatus === 'ok'
+                ? '已自动检测到安装路径'
+                : '正在检测安装路径…'
+          }
           description={
             <Text>
-              例如 <Text code>~/synkord/frontend/electron/local-mcp-service.cjs</Text>
-              。配置路径：<Text code>~/.codex/mcp.json</Text>（Codex）或 Claude CLI 的对应文件。
+              {installPathStatus === 'ok' && installPath ? (
+                <>
+                  当前路径：<Text code>{installPath}</Text>
+                </>
+              ) : (
+                <>
+                  路径示例：<Text code>~/synkord/frontend/electron/local-mcp-service.cjs</Text>
+                </>
+              )}
+              <br />
+              IDE 配置文件：<Text code>~/.codex/mcp.json</Text>（Codex）或 Claude CLI 对应文件
             </Text>
           }
         />

@@ -22,6 +22,7 @@ const ALLOWED_INVOKES = new Set([
   'mcp:restart',
   'mcp:set-active-project',
   'mcp:get-ide-config',
+  'mcp:get-install-path',
   'mcp:get-access-log',
 ]);
 
@@ -49,6 +50,8 @@ contextBridge.exposeInMainWorld('synkord', {
 
   // ---- IDE 配置 ----
   mcpGetIDEConfig: () => ipcRenderer.invoke('mcp:get-ide-config'),
+  // ---- 安装路径（用于 STDIO 接入的 <path-to> 自动检测） ----
+  mcpGetInstallPath: () => ipcRenderer.invoke('mcp:get-install-path'),
 
   // ---- 访问日志 ----
   mcpGetAccessLog: (limit) => ipcRenderer.invoke('mcp:get-access-log', limit),

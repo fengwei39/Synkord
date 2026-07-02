@@ -11,6 +11,7 @@ declare global {
       mcpRestart: () => Promise<MCPStatus>;
       mcpSetActiveProject: (project: null | { teamId: string; projectId: string; projectName: string }) => Promise<MCPStatus>;
       mcpGetIDEConfig: () => Promise<{ url: string; host: string; port: number; path: string }>;
+      mcpGetInstallPath: () => Promise<{ servicePath: string }>;
       mcpGetAccessLog: (limit?: number) => Promise<MCPAccessLogEntry[]>;
       mcpSetUserAuth: (auth: { token: string; user_id: string; user_name: string } | null) => Promise<{ ok: boolean }>;
       onMcpEvent: (callback: (payload: MCPEvent) => void) => () => void;

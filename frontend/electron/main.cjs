@@ -29,6 +29,16 @@ const SHUTDOWN_TIMEOUT_MS = 5000; // 文档 §9.3：5s 关停超时
 const MAX_AUTO_RESTART = 3; // 文档 §9.3：最多 3 次自动重启
 const SYNKORD_HOME = process.env.SYNKORD_HOME || path.join(os.homedir(), '.synkord');
 
+/**
+ * 获取 MCP 服务脚本（local-mcp-service.cjs）的绝对路径。
+ * - 开发态：位于 __dirname（即 frontend/electron/）
+ * - 打包态：asar 内路径（Electron 会在 fork 时从 asar 抽取）
+ * 同一路径既用于 fork HTTP 子进程，也用于 STDIO 接入配置展示。
+ */
+function getMcpServicePath() {
+  return path.join(__dirname, 'local-mcp-service.cjs');
+}
+
 const ACTIVE_CONTEXT_FILE = path.join(SYNKORD_HOME, 'active-context.json');
 const USER_AUTH_FILE = path.join(SYNKORD_HOME, 'user-auth.json');
 
@@ -180,7 +190,7 @@ async function startMCPServer() {
   mcpActualPort = port;
 
   // 3. fork 子进程
-  const servicePath = path.join(__dirname, 'local-mcp-service.cjs');
+  const servicePath = getMcpServicePath();
   if (!fs.existsSync(servicePath)) {
     console.error('[synkord] step 4/6 FAILED: service script not found: ' + servicePath);
     mcpState = 'failed';
@@ -392,6 +402,11 @@ function registerIpc() {
     host: HOST,
     port: DEFAULT_HTTP_PORT,
     path: '/mcp',
+  }));
+  ipcMain.handle('mcp:get-install-path', () => ({
+    // STDIO 接入的 local-mcp-service.cjs 绝对路径
+    // 渲染进程用此填充「参数」字段的 <path-to> 占位符
+    servicePath: getMcpServicePath(),
   }));
   ipcMain.handle('mcp:get-access-log', (_e, limit) => getRecentAccessLog(limit || 50));
 }

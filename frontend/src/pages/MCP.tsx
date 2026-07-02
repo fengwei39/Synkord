@@ -919,16 +919,43 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
           {/* 环境变量 */}
           <Form.Item label="环境变量">
             {STDIO_DEFAULTS.env.map((env, i) => (
-              <div key={i} style={{ marginBottom: 6 }}>
+              <div
+                key={i}
+                style={{
+                  marginBottom: 8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  flexWrap: 'wrap'
+                }}
+              >
+                {/* 键：单独可复制 */}
                 <Text
-                  copyable={{
-                    text: `${env.key}=${env.value}`,
-                    tooltips: ['复制', '已复制']
-                  }}
+                  copyable={{ text: env.key, tooltips: ['复制键', '已复制'] }}
                   code
                   style={{ fontSize: 13 }}
                 >
-                  {env.key}={env.value}
+                  {env.key}
+                </Text>
+                <Text type="secondary">=</Text>
+                {/* 值：单独可复制 */}
+                <Text
+                  copyable={{ text: env.value, tooltips: ['复制值', '已复制'] }}
+                  code
+                  style={{ fontSize: 13 }}
+                >
+                  {env.value}
+                </Text>
+                {/* KEY=VALUE 组合：方便 .env 文件粘贴 */}
+                <Text
+                  copyable={{
+                    text: `${env.key}=${env.value}`,
+                    tooltips: ['复制 KEY=VALUE', '已复制']
+                  }}
+                  type="secondary"
+                  style={{ fontSize: 12 }}
+                >
+                  · 整段
                 </Text>
               </div>
             ))}

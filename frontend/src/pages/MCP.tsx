@@ -19,7 +19,6 @@ import {
   Card,
   Col,
   Form,
-  Input,
   Row,
   Select,
   Space,
@@ -36,18 +35,16 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   CopyOutlined,
-  DeleteOutlined,
   ExclamationCircleOutlined,
   FileTextOutlined,
   LoadingOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
-  PlusOutlined,
   PoweroffOutlined,
   ReloadOutlined
 } from '@ant-design/icons'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import type { ReactNode } from 'react'
 
 const { Title, Text, Paragraph } = Typography
@@ -90,7 +87,17 @@ const MCP_CLIENTS = [
   }
 ] as const
 
-type ClientId = (typeof MCP_CLIENTS)[number]['id']
+// ============================================================================
+// STDIO 接入默认值（只读展示用）
+// ============================================================================
+
+const STDIO_DEFAULTS = {
+  command: 'node',
+  env: [
+    { key: 'SYNKORD_API_BASE', value: 'http://127.0.0.1:8000/api' },
+    { key: 'SYNKORD_HOME', value: '~/.synkord' }
+  ]
+} as const
 
 // ============================================================================
 // 状态展示辅助
@@ -155,7 +162,6 @@ const isStatusDirty = (prev: MCPStatus, next: MCPStatus): boolean =>
 
 export default function MCP() {
   const { projectId } = useParams<{ projectId: string }>()
-  const navigate = useNavigate()
   const [messageApi, contextHolder] = message.useMessage()
 
   // 当前状态
@@ -182,23 +188,12 @@ export default function MCP() {
   const [refreshInterval, setRefreshInterval] = useState<number>(3) // 秒
   const [lastRefreshTime, setLastRefreshTime] = useState<string>('')
 
-  // STDIO 接入：clientId 仅表示"STDIO 区块的目标 IDE 预设"
-  const [clientId, setClientId] = useState<ClientId>('codex')
-  // STDIO 表单（Codex 风格：command / args / env / pass_env / cwd）
-  // args[0] 默认填 <path-to> 占位符，启动时会被 detectInstallPath() 替换为真实路径
-  const [stdioCommand, setStdioCommand] = useState('node')
+  // STDIO 接入：只读展示 + 复制。固定字段用 STDIO_DEFAULTS 常量，
+  // 只有 stdioArgs 是 state（args[0] 会随 detectInstallPath 变成真实路径）。
   const [stdioArgs, setStdioArgs] = useState<string[]>([
     '<path-to>/local-mcp-service.cjs',
     'stdio'
   ])
-  const [stdioEnv, setStdioEnv] = useState<
-    Array<{ key: string; value: string }>
-  >([
-    { key: 'SYNKORD_API_BASE', value: 'http://127.0.0.1:8000/api' },
-    { key: 'SYNKORD_HOME', value: '~/.synkord' }
-  ])
-  const [stdioPassEnv, setStdioPassEnv] = useState<string[]>([])
-  const [stdioCwd, setStdioCwd] = useState('')
   const [installPath, setInstallPath] = useState<string>('')
   const [installPathStatus, setInstallPathStatus] = useState<
     'pending' | 'ok' | 'failed'
@@ -431,21 +426,18 @@ export default function MCP() {
   // STDIO 接入配置生成
   // ==========================================================================
 
-  // 由表单组装出最终写入 IDE 配置文件的对象
+  // 由 STDIO_DEFAULTS + stdioArgs 组装出最终写入 IDE 配置文件的对象
   const buildStdioConfig = () => {
     const server: Record<string, unknown> = {
-      command: stdioCommand.trim() || 'node',
+      command: STDIO_DEFAULTS.command,
       args: stdioArgs.map((a) => a.trim()).filter(Boolean)
     }
     const env = Object.fromEntries(
-      stdioEnv
+      STDIO_DEFAULTS.env
         .filter((e) => e.key.trim())
         .map((e) => [e.key.trim(), e.value])
     )
     if (Object.keys(env).length > 0) server.env = env
-    const pass = stdioPassEnv.map((v) => v.trim()).filter(Boolean)
-    if (pass.length > 0) server.pass_env = pass
-    if (stdioCwd.trim()) server.cwd = stdioCwd.trim()
     return { mcpServers: { synkord: server } }
   }
 
@@ -489,12 +481,6 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
     () => ['running', 'failed'].includes(status.state) && !pending,
     [status.state, pending]
   )
-
-  // 当前 clientId 是不是 HTTP 模式客户端（决定「未启动」是否要提示）
-  const needsHttp = useMemo(() => {
-    const c = MCP_CLIENTS.find((x) => x.id === clientId)
-    return c?.mode === 'http'
-  }, [clientId])
 
   const uptimeStr = useMemo(() => {
     const h = Math.floor(uptime / 3600)
@@ -699,12 +685,12 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
         />
       )}
 
-      {status.state === 'idle' && needsHttp && (
+      {status.state === 'idle' && (
         <Alert
           type="info"
           showIcon
           title="HTTP 服务未启动"
-          description="点击「启动 HTTP 服务」启动本地服务，让 Cursor / VS Code / JetBrains 接入 Synkord 项目数据。"
+          description="使用 Cursor / VS Code / JetBrains 时需要点「启动 HTTP 服务」。Codex / Claude CLI 用 STDIO 模式，无需此项。"
           style={{ marginBottom: 16 }}
         />
       )}
@@ -875,44 +861,19 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
           </Space>
         }
       >
-        <Row gutter={16} style={{ marginBottom: 16 }}>
-          <Col span={12}>
-            <Space>
-              <Text type="secondary">目标 IDE：</Text>
-              <Select
-                value={clientId}
-                onChange={setClientId}
-                style={{ width: 180 }}
-                options={MCP_CLIENTS.filter((c) => c.mode === 'stdio').map(
-                  (c) => ({
-                    label: c.name,
-                    value: c.id
-                  })
-                )}
-              />
-            </Space>
-          </Col>
-        </Row>
-
         <Paragraph type="secondary" style={{ marginBottom: 16, fontSize: 12 }}>
-          IDE 启动 MCP 客户端时由 IDE 自己 spawn 子进程；本页面只负责生成配置，无需「启动」按钮。
+          IDE 启动 MCP 客户端时由 IDE 自己 spawn 子进程；本页面只负责展示可复制的配置项。
         </Paragraph>
 
         <Form layout="vertical" size="small">
           {/* 启动命令 */}
           <Form.Item label="启动命令">
-            <Input
-              value={stdioCommand}
-              onChange={(e) => setStdioCommand(e.target.value)}
-              placeholder="node"
-            />
             <Text
-              copyable={{ text: stdioCommand, tooltips: ['复制', '已复制'] }}
-              type="secondary"
-              style={{ fontSize: 12, marginTop: 4, display: 'inline-block' }}
+              copyable={{ text: STDIO_DEFAULTS.command, tooltips: ['复制', '已复制'] }}
               code
+              style={{ fontSize: 13 }}
             >
-              {stdioCommand || '(空)'}
+              {STDIO_DEFAULTS.command}
             </Text>
           </Form.Item>
 
@@ -926,7 +887,7 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
                     installPathStatus === 'ok'
                       ? `已检测到安装路径：${installPath}`
                       : installPathStatus === 'failed'
-                        ? '未检测到安装路径，请手动填写'
+                        ? '未检测到安装路径'
                         : '正在检测安装路径…'
                   }
                 >
@@ -943,156 +904,47 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
             }
           >
             {stdioArgs.map((arg, i) => (
-              <div key={i} style={{ marginBottom: 8 }}>
-                <Space.Compact style={{ width: '100%' }}>
-                  <Input
-                    value={arg}
-                    onChange={(e) => {
-                      const next = [...stdioArgs]
-                      next[i] = e.target.value
-                      setStdioArgs(next)
-                    }}
-                    placeholder="参数"
-                  />
-                  <Button
-                    danger
-                    icon={<DeleteOutlined />}
-                    onClick={() =>
-                      setStdioArgs(stdioArgs.filter((_, idx) => idx !== i))
-                    }
-                  />
-                </Space.Compact>
+              <div key={i} style={{ marginBottom: 6 }}>
                 <Text
                   copyable={{ text: arg, tooltips: ['复制', '已复制'] }}
-                  type="secondary"
-                  style={{ fontSize: 12, marginTop: 4, display: 'inline-block' }}
                   code
+                  style={{ fontSize: 13, wordBreak: 'break-all' }}
                 >
                   {arg || '(空)'}
                 </Text>
               </div>
             ))}
-            <Button
-              block
-              icon={<PlusOutlined />}
-              onClick={() => setStdioArgs([...stdioArgs, ''])}
-            >
-              添加参数
-            </Button>
           </Form.Item>
 
           {/* 环境变量 */}
           <Form.Item label="环境变量">
-            {stdioEnv.map((env, i) => (
-              <div key={i} style={{ marginBottom: 8 }}>
-                <Space.Compact style={{ width: '100%' }}>
-                  <Input
-                    style={{ width: '40%' }}
-                    value={env.key}
-                    placeholder="键"
-                    onChange={(e) => {
-                      const next = [...stdioEnv]
-                      next[i] = { ...next[i], key: e.target.value }
-                      setStdioEnv(next)
-                    }}
-                  />
-                  <Input
-                    style={{ width: 'calc(60% - 40px)' }}
-                    value={env.value}
-                    placeholder="值"
-                    onChange={(e) => {
-                      const next = [...stdioEnv]
-                      next[i] = { ...next[i], value: e.target.value }
-                      setStdioEnv(next)
-                    }}
-                  />
-                  <Button
-                    danger
-                    icon={<DeleteOutlined />}
-                    onClick={() =>
-                      setStdioEnv(stdioEnv.filter((_, idx) => idx !== i))
-                    }
-                  />
-                </Space.Compact>
+            {STDIO_DEFAULTS.env.map((env, i) => (
+              <div key={i} style={{ marginBottom: 6 }}>
                 <Text
                   copyable={{
                     text: `${env.key}=${env.value}`,
                     tooltips: ['复制', '已复制']
                   }}
-                  type="secondary"
-                  style={{ fontSize: 12, marginTop: 4, display: 'inline-block' }}
                   code
+                  style={{ fontSize: 13 }}
                 >
-                  {env.key || '(键)'}={env.value || '(值)'}
+                  {env.key}={env.value}
                 </Text>
               </div>
             ))}
-            <Button
-              block
-              icon={<PlusOutlined />}
-              onClick={() => setStdioEnv([...stdioEnv, { key: '', value: '' }])}
-            >
-              添加环境变量
-            </Button>
           </Form.Item>
 
           {/* 环境变量传递 */}
           <Form.Item label="环境变量传递">
-            {stdioPassEnv.map((v, i) => (
-              <div key={i} style={{ marginBottom: 8 }}>
-                <Space.Compact style={{ width: '100%' }}>
-                  <Input
-                    value={v}
-                    placeholder="环境变量名"
-                    onChange={(e) => {
-                      const next = [...stdioPassEnv]
-                      next[i] = e.target.value
-                      setStdioPassEnv(next)
-                    }}
-                  />
-                  <Button
-                    danger
-                    icon={<DeleteOutlined />}
-                    onClick={() =>
-                      setStdioPassEnv(
-                        stdioPassEnv.filter((_, idx) => idx !== i)
-                      )
-                    }
-                  />
-                </Space.Compact>
-                <Text
-                  copyable={{ text: v, tooltips: ['复制', '已复制'] }}
-                  type="secondary"
-                  style={{ fontSize: 12, marginTop: 4, display: 'inline-block' }}
-                  code
-                >
-                  {v || '(空)'}
-                </Text>
-              </div>
-            ))}
-            <Button
-              block
-              icon={<PlusOutlined />}
-              onClick={() => setStdioPassEnv([...stdioPassEnv, ''])}
-            >
-              添加变量
-            </Button>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              （无）
+            </Text>
           </Form.Item>
 
           {/* 工作目录 */}
           <Form.Item label="工作目录">
-            <Input
-              value={stdioCwd}
-              onChange={(e) => setStdioCwd(e.target.value)}
-              placeholder="可留空"
-            />
-            <Text
-              copyable={{ text: stdioCwd, tooltips: ['复制', '已复制'] }}
-              type="secondary"
-              style={{ fontSize: 12, marginTop: 4, display: 'inline-block' }}
-              code
-            >
-              {stdioCwd || '(空)'}
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              （未设置）
             </Text>
           </Form.Item>
         </Form>

@@ -28,8 +28,8 @@ import {
   Tag,
   Tooltip,
   Typography,
-  message,
-} from 'antd';
+  message
+} from 'antd'
 import {
   ApiOutlined,
   CheckCircleOutlined,
@@ -41,55 +41,86 @@ import {
   PauseCircleOutlined,
   PlayCircleOutlined,
   PoweroffOutlined,
-  ReloadOutlined,
-} from '@ant-design/icons';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import type { ReactNode } from 'react';
+  ReloadOutlined
+} from '@ant-design/icons'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import type { ReactNode } from 'react'
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text, Paragraph } = Typography
 
 // ============================================================================
 // 类型别名（与全局类型对齐）
 // ============================================================================
 
-type MCPState = MCPStatus['state'];
+type MCPState = MCPStatus['state']
 
 // ============================================================================
 // IDE 客户端预设
 // ============================================================================
 
 const MCP_CLIENTS = [
-  { id: 'codex', name: 'Codex', description: 'OpenAI Codex CLI', mode: 'stdio' },
-  { id: 'claude', name: 'Claude CLI', description: 'Anthropic Claude Code', mode: 'stdio' },
+  {
+    id: 'codex',
+    name: 'Codex',
+    description: 'OpenAI Codex CLI',
+    mode: 'stdio'
+  },
+  {
+    id: 'claude',
+    name: 'Claude CLI',
+    description: 'Anthropic Claude Code',
+    mode: 'stdio'
+  },
   { id: 'cursor', name: 'Cursor', description: 'Cursor IDE', mode: 'http' },
-  { id: 'vscode', name: 'VS Code', description: 'VS Code + Copilot', mode: 'http' },
-  { id: 'jetbrains', name: 'JetBrains', description: 'IntelliJ / PyCharm / GoLand', mode: 'http' },
-] as const;
+  {
+    id: 'vscode',
+    name: 'VS Code',
+    description: 'VS Code + Copilot',
+    mode: 'http'
+  },
+  {
+    id: 'jetbrains',
+    name: 'JetBrains',
+    description: 'IntelliJ / PyCharm / GoLand',
+    mode: 'http'
+  }
+] as const
 
-type ClientId = (typeof MCP_CLIENTS)[number]['id'];
+type ClientId = (typeof MCP_CLIENTS)[number]['id']
 
 // ============================================================================
 // 状态展示辅助
 // ============================================================================
 
-const STATE_META: Record<MCPState, { color: string; text: string; icon: ReactNode }> = {
+const STATE_META: Record<
+  MCPState,
+  { color: string; text: string; icon: ReactNode }
+> = {
   idle: { color: 'default', text: '未启动', icon: <PauseCircleOutlined /> },
-  starting: { color: 'processing', text: '启动中', icon: <LoadingOutlined spin /> },
+  starting: {
+    color: 'processing',
+    text: '启动中',
+    icon: <LoadingOutlined spin />
+  },
   running: { color: 'success', text: '运行中', icon: <CheckCircleOutlined /> },
   stopped: { color: 'default', text: '已停止', icon: <PauseCircleOutlined /> },
   failed: { color: 'error', text: '启动失败', icon: <CloseCircleOutlined /> },
-  restarting: { color: 'processing', text: '重启中', icon: <ReloadOutlined spin /> },
-};
+  restarting: {
+    color: 'processing',
+    text: '重启中',
+    icon: <ReloadOutlined spin />
+  }
+}
 
 // ============================================================================
 // 主组件
 // ============================================================================
 
 export default function MCP() {
-  const { projectId } = useParams<{ projectId: string }>();
-  const navigate = useNavigate();
-  const [messageApi, contextHolder] = message.useMessage();
+  const { projectId } = useParams<{ projectId: string }>()
+  const navigate = useNavigate()
+  const [messageApi, contextHolder] = message.useMessage()
 
   // 当前状态
   const [status, setStatus] = useState<MCPStatus>({
@@ -98,224 +129,234 @@ export default function MCP() {
     url: null,
     pid: null,
     activeProject: null,
-    restartCount: 0,
-  });
-  const [loading, setLoading] = useState(true);
-  const [acting, setActing] = useState(false);
+    restartCount: 0
+  })
+  const [loading, setLoading] = useState(true)
+  const [acting, setActing] = useState(false)
 
   // 运行时长
-  const [uptime, setUptime] = useState(0);
-  const uptimeTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [uptime, setUptime] = useState(0)
+  const uptimeTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // 自动刷新设置
-  const [autoRefresh, setAutoRefresh] = useState(true);
-  const [refreshInterval, setRefreshInterval] = useState<number>(3); // 秒
-  const [lastRefreshTime, setLastRefreshTime] = useState<string>('');
+  const [autoRefresh, setAutoRefresh] = useState(true)
+  const [refreshInterval, setRefreshInterval] = useState<number>(3) // 秒
+  const [lastRefreshTime, setLastRefreshTime] = useState<string>('')
 
   // IDE 配置
-  const [clientId, setClientId] = useState<ClientId>('codex');
-  const [transport, setTransport] = useState<'stdio' | 'http'>('stdio');
-  const [ideUrl, setIdeUrl] = useState('http://127.0.0.1:37991/mcp');
-  const [ideConfig, setIdeConfig] = useState<string>('');
+  const [clientId, setClientId] = useState<ClientId>('codex')
+  const [transport, setTransport] = useState<'stdio' | 'http'>('stdio')
+  const [ideUrl, setIdeUrl] = useState('http://127.0.0.1:37991/mcp')
+  const [ideConfig, setIdeConfig] = useState<string>('')
 
   // 最近访问日志
-  const [accessLogs, setAccessLogs] = useState<MCPAccessLogEntry[]>([]);
-  const [accessTotal, setAccessTotal] = useState<number>(0);
-  const [accessPage, setAccessPage] = useState<number>(1);
-  const [accessPageSize, setAccessPageSize] = useState<number>(20);
-  const [lastClientUA, setLastClientUA] = useState<string>('');
-  const [lastClientTime, setLastClientTime] = useState<string>('');
+  const [accessLogs, setAccessLogs] = useState<MCPAccessLogEntry[]>([])
+  const [accessTotal, setAccessTotal] = useState<number>(0)
+  const [accessPage, setAccessPage] = useState<number>(1)
+  const [accessPageSize, setAccessPageSize] = useState<number>(20)
+  const [lastClientUA, setLastClientUA] = useState<string>('')
+  const [lastClientTime, setLastClientTime] = useState<string>('')
 
   // ==========================================================================
   // 初始加载
   // ==========================================================================
 
   useEffect(() => {
-    refreshStatus();
-    return () => stopUptimeTimer();
+    refreshStatus()
+    return () => stopUptimeTimer()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [])
 
   // 订阅主进程事件 + 定时轮询 fallback
   useEffect(() => {
     const unsubscribe = window.synkord?.onMcpEvent?.((payload: MCPEvent) => {
-      console.log('[MCP.tsx] received mcp:event:', JSON.stringify(payload));
+      console.log('[MCP.tsx] received mcp:event:', JSON.stringify(payload))
       setStatus((prev) => ({
         ...prev,
         state: payload.state,
         port: payload.port ?? prev.port,
         url: payload.url ?? prev.url,
         pid: payload.pid ?? prev.pid,
-        reason: payload.reason,
-      }));
+        reason: payload.reason
+      }))
       // running 时启动计时器
       if (payload.state === 'running') {
-        startUptimeTimer();
+        startUptimeTimer()
       } else if (['stopped', 'failed', 'idle'].includes(payload.state)) {
-        stopUptimeTimer();
+        stopUptimeTimer()
       }
-    });
+    })
     if (!window.synkord?.onMcpEvent) {
-      console.error('[MCP.tsx] window.synkord.onMcpEvent is NOT available');
+      console.error('[MCP.tsx] window.synkord.onMcpEvent is NOT available')
     } else {
-      console.log('[MCP.tsx] subscribed to mcp:event');
+      console.log('[MCP.tsx] subscribed to mcp:event')
     }
 
     // 兜底：每秒轮询状态（防止事件丢失）
     const pollInterval = setInterval(async () => {
       try {
-        const s = await window.synkord?.mcpGetStatus?.();
+        const s = await window.synkord?.mcpGetStatus?.()
         if (s) {
           setStatus((prev) => {
-            if (prev.state !== s.state ||
-                prev.port !== s.port ||
-                prev.pid !== s.pid ||
-                (s.reason && !prev.reason)) {
+            if (
+              prev.state !== s.state ||
+              prev.port !== s.port ||
+              prev.pid !== s.pid ||
+              (s.reason && !prev.reason)
+            ) {
               return {
                 ...prev,
                 state: s.state,
                 port: s.port,
                 url: s.url,
                 pid: s.pid,
-                reason: s.reason ?? prev.reason,
-              };
+                reason: s.reason ?? prev.reason
+              }
             }
-            return prev;
-          });
-          if (s.state === 'running') startUptimeTimer();
+            return prev
+          })
+          if (s.state === 'running') startUptimeTimer()
         }
       } catch (e) {
         // ignore
       }
-    }, 1000);
+    }, 1000)
 
     // 拉取访问日志（间隔可调）
     const logInterval = setInterval(async () => {
-      if (!autoRefresh) return;
+      if (!autoRefresh) return
       try {
-        const logs = await window.synkord?.mcpGetAccessLog?.(20);
-        if (logs && logs.length > 0) {
-          setAccessLogs(logs);
-          if (logs[0].ua !== lastClientUA) {
-            setLastClientUA(logs[0].ua);
-            setLastClientTime(logs[0].ts);
+        // 后端只支持 limit 不支持 offset，采用客户端分页
+        // 拉取当前页对应的总量，limit = page * pageSize（最小 50）
+        const limit = Math.max(accessPage * accessPageSize, 50)
+        const logs = await window.synkord?.mcpGetAccessLog?.(limit)
+        if (logs) {
+          setAccessLogs(logs)
+          setAccessTotal(logs.length)
+          if (logs.length > 0 && logs[0].ua !== lastClientUA) {
+            setLastClientUA(logs[0].ua)
+            setLastClientTime(logs[0].ts)
           }
-          setLastRefreshTime(new Date().toLocaleTimeString());
+          setLastRefreshTime(new Date().toLocaleTimeString())
         }
       } catch {
         // ignore
       }
-    }, refreshInterval * 1000);
+    }, refreshInterval * 1000)
 
     return () => {
-      if (typeof unsubscribe === 'function') unsubscribe();
-      clearInterval(pollInterval);
-      clearInterval(logInterval);
-    };
-  }, [autoRefresh, refreshInterval]);
+      if (typeof unsubscribe === 'function') unsubscribe()
+      clearInterval(pollInterval)
+      clearInterval(logInterval)
+    }
+  }, [autoRefresh, refreshInterval, accessPage, accessPageSize, lastClientUA])
 
   // ==========================================================================
   // 操作
   // ==========================================================================
 
   const refreshStatus = async () => {
-    setLoading(true);
+    setLoading(true)
     try {
-      const s = await window.synkord?.mcpGetStatus?.();
+      const s = await window.synkord?.mcpGetStatus?.()
       if (s) {
-        setStatus(s);
-        if (s.state === 'running') startUptimeTimer();
+        setStatus(s)
+        if (s.state === 'running') startUptimeTimer()
       }
     } catch (e: any) {
-      messageApi.error('获取状态失败：' + (e?.message || '未知错误'));
+      messageApi.error('获取状态失败：' + (e?.message || '未知错误'))
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   // 手动刷新全部数据：状态 + 访问日志
   const refreshAll = async () => {
-    setLoading(true);
+    setLoading(true)
     try {
+      const limit = Math.max(accessPage * accessPageSize, 50)
       const [s, logs] = await Promise.all([
         window.synkord?.mcpGetStatus?.(),
-        window.synkord?.mcpGetAccessLog?.(20),
-      ]);
+        window.synkord?.mcpGetAccessLog?.(limit)
+      ])
       if (s) {
-        setStatus(s);
-        if (s.state === 'running') startUptimeTimer();
+        setStatus(s)
+        if (s.state === 'running') startUptimeTimer()
       }
-      if (logs && logs.length > 0) {
-        setAccessLogs(logs);
-        setLastClientUA(logs[0].ua);
-        setLastClientTime(logs[0].ts);
+      if (logs) {
+        setAccessLogs(logs)
+        setAccessTotal(logs.length)
+        if (logs.length > 0) {
+          setLastClientUA(logs[0].ua)
+          setLastClientTime(logs[0].ts)
+        }
       }
-      messageApi.success('已刷新');
+      messageApi.success('已刷新')
     } catch (e: any) {
-      messageApi.error('刷新失败：' + (e?.message || '未知错误'));
+      messageApi.error('刷新失败：' + (e?.message || '未知错误'))
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   const handleStart = async () => {
-    setActing(true);
+    setActing(true)
     try {
-      const s = await window.synkord?.mcpStart?.();
-      if (s) setStatus(s);
-      messageApi.success('已发送启动信号');
+      const s = await window.synkord?.mcpStart?.()
+      if (s) setStatus(s)
+      messageApi.success('已发送启动信号')
     } catch (e: any) {
-      messageApi.error('启动失败：' + (e?.message || '未知错误'));
+      messageApi.error('启动失败：' + (e?.message || '未知错误'))
     } finally {
-      setActing(false);
+      setActing(false)
     }
-  };
+  }
 
   const handleStop = async () => {
-    setActing(true);
+    setActing(true)
     try {
-      const s = await window.synkord?.mcpStop?.();
-      if (s) setStatus(s);
-      messageApi.success('已发送停止信号');
+      const s = await window.synkord?.mcpStop?.()
+      if (s) setStatus(s)
+      messageApi.success('已发送停止信号')
     } catch (e: any) {
-      messageApi.error('停止失败：' + (e?.message || '未知错误'));
+      messageApi.error('停止失败：' + (e?.message || '未知错误'))
     } finally {
-      setActing(false);
+      setActing(false)
     }
-  };
+  }
 
   const handleRestart = async () => {
-    setActing(true);
+    setActing(true)
     try {
-      const s = await window.synkord?.mcpRestart?.();
-      if (s) setStatus(s);
-      messageApi.success('已发送重启信号');
+      const s = await window.synkord?.mcpRestart?.()
+      if (s) setStatus(s)
+      messageApi.success('已发送重启信号')
     } catch (e: any) {
-      messageApi.error('重启失败：' + (e?.message || '未知错误'));
+      messageApi.error('重启失败：' + (e?.message || '未知错误'))
     } finally {
-      setActing(false);
+      setActing(false)
     }
-  };
+  }
 
   // ==========================================================================
   // 运行时长
   // ==========================================================================
 
   const startUptimeTimer = () => {
-    if (uptimeTimer.current) return;
-    setUptime(0);
+    if (uptimeTimer.current) return
+    setUptime(0)
     uptimeTimer.current = setInterval(() => {
-      setUptime((u) => u + 1);
-    }, 1000);
-  };
+      setUptime((u) => u + 1)
+    }, 1000)
+  }
 
   const stopUptimeTimer = () => {
     if (uptimeTimer.current) {
-      clearInterval(uptimeTimer.current);
-      uptimeTimer.current = null;
+      clearInterval(uptimeTimer.current)
+      uptimeTimer.current = null
     }
-    setUptime(0);
-  };
+    setUptime(0)
+  }
 
   // ==========================================================================
   // IDE 配置生成
@@ -323,102 +364,109 @@ export default function MCP() {
 
   // 客户端选择变更时自动切换 transport
   useEffect(() => {
-    const client = MCP_CLIENTS.find((c) => c.id === clientId);
-    if (client) setTransport(client.mode);
-  }, [clientId]);
+    const client = MCP_CLIENTS.find((c) => c.id === clientId)
+    if (client) setTransport(client.mode)
+  }, [clientId])
 
   // 拉取 IDE 配置
   useEffect(() => {
     if (status.state === 'running' && status.url) {
-      setIdeUrl(status.url);
+      setIdeUrl(status.url)
     } else {
       // 未运行时用默认 37991
-      window.synkord?.mcpGetIDEConfig?.().then((cfg: any) => {
-        if (cfg?.url) setIdeUrl(cfg.url);
-      }).catch(() => {});
+      window.synkord
+        ?.mcpGetIDEConfig?.()
+        .then((cfg: any) => {
+          if (cfg?.url) setIdeUrl(cfg.url)
+        })
+        .catch(() => {})
     }
-  }, [status.state, status.url]);
+  }, [status.state, status.url])
 
   // 生成配置
   useEffect(() => {
     if (transport === 'http') {
-      setIdeConfig(JSON.stringify(
-        {
-          mcpServers: {
-            synkord: {
-              type: 'streamable-http',
-              url: ideUrl,
-            },
+      setIdeConfig(
+        JSON.stringify(
+          {
+            mcpServers: {
+              synkord: {
+                type: 'streamable-http',
+                url: ideUrl
+              }
+            }
           },
-        },
-        null,
-        2,
-      ));
+          null,
+          2
+        )
+      )
     } else {
-      setIdeConfig(JSON.stringify(
-        {
-          mcpServers: {
-            synkord: {
-              command: 'node',
-              args: ['<path-to>/local-mcp-service.cjs', 'stdio'],
-              env: {
-                SYNKORD_API_BASE: 'http://127.0.0.1:8000/api',
-                SYNKORD_HOME: '~/.synkord',
-              },
-            },
+      setIdeConfig(
+        JSON.stringify(
+          {
+            mcpServers: {
+              synkord: {
+                command: 'node',
+                args: ['<path-to>/local-mcp-service.cjs', 'stdio'],
+                env: {
+                  SYNKORD_API_BASE: 'http://127.0.0.1:8000/api',
+                  SYNKORD_HOME: '~/.synkord'
+                }
+              }
+            }
           },
-        },
-        null,
-        2,
-      ));
+          null,
+          2
+        )
+      )
     }
-  }, [transport, ideUrl]);
+  }, [transport, ideUrl])
 
   const copyConfig = async () => {
     try {
-      await navigator.clipboard.writeText(ideConfig);
-      messageApi.success('配置已复制到剪贴板');
+      await navigator.clipboard.writeText(ideConfig)
+      messageApi.success('配置已复制到剪贴板')
     } catch {
-      messageApi.error('复制失败');
+      messageApi.error('复制失败')
     }
-  };
+  }
 
   const copyShellScript = async () => {
     const script = `export SYNKORD_MCP_TOKEN="<your-token>"
-export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
+export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
     try {
-      await navigator.clipboard.writeText(script);
-      messageApi.success('Shell 脚本已复制');
+      await navigator.clipboard.writeText(script)
+      messageApi.success('Shell 脚本已复制')
     } catch {
-      messageApi.error('复制失败');
+      messageApi.error('复制失败')
     }
-  };
+  }
 
   // ==========================================================================
   // 计算属性
   // ==========================================================================
 
-  const stateMeta = STATE_META[status.state] || STATE_META.idle;
+  const stateMeta = STATE_META[status.state] || STATE_META.idle
 
   const canStart = useMemo(
     () => ['idle', 'stopped', 'failed'].includes(status.state) && !acting,
-    [status.state, acting],
-  );
+    [status.state, acting]
+  )
   const canStop = useMemo(
     () => ['running'].includes(status.state) && !acting,
-    [status.state, acting],
-  );
+    [status.state, acting]
+  )
   const canRestart = useMemo(
     () => ['running', 'failed'].includes(status.state) && !acting,
-    [status.state, acting],
-  );
+    [status.state, acting]
+  )
 
   const uptimeStr = useMemo(() => {
-    const h = Math.floor(uptime / 3600);
-    const m = Math.floor((uptime % 3600) / 60);
-    const s = uptime % 60;
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  }, [uptime]);
+    const h = Math.floor(uptime / 3600)
+    const m = Math.floor((uptime % 3600) / 60)
+    const s = uptime % 60
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  }, [uptime])
 
   // ==========================================================================
   // 渲染
@@ -429,7 +477,7 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
       <div className="page-mcp">
         <Spin description="加载中..." />
       </div>
-    );
+    )
   }
 
   return (
@@ -437,16 +485,23 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
       {contextHolder}
 
       {/* 页头 */}
-      <div className="page-header">
-        <Button
-          type="text"
-          onClick={() => navigate(`/projects/${projectId}`)}
-        >
-          ← 返回项目详情
-        </Button>
-        <Title level={3} style={{ margin: 0 }}>MCP 管理</Title>
+      <div
+        className="page-header"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between'
+        }}
+      >
+        <Title level={3} style={{ margin: 0 }}>
+          MCP 管理
+        </Title>
         <Space>
-          <Button icon={<ReloadOutlined spin={loading} />} onClick={refreshAll} loading={loading}>
+          <Button
+            icon={<ReloadOutlined spin={loading} />}
+            onClick={refreshAll}
+            loading={loading}
+          >
             刷新全部
           </Button>
         </Space>
@@ -458,7 +513,13 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
           <Space>
             <span>运行状态</span>
             <Badge
-              status={status.state === 'running' ? 'success' : status.state === 'failed' ? 'error' : 'default'}
+              status={
+                status.state === 'running'
+                  ? 'success'
+                  : status.state === 'failed'
+                    ? 'error'
+                    : 'default'
+              }
               text={
                 <Space size={4}>
                   {stateMeta.icon}
@@ -502,7 +563,11 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
       >
         <Row gutter={16}>
           <Col span={6}>
-            <Statistic title="模式" value={transport.toUpperCase()} styles={{ content: { fontSize: 16 } }} />
+            <Statistic
+              title="模式"
+              value={transport.toUpperCase()}
+              styles={{ content: { fontSize: 16 } }}
+            />
           </Col>
           <Col span={6}>
             <Statistic
@@ -533,7 +598,8 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
               <Text type="secondary">项目：</Text>
               {status.activeProject ? (
                 <Tag color="blue">
-                  {status.activeProject.projectName || status.activeProject.projectId}
+                  {status.activeProject.projectName ||
+                    status.activeProject.projectId}
                 </Tag>
               ) : (
                 <Text type="warning">未设置激活项目</Text>
@@ -545,7 +611,9 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
                 </>
               )}
               <Text type="secondary">地址：</Text>
-              <Text code style={{ fontSize: 12 }}>{status.url || `http://127.0.0.1:${status.port || 37991}/mcp`}</Text>
+              <Text code style={{ fontSize: 12 }}>
+                {status.url || `http://127.0.0.1:${status.port || 37991}/mcp`}
+              </Text>
             </Space>
           </Col>
         </Row>
@@ -610,7 +678,9 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
           extra={
             <Space>
               <Space size={4}>
-                <Text type="secondary" style={{ fontSize: 12 }}>自动刷新</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  自动刷新
+                </Text>
                 <input
                   type="checkbox"
                   checked={autoRefresh}
@@ -627,7 +697,7 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
                   { value: 1, label: '1 秒' },
                   { value: 3, label: '3 秒' },
                   { value: 5, label: '5 秒' },
-                  { value: 10, label: '10 秒' },
+                  { value: 10, label: '10 秒' }
                 ]}
               />
               <Button
@@ -635,18 +705,20 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
                 icon={<ReloadOutlined spin={loading} />}
                 onClick={async () => {
                   try {
-                    const logs = await window.synkord?.mcpGetAccessLog?.(20);
+                    const limit = Math.max(accessPage * accessPageSize, 50)
+                    const logs = await window.synkord?.mcpGetAccessLog?.(limit)
                     if (logs) {
-                      setAccessLogs(logs);
+                      setAccessLogs(logs)
+                      setAccessTotal(logs.length)
                       if (logs.length > 0) {
-                        setLastClientUA(logs[0].ua);
-                        setLastClientTime(logs[0].ts);
+                        setLastClientUA(logs[0].ua)
+                        setLastClientTime(logs[0].ts)
                       }
-                      setLastRefreshTime(new Date().toLocaleTimeString());
+                      setLastRefreshTime(new Date().toLocaleTimeString())
                     }
-                    messageApi.success('访问日志已刷新');
+                    messageApi.success('访问日志已刷新')
                   } catch (e: any) {
-                    messageApi.error('刷新失败：' + (e?.message || ''));
+                    messageApi.error('刷新失败：' + (e?.message || ''))
                   }
                 }}
               >
@@ -658,13 +730,30 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
           size="small"
         >
           {accessLogs.length === 0 ? (
-            <Text type="secondary">暂无访问记录（Codex/IDE 连接后会在此显示）</Text>
+            <Text type="secondary">
+              暂无访问记录（Codex/IDE 连接后会在此显示）
+            </Text>
           ) : (
             <Table
               size="small"
-              dataSource={accessLogs.slice(0, 10)}
+              dataSource={accessLogs.slice(
+                (accessPage - 1) * accessPageSize,
+                accessPage * accessPageSize
+              )}
               rowKey={(record, idx) => `${record.ts}-${idx}`}
-              pagination={false}
+              pagination={{
+                current: accessPage,
+                pageSize: accessPageSize,
+                total: accessTotal,
+                size: 'small',
+                showSizeChanger: true,
+                pageSizeOptions: ['10', '20', '50', '100'],
+                showTotal: (total) => `共 ${total} 条`,
+                onChange: (page, size) => {
+                  setAccessPage(page)
+                  setAccessPageSize(size)
+                }
+              }}
               columns={[
                 {
                   title: '时间',
@@ -674,26 +763,26 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
                     <Text type="secondary" style={{ fontSize: 12 }}>
                       {new Date(v).toLocaleTimeString()}
                     </Text>
-                  ),
+                  )
                 },
                 {
                   title: '方法',
                   dataIndex: 'rpc',
                   width: 100,
-                  render: (v: string) => v ? <Tag color="blue">{v}</Tag> : '-',
+                  render: (v: string) => (v ? <Tag color="blue">{v}</Tag> : '-')
                 },
                 {
                   title: '客户端',
                   dataIndex: 'ua',
                   render: (v: string) => (
                     <Text style={{ fontSize: 12 }}>{v || '-'}</Text>
-                  ),
+                  )
                 },
                 {
                   title: '耗时',
                   dataIndex: 'dur_ms',
                   width: 80,
-                  render: (v: number) => <Text type="secondary">{v}ms</Text>,
+                  render: (v: number) => <Text type="secondary">{v}ms</Text>
                 },
                 {
                   title: '状态',
@@ -701,8 +790,8 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
                   width: 60,
                   render: (s: number) => (
                     <Tag color={s >= 400 ? 'red' : 'green'}>{s}</Tag>
-                  ),
-                },
+                  )
+                }
               ]}
             />
           )}
@@ -728,7 +817,7 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
                 style={{ width: 180 }}
                 options={MCP_CLIENTS.map((c) => ({
                   label: c.name,
-                  value: c.id,
+                  value: c.id
                 }))}
               />
             </Space>
@@ -741,7 +830,7 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
                 onChange={(v) => setTransport(v as 'stdio' | 'http')}
                 options={[
                   { label: 'STDIO', value: 'stdio' },
-                  { label: 'Streamable HTTP', value: 'http' },
+                  { label: 'Streamable HTTP', value: 'http' }
                 ]}
               />
             </Space>
@@ -763,7 +852,7 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-all',
               maxHeight: 300,
-              overflow: 'auto',
+              overflow: 'auto'
             }}
           >
             {ideConfig}
@@ -771,18 +860,11 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
         </Card>
 
         <Space style={{ marginTop: 12 }}>
-          <Button
-            type="primary"
-            icon={<CopyOutlined />}
-            onClick={copyConfig}
-          >
+          <Button type="primary" icon={<CopyOutlined />} onClick={copyConfig}>
             复制配置
           </Button>
           <Tooltip title="复制到 ~/.bashrc 或 ~/.zshrc">
-            <Button
-              icon={<CopyOutlined />}
-              onClick={copyShellScript}
-            >
+            <Button icon={<CopyOutlined />} onClick={copyShellScript}>
               复制 Shell 脚本
             </Button>
           </Tooltip>
@@ -801,5 +883,5 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`;
         />
       </Card>
     </div>
-  );
+  )
 }

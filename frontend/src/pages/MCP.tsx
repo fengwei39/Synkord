@@ -18,19 +18,24 @@ import {
   Button,
   Card,
   Col,
+  Collapse,
+  Descriptions,
   Form,
   Input,
+  Progress,
   Row,
   Select,
   Space,
   Spin,
   Statistic,
   Table,
+  Tabs,
   Tag,
   Tooltip,
   Typography,
   message
 } from 'antd'
+import type { TabsProps } from 'antd'
 import {
   ApiOutlined,
   CheckCircleOutlined,
@@ -104,21 +109,82 @@ const STDIO_DEFAULTS = {
 // 状态展示辅助
 // ============================================================================
 
-const STATE_META: Record<
-  MCPState,
-  { color: string; text: string; icon: ReactNode }
-> = {
-  idle: { color: 'default', text: '未启动', icon: <PauseCircleOutlined /> },
+// 状态色板：集中所有状态相关的视觉 token
+//  - antdType: Alert 用的 antd 色（info/success/warning/error/default）
+//  - badgeStatus: Badge 用的 antd 状态（success/processing/error/warning/default）
+//  - tagColor: 状态 Tag 用的颜色（用于"最近访问"卡片标题的运行中状态等）
+//  - bg / fg: 自定义 CSS 颜色，用于 Hero 区、Alert 背景等需要精细控制的地方
+//  - text: 状态文案
+//  - icon: 状态图标
+type StatePalette = {
+  antdType: 'info' | 'success' | 'warning' | 'error' | 'default'
+  badgeStatus: 'success' | 'processing' | 'error' | 'warning' | 'default'
+  tagColor: string
+  bg: string
+  fg: string
+  border: string
+  text: string
+  icon: ReactNode
+}
+
+const STATE_PALETTE: Record<MCPState, StatePalette> = {
+  idle: {
+    antdType: 'default',
+    badgeStatus: 'default',
+    tagColor: 'default',
+    bg: '#fafafa',
+    fg: '#8c8c8c',
+    border: '#d9d9d9',
+    text: '未启动',
+    icon: <PauseCircleOutlined />
+  },
   starting: {
-    color: 'processing',
+    antdType: 'info',
+    badgeStatus: 'processing',
+    tagColor: 'processing',
+    bg: '#e6f4ff',
+    fg: '#1677ff',
+    border: '#91caff',
     text: '启动中',
     icon: <LoadingOutlined spin />
   },
-  running: { color: 'success', text: '运行中', icon: <CheckCircleOutlined /> },
-  stopped: { color: 'default', text: '已停止', icon: <PauseCircleOutlined /> },
-  failed: { color: 'error', text: '启动失败', icon: <CloseCircleOutlined /> },
+  running: {
+    antdType: 'success',
+    badgeStatus: 'success',
+    tagColor: 'success',
+    bg: '#f6ffed',
+    fg: '#52c41a',
+    border: '#b7eb8f',
+    text: '运行中',
+    icon: <CheckCircleOutlined />
+  },
+  stopped: {
+    antdType: 'warning',
+    badgeStatus: 'default',
+    tagColor: 'default',
+    bg: '#f5f5f5',
+    fg: '#595959',
+    border: '#d9d9d9',
+    text: '已停止',
+    icon: <PauseCircleOutlined />
+  },
+  failed: {
+    antdType: 'error',
+    badgeStatus: 'error',
+    tagColor: 'error',
+    bg: '#fff1f0',
+    fg: '#ff4d4f',
+    border: '#ffccc7',
+    text: '启动失败',
+    icon: <CloseCircleOutlined />
+  },
   restarting: {
-    color: 'processing',
+    antdType: 'warning',
+    badgeStatus: 'warning',
+    tagColor: 'warning',
+    bg: '#fffbe6',
+    fg: '#faad14',
+    border: '#ffe58f',
     text: '重启中',
     icon: <ReloadOutlined spin />
   }
@@ -187,6 +253,10 @@ export default function MCP() {
   const [uptime, setUptime] = useState(0)
   const uptimeTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // 启动倒计时：进入 starting 时记录起点，每 100ms 触发重渲染让 Progress 平滑推进
+  const [startingSince, setStartingSince] = useState<number | null>(null)
+  const [, setTick] = useState(0)
+
   // 自动刷新设置
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [refreshInterval, setRefreshInterval] = useState<number>(3) // 秒
@@ -242,6 +312,10 @@ export default function MCP() {
   const [accessPageSize, setAccessPageSize] = useState<number>(20)
   const [lastClientUA, setLastClientUA] = useState<string>('')
   const [lastClientTime, setLastClientTime] = useState<string>('')
+
+  // Tab 切换：HTTP 服务 / STDIO 接入
+  // 页面拆成两个工作区：HTTP 偏运维（启停 + 访问日志），STDIO 偏 IDE 接入（一次性配置）
+  const [activeTab, setActiveTab] = useState<'http' | 'stdio'>('http')
 
   // ==========================================================================
   // 初始加载
@@ -452,6 +526,17 @@ export default function MCP() {
     }
   }, [status.state])
 
+  // 启动倒计时：进入 starting 记录起点，每 100ms 重渲染让 Progress 平滑推进
+  useEffect(() => {
+    if (status.state !== 'starting') {
+      setStartingSince(null)
+      return
+    }
+    setStartingSince((prev) => prev ?? Date.now())
+    const timer = setInterval(() => setTick((t) => t + 1), 100)
+    return () => clearInterval(timer)
+  }, [status.state])
+
   // ==========================================================================
   // STDIO 接入配置生成
   // ==========================================================================
@@ -486,7 +571,76 @@ export default function MCP() {
   // 计算属性
   // ==========================================================================
 
-  const stateMeta = STATE_META[status.state] || STATE_META.idle
+  const stateMeta = STATE_PALETTE[status.state] || STATE_PALETTE.idle
+
+  // 把 5 个互斥的 Alert 合并成 1 个动态 Alert：
+  // 状态切换时 React 复用同一 DOM 节点（仅 props 变化），消除 add/remove 抖动
+  const stateAlert = (() => {
+    switch (status.state) {
+      case 'failed':
+        return status.reason
+          ? {
+              show: true,
+              type: 'error' as const,
+              icon: <ExclamationCircleOutlined />,
+              title: 'MCP Server 启动失败',
+              description: status.reason,
+              action: (
+                <Button size="small" onClick={handleRestart}>
+                  重试
+                </Button>
+              )
+            }
+          : { show: false, title: '', description: '' }
+      case 'idle':
+        return {
+          show: true,
+          type: 'info' as const,
+          title: 'HTTP 服务未启动',
+          description:
+            '使用 Cursor / VS Code / JetBrains 时需要点「启动 HTTP 服务」。Codex / Claude CLI 用 STDIO 模式，无需此项。'
+        }
+      case 'starting': {
+        const elapsedSec = startingSince
+          ? Math.min(5, (Date.now() - startingSince) / 1000)
+          : 0
+        const percent = (elapsedSec / 5) * 100
+        return {
+          show: true,
+          type: 'info' as const,
+          icon: <LoadingOutlined spin />,
+          title: 'HTTP 服务启动中…',
+          description: (
+            <Progress
+              percent={percent}
+              size="small"
+              strokeColor="#1677ff"
+              format={() => `${elapsedSec.toFixed(1)}s / 5s`}
+            />
+          )
+        }
+      }
+      case 'restarting':
+        return {
+          show: true,
+          type: 'warning' as const,
+          icon: <ReloadOutlined spin />,
+          title: 'HTTP 服务异常退出，正在自动重启…',
+          description: `已重试 ${status.restartCount ?? 0} / 3 次。如持续失败，请查看上方失败原因。`
+        }
+      case 'stopped':
+        return {
+          show: true,
+          type: 'warning' as const,
+          title: 'HTTP 服务已停止',
+          description:
+            '服务已停止。重新启动后可继续接收 IDE 请求；使用 Codex / Claude CLI 则无需此服务。'
+        }
+      case 'running':
+      default:
+        return { show: false, title: '', description: '' }
+    }
+  })()
 
   const canStart = useMemo(
     () => ['idle', 'stopped', 'failed'].includes(status.state) && !pending,
@@ -522,6 +676,7 @@ export default function MCP() {
 
   return (
     <div className="page-mcp">
+      <style>{`@keyframes mcp-flash { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
       {contextHolder}
 
       {/* 页头 */}
@@ -547,19 +702,27 @@ export default function MCP() {
         </Space>
       </div>
 
+      <Tabs
+        activeKey={activeTab}
+        onChange={(k) => setActiveTab(k as 'http' | 'stdio')}
+        items={[
+          {
+            key: 'http',
+            label: (
+              <Space>
+                <ApiOutlined />
+                HTTP 服务
+              </Space>
+            ),
+            children: (
+              <>
       {/* 状态卡片 */}
       <Card
         title={
           <Space>
-            <span>HTTP 服务（端口 37991）</span>
+            <span>HTTP 服务</span>
             <Badge
-              status={
-                status.state === 'running'
-                  ? 'success'
-                  : status.state === 'failed'
-                    ? 'error'
-                    : 'default'
-              }
+              status={STATE_PALETTE[status.state]?.badgeStatus ?? 'default'}
               text={
                 <Space size={4}>
                   {stateMeta.icon}
@@ -582,7 +745,7 @@ export default function MCP() {
               启动 HTTP 服务
             </Button>
             <Button
-              danger
+              type="default"
               icon={<PoweroffOutlined />}
               disabled={!canStop}
               onClick={handleStop}
@@ -590,6 +753,7 @@ export default function MCP() {
               停止
             </Button>
             <Button
+              type="default"
               icon={<ReloadOutlined />}
               disabled={!canRestart}
               onClick={handleRestart}
@@ -614,146 +778,96 @@ export default function MCP() {
             <Statistic
               title="端口"
               value={status.port ?? 37991}
-              styles={{ content: { fontSize: 16 } }}
+              styles={{ content: { fontSize: 18 } }}
             />
           </Col>
           <Col span={6}>
             <Statistic
               title="PID"
               value={status.pid ?? '-'}
-              styles={{ content: { fontSize: 16 } }}
+              styles={{ content: { fontSize: 14 } }}
             />
           </Col>
           <Col span={6}>
             <Statistic
               title="重启次数"
               value={status.restartCount ?? 0}
-              styles={{ content: { fontSize: 16 } }}
+              styles={{ content: { fontSize: 14 } }}
             />
           </Col>
           <Col span={6}>
             <Statistic
               title="运行时长"
               value={status.state === 'running' ? uptimeStr : '--:--:--'}
-              styles={{ content: { fontSize: 16 } }}
+              styles={{ content: { fontSize: 18 } }}
             />
           </Col>
         </Row>
 
-        <Row gutter={16} style={{ marginTop: 16 }}>
-          <Col span={24}>
-            <Space size={16}>
-              <Text type="secondary">项目：</Text>
-              {status.activeProject ? (
-                <Tag color="blue">
-                  {status.activeProject.projectName ||
-                    status.activeProject.projectId}
-                </Tag>
-              ) : (
-                <Text type="warning">未设置激活项目</Text>
-              )}
-              {status.activeProject && (
-                <>
-                  <Text type="secondary">团队：</Text>
-                  <Tag>{status.activeProject.teamId.slice(0, 8)}...</Tag>
-                </>
-              )}
-              <Text type="secondary">地址：</Text>
-              <Text code style={{ fontSize: 12 }}>
-                {status.url ||
-                  `http://127.0.0.1:${status.port ?? 37991}/mcp`}
-              </Text>
-              <Button
-                size="small"
-                type="link"
-                icon={<CopyOutlined />}
-                onClick={async () => {
-                  const url =
-                    status.url ||
-                    `http://127.0.0.1:${status.port ?? 37991}/mcp`
-                  try {
-                    await navigator.clipboard.writeText(url)
-                    messageApi.success('URL 已复制')
-                  } catch {
-                    messageApi.error('复制失败')
-                  }
-                }}
-              >
-                复制 URL
-              </Button>
-            </Space>
-          </Col>
-        </Row>
+        <Descriptions
+          size="small"
+          column={1}
+          style={{ marginTop: 16 }}
+          items={[
+            {
+              key: 'url',
+              label: '地址',
+              children: (
+                <Space size={4} wrap>
+                  <Text code style={{ fontSize: 13 }}>
+                    {status.url ||
+                      `http://127.0.0.1:${status.port ?? 37991}/mcp`}
+                  </Text>
+                  <Tooltip title="复制 URL">
+                    <Button
+                      size="small"
+                      type="text"
+                      icon={<CopyOutlined />}
+                      onClick={async () => {
+                        const url =
+                          status.url ||
+                          `http://127.0.0.1:${status.port ?? 37991}/mcp`
+                        try {
+                          await navigator.clipboard.writeText(url)
+                          messageApi.success('URL 已复制')
+                        } catch {
+                          messageApi.error('复制失败')
+                        }
+                      }}
+                    />
+                  </Tooltip>
+                </Space>
+              )
+            }
+          ]}
+        />
       </Card>
 
-      {/* 异常提示 */}
-      {status.state === 'failed' && status.reason && (
-        <Alert
-          type="error"
-          showIcon
-          icon={<ExclamationCircleOutlined />}
-          title="MCP Server 启动失败"
-          description={status.reason}
-          style={{ marginBottom: 16 }}
-          action={
-            <Button size="small" onClick={handleRestart}>
-              重试
-            </Button>
-          }
-        />
-      )}
-
-      {status.state === 'idle' && (
-        <Alert
-          type="info"
-          showIcon
-          title="HTTP 服务未启动"
-          description="使用 Cursor / VS Code / JetBrains 时需要点「启动 HTTP 服务」。Codex / Claude CLI 用 STDIO 模式，无需此项。"
-          style={{ marginBottom: 16 }}
-        />
-      )}
-
-      {status.state === 'starting' && (
-        <Alert
-          type="info"
-          showIcon
-          icon={<LoadingOutlined spin />}
-          title="HTTP 服务启动中…"
-          description="等待子进程就绪信号（最长 5 秒）。"
-          style={{ marginBottom: 16 }}
-        />
-      )}
-
-      {status.state === 'restarting' && (
-        <Alert
-          type="warning"
-          showIcon
-          icon={<ReloadOutlined spin />}
-          title="HTTP 服务异常退出，正在自动重启…"
-          description={`已重试 ${status.restartCount ?? 0} / 3 次。如持续失败，请查看上方失败原因。`}
-          style={{ marginBottom: 16 }}
-        />
-      )}
-
-      {status.state === 'stopped' && (
-        <Alert
-          type="warning"
-          showIcon
-          title="HTTP 服务已停止"
-          description="服务已停止。重新启动后可继续接收 IDE 请求；使用 Codex / Claude CLI 则无需此服务。"
-          style={{ marginBottom: 16 }}
-        />
-      )}
+      {/* 异常提示 - 单一动态 Alert，状态切换时 React 复用同一 DOM 节点 */}
+      <Alert
+        showIcon
+        type={stateAlert.type}
+        icon={stateAlert.icon}
+        title={stateAlert.title}
+        description={stateAlert.description}
+        action={stateAlert.action}
+        style={{
+          marginBottom: 16,
+          display: stateAlert.show ? 'flex' : 'none'
+        }}
+      />
 
       {/* 最近访问日志 */}
       {status.state === 'running' && (
         <Card
           title={
-            <Space>
-              <ApiOutlined />
-              <span>最近访问</span>
+            <Space size={8} wrap>
+              <Space>
+                <ApiOutlined />
+                <span>最近访问</span>
+              </Space>
               {lastClientUA && (
-                <Tag color="processing">
+                <Tag>
                   最近客户端：{lastClientUA.slice(0, 60)}
                 </Tag>
               )}
@@ -765,12 +879,7 @@ export default function MCP() {
             </Space>
           }
           extra={
-            <Space>
-              {lastRefreshTime && (
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  上次刷新 {lastRefreshTime}
-                </Text>
-              )}
+            <Space size={8} wrap>
               <Space size={4}>
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   自动刷新
@@ -823,6 +932,22 @@ export default function MCP() {
           style={{ marginBottom: 16 }}
           size="small"
         >
+          {lastRefreshTime && (
+            <Tooltip title="悬停查看绝对时间">
+              <Text
+                type="secondary"
+                style={{
+                  fontSize: 11,
+                  display: 'block',
+                  marginBottom: 8,
+                  cursor: 'help',
+                  color: '#bfbfbf'
+                }}
+              >
+                上次刷新 {lastRefreshTime}
+              </Text>
+            </Tooltip>
+          )}
           {accessLogs.length === 0 ? (
             <Text type="secondary">
               暂无访问记录（Codex/IDE 连接后会在此显示）
@@ -862,28 +987,61 @@ export default function MCP() {
                 {
                   title: '方法',
                   dataIndex: 'rpc',
-                  width: 100,
-                  render: (v: string) => (v ? <Tag color="blue">{v}</Tag> : '-')
+                  width: 200,
+                  ellipsis: { showTitle: false },
+                  render: (v: string) =>
+                    v ? (
+                      <Tooltip title={v} placement="topLeft">
+                        <Tag color="blue">{v}</Tag>
+                      </Tooltip>
+                    ) : (
+                      '-'
+                    )
                 },
                 {
                   title: '客户端',
                   dataIndex: 'ua',
+                  width: 240,
+                  ellipsis: { showTitle: false },
                   render: (v: string) => (
-                    <Text style={{ fontSize: 12 }}>{v || '-'}</Text>
+                    <Tooltip title={v || '-'} placement="topLeft">
+                      <Text style={{ fontSize: 12 }}>{v || '-'}</Text>
+                    </Tooltip>
                   )
                 },
                 {
                   title: '耗时',
                   dataIndex: 'dur_ms',
                   width: 80,
-                  render: (v: number) => <Text type="secondary">{v}ms</Text>
+                  render: (v: number) => {
+                    // 4 级色码：< 100ms 绿 / 100-500ms 灰 / 500-1000ms 黄 / > 1000ms 红
+                    let color: string
+                    if (v < 100) color = '#52c41a'
+                    else if (v <= 500) color = '#8c8c8c'
+                    else if (v <= 1000) color = '#faad14'
+                    else color = '#ff4d4f'
+                    return (
+                      <Text style={{ color, fontWeight: v > 1000 ? 600 : 400 }}>
+                        {v}ms
+                      </Text>
+                    )
+                  }
                 },
                 {
                   title: '状态',
                   dataIndex: 'status',
                   width: 60,
                   render: (s: number) => (
-                    <Tag color={s >= 400 ? 'red' : 'green'}>{s}</Tag>
+                    <Tag
+                      color={s >= 400 ? 'red' : 'green'}
+                      style={
+                        s >= 500
+                          ? { animation: 'mcp-flash 1.5s ease-in-out infinite' }
+                          : undefined
+                      }
+                    >
+                      {s}
+                    </Tag>
                   )
                 }
               ]}
@@ -891,7 +1049,19 @@ export default function MCP() {
           )}
         </Card>
       )}
-
+              </>
+            )
+          },
+          {
+            key: 'stdio',
+            label: (
+              <Space>
+                <FileTextOutlined />
+                STDIO 接入
+              </Space>
+            ),
+            children: (
+              <>
       {/* IDE 接入配置 */}
       <Card
         title={
@@ -901,29 +1071,38 @@ export default function MCP() {
           </Space>
         }
       >
-        <Alert
-          type="info"
-          showIcon
+        <Collapse
+          ghost
           style={{ marginBottom: 16 }}
-          title="如何把这套配置接入你的 IDE"
-          description={
-            <ol style={{ margin: 0, paddingLeft: 20, fontSize: 12 }}>
-              <li>点击下方「复制 MCP 配置」按钮，把 JSON 拷到剪贴板</li>
-              <li>
-                粘贴到 IDE 的 MCP 配置文件：
-                <ul style={{ marginTop: 4 }}>
+          items={[
+            {
+              key: 'guide',
+              label: (
+                <Space>
+                  <ExclamationCircleOutlined />
+                  <Text strong>如何把这套配置接入你的 IDE</Text>
+                </Space>
+              ),
+              children: (
+                <ol style={{ margin: 0, paddingLeft: 20, fontSize: 12 }}>
+                  <li>点击下方「复制 MCP 配置」按钮，把 JSON 拷到剪贴板</li>
                   <li>
-                    <Text code>~/.codex/mcp.json</Text>（Codex CLI）
+                    粘贴到 IDE 的 MCP 配置文件：
+                    <ul style={{ marginTop: 4 }}>
+                      <li>
+                        <Text code>~/.codex/mcp.json</Text>（Codex CLI）
+                      </li>
+                      <li>
+                        <Text code>~/.claude.json</Text> 或{' '}
+                        <Text code>~/.claude/settings.json</Text>（Claude CLI）
+                      </li>
+                    </ul>
                   </li>
-                  <li>
-                    <Text code>~/.claude.json</Text> 或{' '}
-                    <Text code>~/.claude/settings.json</Text>（Claude CLI）
-                  </li>
-                </ul>
-              </li>
-              <li>重启 IDE，stdin/stdout 由 IDE 自己 spawn</li>
-            </ol>
-          }
+                  <li>重启 IDE，stdin/stdout 由 IDE 自己 spawn</li>
+                </ol>
+              )
+            }
+          ]}
         />
 
         <Form layout="vertical" size="small">
@@ -1107,6 +1286,11 @@ export default function MCP() {
           }
         />
       </Card>
+              </>
+            )
+          }
+        ] satisfies TabsProps['items']}
+      />
     </div>
   )
 }

@@ -866,55 +866,52 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
         <Form layout="vertical" size="small">
           {/* 启动命令 */}
           <Form.Item label="启动命令">
-            <Space.Compact style={{ width: '100%' }}>
-              <Input
-                value={stdioCommand}
-                onChange={(e) => setStdioCommand(e.target.value)}
-                placeholder="node"
-              />
-              <Button
-                icon={<CopyOutlined />}
-                onClick={async () => {
-                  await navigator.clipboard.writeText(stdioCommand)
-                  messageApi.success('命令已复制')
-                }}
-              >
-                复制
-              </Button>
-            </Space.Compact>
+            <Input
+              value={stdioCommand}
+              onChange={(e) => setStdioCommand(e.target.value)}
+              placeholder="node"
+            />
+            <Text
+              copyable={{ text: stdioCommand, tooltips: ['复制', '已复制'] }}
+              type="secondary"
+              style={{ fontSize: 12, marginTop: 4, display: 'inline-block' }}
+              code
+            >
+              {stdioCommand || '(空)'}
+            </Text>
           </Form.Item>
 
           {/* 参数 */}
           <Form.Item label="参数">
             {stdioArgs.map((arg, i) => (
-              <Space.Compact
-                key={i}
-                style={{ width: '100%', marginBottom: 8 }}
-              >
-                <Input
-                  value={arg}
-                  onChange={(e) => {
-                    const next = [...stdioArgs]
-                    next[i] = e.target.value
-                    setStdioArgs(next)
-                  }}
-                  placeholder="参数"
-                />
-                <Button
-                  icon={<CopyOutlined />}
-                  onClick={async () => {
-                    await navigator.clipboard.writeText(arg)
-                    messageApi.success('参数已复制')
-                  }}
-                />
-                <Button
-                  danger
-                  icon={<DeleteOutlined />}
-                  onClick={() =>
-                    setStdioArgs(stdioArgs.filter((_, idx) => idx !== i))
-                  }
-                />
-              </Space.Compact>
+              <div key={i} style={{ marginBottom: 8 }}>
+                <Space.Compact style={{ width: '100%' }}>
+                  <Input
+                    value={arg}
+                    onChange={(e) => {
+                      const next = [...stdioArgs]
+                      next[i] = e.target.value
+                      setStdioArgs(next)
+                    }}
+                    placeholder="参数"
+                  />
+                  <Button
+                    danger
+                    icon={<DeleteOutlined />}
+                    onClick={() =>
+                      setStdioArgs(stdioArgs.filter((_, idx) => idx !== i))
+                    }
+                  />
+                </Space.Compact>
+                <Text
+                  copyable={{ text: arg, tooltips: ['复制', '已复制'] }}
+                  type="secondary"
+                  style={{ fontSize: 12, marginTop: 4, display: 'inline-block' }}
+                  code
+                >
+                  {arg || '(空)'}
+                </Text>
+              </div>
             ))}
             <Button
               block
@@ -928,47 +925,48 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
           {/* 环境变量 */}
           <Form.Item label="环境变量">
             {stdioEnv.map((env, i) => (
-              <Space.Compact
-                key={i}
-                style={{ width: '100%', marginBottom: 8 }}
-              >
-                <Input
-                  style={{ width: '40%' }}
-                  value={env.key}
-                  placeholder="键"
-                  onChange={(e) => {
-                    const next = [...stdioEnv]
-                    next[i] = { ...next[i], key: e.target.value }
-                    setStdioEnv(next)
+              <div key={i} style={{ marginBottom: 8 }}>
+                <Space.Compact style={{ width: '100%' }}>
+                  <Input
+                    style={{ width: '40%' }}
+                    value={env.key}
+                    placeholder="键"
+                    onChange={(e) => {
+                      const next = [...stdioEnv]
+                      next[i] = { ...next[i], key: e.target.value }
+                      setStdioEnv(next)
+                    }}
+                  />
+                  <Input
+                    style={{ width: 'calc(60% - 40px)' }}
+                    value={env.value}
+                    placeholder="值"
+                    onChange={(e) => {
+                      const next = [...stdioEnv]
+                      next[i] = { ...next[i], value: e.target.value }
+                      setStdioEnv(next)
+                    }}
+                  />
+                  <Button
+                    danger
+                    icon={<DeleteOutlined />}
+                    onClick={() =>
+                      setStdioEnv(stdioEnv.filter((_, idx) => idx !== i))
+                    }
+                  />
+                </Space.Compact>
+                <Text
+                  copyable={{
+                    text: `${env.key}=${env.value}`,
+                    tooltips: ['复制', '已复制']
                   }}
-                />
-                <Input
-                  style={{ width: 'calc(60% - 80px)' }}
-                  value={env.value}
-                  placeholder="值"
-                  onChange={(e) => {
-                    const next = [...stdioEnv]
-                    next[i] = { ...next[i], value: e.target.value }
-                    setStdioEnv(next)
-                  }}
-                />
-                <Button
-                  icon={<CopyOutlined />}
-                  onClick={async () => {
-                    await navigator.clipboard.writeText(
-                      `${env.key}=${env.value}`
-                    )
-                    messageApi.success('环境变量已复制')
-                  }}
-                />
-                <Button
-                  danger
-                  icon={<DeleteOutlined />}
-                  onClick={() =>
-                    setStdioEnv(stdioEnv.filter((_, idx) => idx !== i))
-                  }
-                />
-              </Space.Compact>
+                  type="secondary"
+                  style={{ fontSize: 12, marginTop: 4, display: 'inline-block' }}
+                  code
+                >
+                  {env.key || '(键)'}={env.value || '(值)'}
+                </Text>
+              </div>
             ))}
             <Button
               block
@@ -982,36 +980,36 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
           {/* 环境变量传递 */}
           <Form.Item label="环境变量传递">
             {stdioPassEnv.map((v, i) => (
-              <Space.Compact
-                key={i}
-                style={{ width: '100%', marginBottom: 8 }}
-              >
-                <Input
-                  value={v}
-                  placeholder="环境变量名"
-                  onChange={(e) => {
-                    const next = [...stdioPassEnv]
-                    next[i] = e.target.value
-                    setStdioPassEnv(next)
-                  }}
-                />
-                <Button
-                  icon={<CopyOutlined />}
-                  onClick={async () => {
-                    await navigator.clipboard.writeText(v)
-                    messageApi.success('变量名已复制')
-                  }}
-                />
-                <Button
-                  danger
-                  icon={<DeleteOutlined />}
-                  onClick={() =>
-                    setStdioPassEnv(
-                      stdioPassEnv.filter((_, idx) => idx !== i)
-                    )
-                  }
-                />
-              </Space.Compact>
+              <div key={i} style={{ marginBottom: 8 }}>
+                <Space.Compact style={{ width: '100%' }}>
+                  <Input
+                    value={v}
+                    placeholder="环境变量名"
+                    onChange={(e) => {
+                      const next = [...stdioPassEnv]
+                      next[i] = e.target.value
+                      setStdioPassEnv(next)
+                    }}
+                  />
+                  <Button
+                    danger
+                    icon={<DeleteOutlined />}
+                    onClick={() =>
+                      setStdioPassEnv(
+                        stdioPassEnv.filter((_, idx) => idx !== i)
+                      )
+                    }
+                  />
+                </Space.Compact>
+                <Text
+                  copyable={{ text: v, tooltips: ['复制', '已复制'] }}
+                  type="secondary"
+                  style={{ fontSize: 12, marginTop: 4, display: 'inline-block' }}
+                  code
+                >
+                  {v || '(空)'}
+                </Text>
+              </div>
             ))}
             <Button
               block
@@ -1024,22 +1022,19 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
 
           {/* 工作目录 */}
           <Form.Item label="工作目录">
-            <Space.Compact style={{ width: '100%' }}>
-              <Input
-                value={stdioCwd}
-                onChange={(e) => setStdioCwd(e.target.value)}
-                placeholder="可留空"
-              />
-              <Button
-                icon={<CopyOutlined />}
-                onClick={async () => {
-                  await navigator.clipboard.writeText(stdioCwd)
-                  messageApi.success('工作目录已复制')
-                }}
-              >
-                复制
-              </Button>
-            </Space.Compact>
+            <Input
+              value={stdioCwd}
+              onChange={(e) => setStdioCwd(e.target.value)}
+              placeholder="可留空"
+            />
+            <Text
+              copyable={{ text: stdioCwd, tooltips: ['复制', '已复制'] }}
+              type="secondary"
+              style={{ fontSize: 12, marginTop: 4, display: 'inline-block' }}
+              code
+            >
+              {stdioCwd || '(空)'}
+            </Text>
           </Form.Item>
         </Form>
 

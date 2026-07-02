@@ -63,9 +63,11 @@ let mcpActualPort = null; // 实际启动的端口（可能因冲突自动避让
 
 const mcpStatus = () => ({
   state: mcpState,
-  port: mcpProcess ? mcpActualPort : null,
-  url: mcpProcess ? `http://${HOST}:${mcpActualPort}/mcp` : null,
-  pid: mcpProcess?.pid || null,
+  // port / url / pid 仅在真正就绪（state==='running'）时对外暴露，
+  // 避免 starting 阶段 UI 展示可访问链接导致 ECONNREFUSED
+  port: mcpState === 'running' ? mcpActualPort : null,
+  url: mcpState === 'running' ? `http://${HOST}:${mcpActualPort}/mcp` : null,
+  pid: mcpState === 'running' ? mcpProcess?.pid || null : null,
   activeProject: activeProject || null,
   restartCount: mcpRestartCount,
   reason: mcpState === 'failed' ? (lastFailureReason || '启动失败') : undefined,
@@ -169,6 +171,8 @@ async function startMCPServer() {
 
   console.log('[synkord] startMCPServer: step 1/6 - state=starting');
   mcpState = 'starting';
+  // 进入新一轮启动：清空上一轮失败原因，避免 mcpStatus() 在新一轮失败前读到陈旧文案
+  lastFailureReason = '';
   notifyUI('starting');
 
   // 1. 写一次激活上下文
@@ -230,6 +234,8 @@ async function startMCPServer() {
       mcpProcess = null;
       mcpState = 'failed';
       lastFailureReason = '启动超时（5s 内未收到 ready 信号）';
+      // 方案 A：未 ready 前的超时直接耗尽重试配额，阻断后续 exit 自动重启
+      mcpRestartCount = MAX_AUTO_RESTART;
       notifyUI('failed');
     }
   }, READY_TIMEOUT_MS);
@@ -237,10 +243,13 @@ async function startMCPServer() {
   // 6. 等待 ready 信号
   mcpProcess.once('error', (error) => {
     clearTimeout(timer);
-    console.error('[synkord] step 6/6 ERROR:', error.message);
+    console.error('[synkord] step 6/6 ERROR:', error);
     mcpProcess = null;
     mcpState = 'failed';
-    lastFailureReason = '进程错误：' + error.message;
+    // 拼上 error.code 与首行堆栈，便于线上定位根因
+    const codePart = error?.code ? `[${error.code}] ` : '';
+    const stackHead = (error?.stack || '').split('\n')[0] || '';
+    lastFailureReason = '进程错误：' + codePart + error.message + (stackHead ? ` (${stackHead})` : '');
     notifyUI('failed');
   });
 
@@ -261,17 +270,6 @@ async function startMCPServer() {
     if (mcpState === 'stopped') return;
     handleUnexpectedExit(code, signal);
   });
-
-  // 8. 周期性心跳日志（每秒一次，仅在 starting 时）
-  const heartbeat = setInterval(() => {
-    const alive = mcpProcess && !mcpProcess.killed && mcpProcess.exitCode === null;
-    const portInfo = mcpActualPort ? `port=${mcpActualPort}` : 'port=?';
-    const ipcInfo = mcpProcess?.connected ? 'IPC=connected' : (mcpProcess ? 'IPC=?' : 'IPC=no-proc');
-    console.log(`[synkord] heartbeat: state=${mcpState} alive=${alive} ${portInfo} ${ipcInfo}`);
-    if (mcpState !== 'starting') {
-      clearInterval(heartbeat);
-    }
-  }, 1000);
 
   return mcpStatus();
 }
@@ -379,14 +377,18 @@ function getAPIBase() {
 function getRecentAccessLog(limit = 50) {
   try {
     const logPath = path.join(SYNKORD_HOME, 'mcp-access.log');
-    if (!fs.existsSync(logPath)) return [];
+    if (!fs.existsSync(logPath)) return { items: [], total: 0 };
     const content = fs.readFileSync(logPath, 'utf8');
     const lines = content.trim().split('\n').filter(Boolean);
-    return lines.slice(-limit).reverse().map((line) => {
+    // total 用原始行数（不解析 JSON，便宜且准确）
+    const total = lines.length;
+    // items 仅对切片部分做 JSON 解析
+    const items = lines.slice(-limit).reverse().map((line) => {
       try { return JSON.parse(line); } catch { return null; }
     }).filter(Boolean);
+    return { items, total };
   } catch {
-    return [];
+    return { items: [], total: 0 };
   }
 }
 

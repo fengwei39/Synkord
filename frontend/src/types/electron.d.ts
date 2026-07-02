@@ -12,7 +12,10 @@ declare global {
       mcpSetActiveProject: (project: null | { teamId: string; projectId: string; projectName: string }) => Promise<MCPStatus>;
       mcpGetIDEConfig: () => Promise<{ url: string; host: string; port: number; path: string }>;
       mcpGetInstallPath: () => Promise<{ servicePath: string }>;
-      mcpGetAccessLog: (limit?: number) => Promise<MCPAccessLogEntry[]>;
+      mcpGetAccessLog: (limit?: number) => Promise<{
+        items: MCPAccessLogEntry[];
+        total: number;
+      }>;
       mcpSetUserAuth: (auth: { token: string; user_id: string; user_name: string } | null) => Promise<{ ok: boolean }>;
       onMcpEvent: (callback: (payload: MCPEvent) => void) => () => void;
       windowControl: (action: 'minimize' | 'maximize' | 'close') => void;
@@ -35,10 +38,12 @@ declare global {
   interface MCPEvent {
     type: string;
     state: MCPStatus['state'];
-    port?: number;
-    url?: string;
-    pid?: number;
+    port?: number | null;
+    url?: string | null;
+    pid?: number | null;
     reason?: string;
+    activeProject?: MCPStatus['activeProject'];
+    restartCount?: number;
     timestamp?: string;
   }
 

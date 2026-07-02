@@ -19,6 +19,7 @@ import {
   Card,
   Col,
   Form,
+  Input,
   Row,
   Select,
   Space,
@@ -140,7 +141,8 @@ const mergeStatus = (prev: MCPStatus, patch: StatusPatch): MCPStatus => ({
   port: patch.port ?? prev.port,
   url: patch.url ?? prev.url,
   pid: patch.pid ?? prev.pid,
-  reason: patch.reason,
+  // 与其他可空字段一致：patch 不携带 reason 时保留 prev
+  reason: patch.reason ?? prev.reason,
   activeProject: patch.activeProject ?? prev.activeProject,
   restartCount: patch.restartCount ?? prev.restartCount
 })
@@ -154,7 +156,9 @@ const isStatusDirty = (prev: MCPStatus, next: MCPStatus): boolean =>
   prev.port !== next.port ||
   prev.url !== next.url ||
   prev.pid !== next.pid ||
-  prev.activeProject?.projectId !== next.activeProject?.projectId
+  prev.activeProject?.projectId !== next.activeProject?.projectId ||
+  prev.reason !== next.reason ||
+  prev.restartCount !== next.restartCount
 
 // ============================================================================
 // 主组件
@@ -250,7 +254,10 @@ export default function MCP() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 订阅主进程事件（仅挂载一次）
+  // 订阅主进程事件（仅挂载一次）— 主通道，状态变更实时推送
+  // 说明：主进程 mcpStart 走 webContents.send('mcp:event') 与 ipcMain.handle() 两条不同 IPC 通道，
+  //       派发顺序不可控。setStatus 使用函数式 prev 形态 + mergeStatus 的可空字段 ?? 兜底，
+  //       保证即便事件与 IPC return 乱序到达也能收敛到一致结果。
   useEffect(() => {
     if (!window.synkord?.onMcpEvent) {
       console.error('[MCP.tsx] window.synkord.onMcpEvent is NOT available')
@@ -265,8 +272,15 @@ export default function MCP() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 兜底：每秒轮询状态（防止事件丢失）
+  // 兜底轮询：仅在事件源稀疏的状态下启用，且降频到 5s
+  // - running / starting：主进程事件频率高，不需要轮询
+  // - idle / stopped / failed / restarting：状态可能在两次事件之间"卡住"，兜底拉一次保证 UI 不陈旧
   useEffect(() => {
+    const POLL_INTERVAL_MS = 5000
+    const needsPolling = ['idle', 'stopped', 'failed', 'restarting'].includes(
+      status.state
+    )
+    if (!needsPolling) return
     const interval = setInterval(async () => {
       try {
         const s = await window.synkord?.mcpGetStatus?.()
@@ -278,10 +292,10 @@ export default function MCP() {
       } catch {
         // ignore
       }
-    }, 1000)
+    }, POLL_INTERVAL_MS)
     return () => clearInterval(interval)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [status.state])
 
   // 拉取访问日志（间隔可调；autoRefresh 关闭时不创建 interval）
   useEffect(() => {
@@ -291,14 +305,16 @@ export default function MCP() {
         // 后端只支持 limit 不支持 offset，采用客户端分页
         // 拉取当前页对应的总量，limit = page * pageSize（最小 50）
         const limit = Math.max(accessPage * accessPageSize, 50)
-        const logs = await window.synkord?.mcpGetAccessLog?.(limit)
-        if (logs) {
-          setAccessLogs(logs)
-          setAccessTotal(logs.length)
-          if (logs.length > 0) {
+        const result = await window.synkord?.mcpGetAccessLog?.(limit)
+        if (result) {
+          // result: { items: MCPAccessLogEntry[], total: number }
+          // items 是末尾 N 条（按时间倒序），total 是文件真实总行数
+          setAccessLogs(result.items)
+          setAccessTotal(result.total)
+          if (result.items.length > 0) {
             // 始终以最新一条日志覆盖 lastClientUA / lastClientTime
-            setLastClientUA(logs[0].ua)
-            setLastClientTime(logs[0].ts)
+            setLastClientUA(result.items[0].ua)
+            setLastClientTime(result.items[0].ts)
           }
           setLastRefreshTime(new Date().toLocaleTimeString())
         }
@@ -334,19 +350,19 @@ export default function MCP() {
     setLoading(true)
     try {
       const limit = Math.max(accessPage * accessPageSize, 50)
-      const [s, logs] = await Promise.all([
+      const [s, logsResult] = await Promise.all([
         window.synkord?.mcpGetStatus?.(),
         window.synkord?.mcpGetAccessLog?.(limit)
       ])
       if (s) {
         setStatus(s)
       }
-      if (logs) {
-        setAccessLogs(logs)
-        setAccessTotal(logs.length)
-        if (logs.length > 0) {
-          setLastClientUA(logs[0].ua)
-          setLastClientTime(logs[0].ts)
+      if (logsResult) {
+        setAccessLogs(logsResult.items)
+        setAccessTotal(logsResult.total)
+        if (logsResult.items.length > 0) {
+          setLastClientUA(logsResult.items[0].ua)
+          setLastClientTime(logsResult.items[0].ts)
         }
         setLastRefreshTime(new Date().toLocaleTimeString())
       }
@@ -363,9 +379,10 @@ export default function MCP() {
     try {
       const s = await window.synkord?.mcpStart?.()
       if (s) setStatus(s)
-      messageApi.success('已发送启动信号')
+      // 移除成功 toast：状态变更由事件推送 + 页面 Alert / Badge 自动驱动
     } catch (e: any) {
-      messageApi.error('启动失败：' + (e?.message || '未知错误'))
+      // 仅 IPC 通道通信异常才弹窗；业务启动失败由主进程 state=failed 事件自动渲染
+      messageApi.error('启动指令下发失败：' + (e?.message || '未知错误'))
     } finally {
       setPending(null)
     }
@@ -376,9 +393,9 @@ export default function MCP() {
     try {
       const s = await window.synkord?.mcpStop?.()
       if (s) setStatus(s)
-      messageApi.success('已发送停止信号')
+      // 移除成功 toast：状态变更由事件推送 + 页面 Alert / Badge 自动驱动
     } catch (e: any) {
-      messageApi.error('停止失败：' + (e?.message || '未知错误'))
+      messageApi.error('停止指令下发失败：' + (e?.message || '未知错误'))
     } finally {
       setPending(null)
     }
@@ -389,9 +406,9 @@ export default function MCP() {
     try {
       const s = await window.synkord?.mcpRestart?.()
       if (s) setStatus(s)
-      messageApi.success('已发送重启信号')
+      // 移除成功 toast：状态变更由事件推送 + 页面 Alert / Badge 自动驱动
     } catch (e: any) {
-      messageApi.error('重启失败：' + (e?.message || '未知错误'))
+      messageApi.error('重启指令下发失败：' + (e?.message || '未知错误'))
     } finally {
       setPending(null)
     }
@@ -401,9 +418,17 @@ export default function MCP() {
   // 运行时长
   // ==========================================================================
 
+  // 单独追踪"是否首次进入 running"，避免重复清零累计时长。
+  // 场景：运行中事件推送导致 status 短暂变为 running→running 抖动，
+  //       不应把已经累计的 uptime 归零。
+  const wasRunningRef = useRef(false)
+
   const startUptimeTimer = () => {
     if (uptimeTimer.current) return
-    setUptime(0)
+    // 只有"非 running → running"的转换才清零；保持 running 期间不重置
+    if (!wasRunningRef.current) {
+      setUptime(0)
+    }
     uptimeTimer.current = setInterval(() => {
       setUptime((u) => u + 1)
     }, 1000)
@@ -420,8 +445,10 @@ export default function MCP() {
   useEffect(() => {
     if (status.state === 'running') {
       startUptimeTimer()
+      wasRunningRef.current = true
     } else {
       stopUptimeTimer()
+      wasRunningRef.current = false
     }
   }, [status.state])
 
@@ -548,7 +575,8 @@ export default function MCP() {
               type="primary"
               icon={<PlayCircleOutlined />}
               disabled={!canStart}
-              loading={pending === 'start'}
+              // pending 仅作防抖（避免狂点），按钮 loading 视觉移除：
+              // IPC 瞬时返回，按钮 loading 一闪反而误导；启动中状态由页面 starting Alert 承担
               onClick={handleStart}
             >
               启动 HTTP 服务
@@ -557,7 +585,6 @@ export default function MCP() {
               danger
               icon={<PoweroffOutlined />}
               disabled={!canStop}
-              loading={pending === 'stop'}
               onClick={handleStop}
             >
               停止
@@ -565,7 +592,6 @@ export default function MCP() {
             <Button
               icon={<ReloadOutlined />}
               disabled={!canRestart}
-              loading={pending === 'restart'}
               onClick={handleRestart}
             >
               重启
@@ -687,6 +713,28 @@ export default function MCP() {
         />
       )}
 
+      {status.state === 'starting' && (
+        <Alert
+          type="info"
+          showIcon
+          icon={<LoadingOutlined spin />}
+          title="HTTP 服务启动中…"
+          description="等待子进程就绪信号（最长 5 秒）。"
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
+      {status.state === 'restarting' && (
+        <Alert
+          type="warning"
+          showIcon
+          icon={<ReloadOutlined spin />}
+          title="HTTP 服务异常退出，正在自动重启…"
+          description={`已重试 ${status.restartCount ?? 0} / 3 次。如持续失败，请查看上方失败原因。`}
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
       {status.state === 'stopped' && (
         <Alert
           type="warning"
@@ -752,13 +800,13 @@ export default function MCP() {
                 onClick={async () => {
                   try {
                     const limit = Math.max(accessPage * accessPageSize, 50)
-                    const logs = await window.synkord?.mcpGetAccessLog?.(limit)
-                    if (logs) {
-                      setAccessLogs(logs)
-                      setAccessTotal(logs.length)
-                      if (logs.length > 0) {
-                        setLastClientUA(logs[0].ua)
-                        setLastClientTime(logs[0].ts)
+                    const result = await window.synkord?.mcpGetAccessLog?.(limit)
+                    if (result) {
+                      setAccessLogs(result.items)
+                      setAccessTotal(result.total)
+                      if (result.items.length > 0) {
+                        setLastClientUA(result.items[0].ua)
+                        setLastClientTime(result.items[0].ts)
                       }
                       setLastRefreshTime(new Date().toLocaleTimeString())
                     }
@@ -934,20 +982,40 @@ export default function MCP() {
                 {STDIO_DEFAULTS.command}
               </Text>
             </div>
-            {/* 参数列表（每项单独可复制） */}
+            {/* 参数列表（每项单独可复制；失败时第一项允许内联编辑） */}
             {stdioArgs.map((arg, i) => {
               const isPlaceholder =
                 arg === '<path-to>/local-mcp-service.cjs' || arg === ''
+              // 失败态 + 第一项（路径参数）→ 允许内联编辑，闭环"请手动填写"
+              const editable =
+                i === 0 && installPathStatus === 'failed'
               return (
                 <div key={i} style={{ marginBottom: 6 }}>
-                  <Text
-                    copyable={{ text: arg, tooltips: ['复制', '已复制'] }}
-                    code
-                    type={isPlaceholder ? 'danger' : undefined}
-                    style={{ fontSize: 13, wordBreak: 'break-all' }}
-                  >
-                    {arg || '(空)'}
-                  </Text>
+                  {editable ? (
+                    <Input
+                      size="small"
+                      value={arg}
+                      placeholder="例如 /Users/you/synkord/frontend/electron/local-mcp-service.cjs"
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                        const next = [...stdioArgs]
+                        next[i] = e.target.value
+                        setStdioArgs(next)
+                      }}
+                      style={{ fontSize: 13, maxWidth: 720 }}
+                    />
+                  ) : (
+                    <Text
+                      copyable={{
+                        text: arg,
+                        tooltips: ['复制', '已复制']
+                      }}
+                      code
+                      type={isPlaceholder ? 'danger' : undefined}
+                      style={{ fontSize: 13, wordBreak: 'break-all' }}
+                    >
+                      {arg || '(空)'}
+                    </Text>
+                  )}
                 </div>
               )
             })}
@@ -1003,7 +1071,10 @@ export default function MCP() {
           type="primary"
           icon={<CopyOutlined />}
           onClick={copyConfig}
-          disabled={installPathStatus === 'pending' || installPathStatus === 'failed'}
+          disabled={
+            installPathStatus === 'pending' ||
+            (installPathStatus === 'failed' && !stdioArgs[0]?.trim())
+          }
         >
           复制 MCP 配置
         </Button>

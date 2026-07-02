@@ -26,12 +26,11 @@ const ALLOWED_INVOKES = new Set([
   'mcp:get-access-log',
 ]);
 
-const ALLOWED_EVENTS = new Set([
-  'mcp:event', // 主进程推送的状态变更
-]);
-
 // ============================================================================
 // API 暴露（仅白名单通道可用）
+// 事件订阅仅一个 mcp:event 通道，已通过 ipcRenderer.on('mcp:event') 天然白名单化，
+// 不再维护 ALLOWED_EVENTS（之前 event?.type 取的是 IpcRendererEvent 对象，
+// 与业务 payload.type 不同，判断永远为 false，属冗余代码）。
 // ============================================================================
 
 contextBridge.exposeInMainWorld('synkord', {
@@ -66,14 +65,9 @@ contextBridge.exposeInMainWorld('synkord', {
         // 防止渲染进程回调抛错影响 IPC
       }
     };
-    const listener = (event, payload) => {
-      // 二次校验：仅放行白名单事件
-      if (!ALLOWED_EVENTS.has(event?.type)) return;
-      handler(event, payload);
-    };
-    ipcRenderer.on('mcp:event', listener);
+    ipcRenderer.on('mcp:event', handler);
     // 返回取消订阅函数
-    return () => ipcRenderer.removeListener('mcp:event', listener);
+    return () => ipcRenderer.removeListener('mcp:event', handler);
   },
 });
 

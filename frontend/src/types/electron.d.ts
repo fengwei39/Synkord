@@ -11,7 +11,8 @@ declare global {
       mcpRestart: () => Promise<MCPStatus>;
       mcpSetActiveProject: (project: null | { teamId: string; projectId: string; projectName: string }) => Promise<MCPStatus>;
       mcpGetIDEConfig: () => Promise<{ url: string; host: string; port: number; path: string }>;
-      mcpGetInstallPath: () => Promise<{ servicePath: string }>;
+      // 应用常量：MCP 服务脚本绝对路径（preload 同步暴露，非 IPC）
+      mcpServicePath: string;
       mcpGetAccessLog: (limit?: number) => Promise<{
         items: MCPAccessLogEntry[];
         total: number;

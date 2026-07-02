@@ -9,6 +9,7 @@
 'use strict';
 
 const { contextBridge, ipcRenderer } = require('electron');
+const path = require('path');
 
 // ============================================================================
 // 白名单 IPC 通道（仅暴露这些通道，文档 §10 安全）
@@ -22,7 +23,6 @@ const ALLOWED_INVOKES = new Set([
   'mcp:restart',
   'mcp:set-active-project',
   'mcp:get-ide-config',
-  'mcp:get-install-path',
   'mcp:get-access-log',
 ]);
 
@@ -49,8 +49,11 @@ contextBridge.exposeInMainWorld('synkord', {
 
   // ---- IDE 配置 ----
   mcpGetIDEConfig: () => ipcRenderer.invoke('mcp:get-ide-config'),
-  // ---- 安装路径（用于 STDIO 接入的 <path-to> 自动检测） ----
-  mcpGetInstallPath: () => ipcRenderer.invoke('mcp:get-install-path'),
+
+  // ---- 应用常量：MCP 服务脚本绝对路径 ----
+  // Electron 安装目录下的固定文件，重装/挪动位置才会变。
+  // 同步暴露，渲染进程 mount 时直接读取，无需 IPC。
+  mcpServicePath: path.join(__dirname, 'local-mcp-service.cjs'),
 
   // ---- 访问日志 ----
   mcpGetAccessLog: (limit) => ipcRenderer.invoke('mcp:get-access-log', limit),

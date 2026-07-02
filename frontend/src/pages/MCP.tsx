@@ -258,48 +258,15 @@ export default function MCP() {
   const [refreshInterval, setRefreshInterval] = useState<number>(3) // 秒
   const [lastRefreshTime, setLastRefreshTime] = useState<string>('')
 
-  // STDIO 接入：只读展示 + 复制。固定字段用 STDIO_DEFAULTS 常量，
-  // 只有 stdioArgs 是 state（args[0] 会随 detectInstallPath 变成真实路径）。
-  const [stdioArgs, setStdioArgs] = useState<string[]>([
-    '<path-to>/local-mcp-service.cjs',
-    'stdio'
-  ])
-  const [installPath, setInstallPath] = useState<string>('')
-  const [installPathStatus, setInstallPathStatus] = useState<
-    'pending' | 'ok' | 'failed'
-  >('pending')
-
-  // ==========================================================================
-  // 自动检测 local-mcp-service.cjs 绝对路径
-  // ==========================================================================
-  // 调用主进程 mcp:get-install-path 拿到真实路径，
-  // 替换 stdioArgs[0] 中的 <path-to> 占位符。
-  const detectInstallPath = async () => {
-    try {
-      const r = await window.synkord?.mcpGetInstallPath?.()
-      if (r?.servicePath) {
-        setInstallPath(r.servicePath)
-        setInstallPathStatus('ok')
-        setStdioArgs((prev) => {
-          // 只替换仍是占位符的那一项（用户可能已自定义过）
-          const next = [...prev]
-          const idx = next.findIndex(
-            (a) => a === '<path-to>/local-mcp-service.cjs' || a === ''
-          )
-          if (idx >= 0) next[idx] = r.servicePath
-          else if (next.length === 0) next.push(r.servicePath)
-          return next
-        })
-        messageApi.success('已更新安装路径')
-      } else {
-        setInstallPathStatus('failed')
-        messageApi.error('未检测到安装路径，请手动填写「参数」第一项')
-      }
-    } catch (e: any) {
-      setInstallPathStatus('failed')
-      messageApi.error('路径检测失败：' + (e?.message || '未知错误'))
-    }
-  }
+  // STDIO 接入：只读展示 + 复制。固定字段用 STDIO_DEFAULTS 常量。
+// - stdioArgs：state（用户可手动改 args[0] 覆盖默认路径）
+// - installPath：preload 同步暴露的应用常量（路径固定不变）
+const [stdioArgs, setStdioArgs] = useState<string[]>(() => [
+  window.synkord?.mcpServicePath || '',
+  'stdio'
+])
+const installPath = window.synkord?.mcpServicePath ?? ''
+const hasInstallPath = Boolean(installPath)
 
   // 最近访问日志
   const [accessLogs, setAccessLogs] = useState<MCPAccessLogEntry[]>([])
@@ -319,7 +286,6 @@ export default function MCP() {
 
   useEffect(() => {
     refreshStatus()
-    detectInstallPath()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -1051,40 +1017,18 @@ export default function MCP() {
             label={
               <Space size={8}>
                 <span>启动命令 + 参数</span>
-                {/* 路径检测状态：行内可见 */}
-                {installPathStatus === 'ok' && (
-                  <Tag color="success" icon={<CheckCircleOutlined />}>
-                    已检测
-                  </Tag>
-                )}
-                {installPathStatus === 'failed' && (
+                {/* 路径检测状态：行内可见（preload 同步暴露，无 pending 中间态） */}
+                {hasInstallPath ? (
+                  <Tooltip title={`安装路径：${installPath}`}>
+                    <Tag color="success" icon={<CheckCircleOutlined />}>
+                      已检测
+                    </Tag>
+                  </Tooltip>
+                ) : (
                   <Tag color="error" icon={<ExclamationCircleOutlined />}>
                     未检测
                   </Tag>
                 )}
-                {installPathStatus === 'pending' && (
-                  <Tag color="processing" icon={<LoadingOutlined />}>
-                    检测中
-                  </Tag>
-                )}
-                <Tooltip
-                  title={
-                    installPathStatus === 'ok'
-                      ? `已检测到安装路径：${installPath}`
-                      : installPathStatus === 'failed'
-                        ? '未检测到安装路径'
-                        : '正在检测安装路径…'
-                  }
-                >
-                  <Button
-                    type="link"
-                    size="small"
-                    icon={<ReloadOutlined />}
-                    onClick={detectInstallPath}
-                  >
-                    重新检测路径
-                  </Button>
-                </Tooltip>
               </Space>
             }
           >
@@ -1105,9 +1049,9 @@ export default function MCP() {
             {stdioArgs.map((arg, i) => {
               const isPlaceholder =
                 arg === '<path-to>/local-mcp-service.cjs' || arg === ''
-              // 失败态 + 第一项（路径参数）→ 允许内联编辑，闭环"请手动填写"
+              // 未检测到路径 + 第一项（路径参数）→ 允许内联编辑，闭环"请手动填写"
               const editable =
-                i === 0 && installPathStatus === 'failed'
+                i === 0 && !hasInstallPath
               return (
                 <div key={i} style={{ marginBottom: 6 }}>
                   {editable ? (
@@ -1190,28 +1134,23 @@ export default function MCP() {
           type="primary"
           icon={<CopyOutlined />}
           onClick={copyConfig}
-          disabled={
-            installPathStatus === 'pending' ||
-            (installPathStatus === 'failed' && !stdioArgs[0]?.trim())
-          }
+          disabled={!stdioArgs[0]?.trim()}
         >
           复制 MCP 配置
         </Button>
 
         <Alert
-          type={installPathStatus === 'failed' ? 'warning' : 'info'}
+          type={hasInstallPath ? 'info' : 'warning'}
           showIcon
           style={{ marginTop: 16 }}
           title={
-            installPathStatus === 'failed'
-              ? '未检测到安装路径，请手动填写「参数」第一项'
-              : installPathStatus === 'ok'
-                ? '已自动检测到安装路径'
-                : '正在检测安装路径…'
+            hasInstallPath
+              ? '已自动检测到安装路径'
+              : '未检测到安装路径，请手动填写「参数」第一项'
           }
           description={
             <Text>
-              {installPathStatus === 'ok' && installPath ? (
+              {hasInstallPath ? (
                 <>
                   当前路径：<Text code>{installPath}</Text>
                 </>

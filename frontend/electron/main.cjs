@@ -405,11 +405,6 @@ function registerIpc() {
     port: DEFAULT_HTTP_PORT,
     path: '/mcp',
   }));
-  ipcMain.handle('mcp:get-install-path', () => ({
-    // STDIO 接入的 local-mcp-service.cjs 绝对路径
-    // 渲染进程用此填充「参数」字段的 <path-to> 占位符
-    servicePath: getMcpServicePath(),
-  }));
   ipcMain.handle('mcp:get-access-log', (_e, limit) => getRecentAccessLog(limit || 50));
 }
 

@@ -18,6 +18,8 @@ import {
   Button,
   Card,
   Col,
+  Form,
+  Input,
   Row,
   Select,
   Space,
@@ -34,11 +36,13 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   CopyOutlined,
+  DeleteOutlined,
   ExclamationCircleOutlined,
   FileTextOutlined,
   LoadingOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
+  PlusOutlined,
   PoweroffOutlined,
   ReloadOutlined
 } from '@ant-design/icons'
@@ -180,7 +184,20 @@ export default function MCP() {
 
   // STDIO 接入：clientId 仅表示"STDIO 区块的目标 IDE 预设"
   const [clientId, setClientId] = useState<ClientId>('codex')
-  const [ideConfig, setIdeConfig] = useState<string>('')
+  // STDIO 表单（Codex 风格：command / args / env / pass_env / cwd）
+  const [stdioCommand, setStdioCommand] = useState('node')
+  const [stdioArgs, setStdioArgs] = useState<string[]>([
+    '<path-to>/local-mcp-service.cjs',
+    'stdio'
+  ])
+  const [stdioEnv, setStdioEnv] = useState<
+    Array<{ key: string; value: string }>
+  >([
+    { key: 'SYNKORD_API_BASE', value: 'http://127.0.0.1:8000/api' },
+    { key: 'SYNKORD_HOME', value: '~/.synkord' }
+  ])
+  const [stdioPassEnv, setStdioPassEnv] = useState<string[]>([])
+  const [stdioCwd, setStdioCwd] = useState('')
 
   // 最近访问日志
   const [accessLogs, setAccessLogs] = useState<MCPAccessLogEntry[]>([])
@@ -379,32 +396,30 @@ export default function MCP() {
   // STDIO 接入配置生成
   // ==========================================================================
 
-  // STDIO 区块的配置：只生成 stdio 模式 JSON，路径占位符待用户替换
-  useEffect(() => {
-    setIdeConfig(
-      JSON.stringify(
-        {
-          mcpServers: {
-            synkord: {
-              command: 'node',
-              args: ['<path-to>/local-mcp-service.cjs', 'stdio'],
-              env: {
-                SYNKORD_API_BASE: 'http://127.0.0.1:8000/api',
-                SYNKORD_HOME: '~/.synkord'
-              }
-            }
-          }
-        },
-        null,
-        2
-      )
+  // 由表单组装出最终写入 IDE 配置文件的对象
+  const buildStdioConfig = () => {
+    const server: Record<string, unknown> = {
+      command: stdioCommand.trim() || 'node',
+      args: stdioArgs.map((a) => a.trim()).filter(Boolean)
+    }
+    const env = Object.fromEntries(
+      stdioEnv
+        .filter((e) => e.key.trim())
+        .map((e) => [e.key.trim(), e.value])
     )
-  }, [clientId])
+    if (Object.keys(env).length > 0) server.env = env
+    const pass = stdioPassEnv.map((v) => v.trim()).filter(Boolean)
+    if (pass.length > 0) server.pass_env = pass
+    if (stdioCwd.trim()) server.cwd = stdioCwd.trim()
+    return { mcpServers: { synkord: server } }
+  }
 
   const copyConfig = async () => {
     try {
-      await navigator.clipboard.writeText(ideConfig)
-      messageApi.success('配置已复制到剪贴板')
+      await navigator.clipboard.writeText(
+        JSON.stringify(buildStdioConfig(), null, 2)
+      )
+      messageApi.success('MCP 配置已复制到剪贴板')
     } catch {
       messageApi.error('复制失败')
     }
@@ -844,29 +859,193 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
           </Col>
         </Row>
 
-        <Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 12 }}>
-          把以下配置写到对应 IDE 的 MCP 配置文件；启动由 IDE 自己负责，本页面无需「启动」按钮。
+        <Paragraph type="secondary" style={{ marginBottom: 16, fontSize: 12 }}>
+          IDE 启动 MCP 客户端时由 IDE 自己 spawn 子进程；本页面只负责生成配置，无需「启动」按钮。
         </Paragraph>
 
-        <Card size="small" style={{ background: '#fafafa' }}>
-          <pre
-            style={{
-              margin: 0,
-              fontFamily: 'Monaco, Menlo, monospace',
-              fontSize: 12,
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-all',
-              maxHeight: 300,
-              overflow: 'auto'
-            }}
-          >
-            {ideConfig}
-          </pre>
-        </Card>
+        <Form layout="vertical" size="small">
+          {/* 启动命令 */}
+          <Form.Item label="启动命令">
+            <Space.Compact style={{ width: '100%' }}>
+              <Input
+                value={stdioCommand}
+                onChange={(e) => setStdioCommand(e.target.value)}
+                placeholder="node"
+              />
+              <Button
+                icon={<CopyOutlined />}
+                onClick={async () => {
+                  await navigator.clipboard.writeText(stdioCommand)
+                  messageApi.success('命令已复制')
+                }}
+              >
+                复制
+              </Button>
+            </Space.Compact>
+          </Form.Item>
 
-        <Space style={{ marginTop: 12 }}>
+          {/* 参数 */}
+          <Form.Item label="参数">
+            {stdioArgs.map((arg, i) => (
+              <Space.Compact
+                key={i}
+                style={{ width: '100%', marginBottom: 8 }}
+              >
+                <Input
+                  value={arg}
+                  onChange={(e) => {
+                    const next = [...stdioArgs]
+                    next[i] = e.target.value
+                    setStdioArgs(next)
+                  }}
+                  placeholder="参数"
+                />
+                <Button
+                  icon={<CopyOutlined />}
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(arg)
+                    messageApi.success('参数已复制')
+                  }}
+                />
+                <Button
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={() =>
+                    setStdioArgs(stdioArgs.filter((_, idx) => idx !== i))
+                  }
+                />
+              </Space.Compact>
+            ))}
+            <Button
+              block
+              icon={<PlusOutlined />}
+              onClick={() => setStdioArgs([...stdioArgs, ''])}
+            >
+              添加参数
+            </Button>
+          </Form.Item>
+
+          {/* 环境变量 */}
+          <Form.Item label="环境变量">
+            {stdioEnv.map((env, i) => (
+              <Space.Compact
+                key={i}
+                style={{ width: '100%', marginBottom: 8 }}
+              >
+                <Input
+                  style={{ width: '40%' }}
+                  value={env.key}
+                  placeholder="键"
+                  onChange={(e) => {
+                    const next = [...stdioEnv]
+                    next[i] = { ...next[i], key: e.target.value }
+                    setStdioEnv(next)
+                  }}
+                />
+                <Input
+                  style={{ width: 'calc(60% - 80px)' }}
+                  value={env.value}
+                  placeholder="值"
+                  onChange={(e) => {
+                    const next = [...stdioEnv]
+                    next[i] = { ...next[i], value: e.target.value }
+                    setStdioEnv(next)
+                  }}
+                />
+                <Button
+                  icon={<CopyOutlined />}
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(
+                      `${env.key}=${env.value}`
+                    )
+                    messageApi.success('环境变量已复制')
+                  }}
+                />
+                <Button
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={() =>
+                    setStdioEnv(stdioEnv.filter((_, idx) => idx !== i))
+                  }
+                />
+              </Space.Compact>
+            ))}
+            <Button
+              block
+              icon={<PlusOutlined />}
+              onClick={() => setStdioEnv([...stdioEnv, { key: '', value: '' }])}
+            >
+              添加环境变量
+            </Button>
+          </Form.Item>
+
+          {/* 环境变量传递 */}
+          <Form.Item label="环境变量传递">
+            {stdioPassEnv.map((v, i) => (
+              <Space.Compact
+                key={i}
+                style={{ width: '100%', marginBottom: 8 }}
+              >
+                <Input
+                  value={v}
+                  placeholder="环境变量名"
+                  onChange={(e) => {
+                    const next = [...stdioPassEnv]
+                    next[i] = e.target.value
+                    setStdioPassEnv(next)
+                  }}
+                />
+                <Button
+                  icon={<CopyOutlined />}
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(v)
+                    messageApi.success('变量名已复制')
+                  }}
+                />
+                <Button
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={() =>
+                    setStdioPassEnv(
+                      stdioPassEnv.filter((_, idx) => idx !== i)
+                    )
+                  }
+                />
+              </Space.Compact>
+            ))}
+            <Button
+              block
+              icon={<PlusOutlined />}
+              onClick={() => setStdioPassEnv([...stdioPassEnv, ''])}
+            >
+              添加变量
+            </Button>
+          </Form.Item>
+
+          {/* 工作目录 */}
+          <Form.Item label="工作目录">
+            <Space.Compact style={{ width: '100%' }}>
+              <Input
+                value={stdioCwd}
+                onChange={(e) => setStdioCwd(e.target.value)}
+                placeholder="可留空"
+              />
+              <Button
+                icon={<CopyOutlined />}
+                onClick={async () => {
+                  await navigator.clipboard.writeText(stdioCwd)
+                  messageApi.success('工作目录已复制')
+                }}
+              >
+                复制
+              </Button>
+            </Space.Compact>
+          </Form.Item>
+        </Form>
+
+        <Space>
           <Button type="primary" icon={<CopyOutlined />} onClick={copyConfig}>
-            复制配置
+            复制 MCP 配置
           </Button>
           <Tooltip title="复制到 ~/.bashrc 或 ~/.zshrc">
             <Button icon={<CopyOutlined />} onClick={copyShellScript}>
@@ -879,7 +1058,7 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
           type="warning"
           showIcon
           style={{ marginTop: 16 }}
-          title="请把 <path-to> 替换为 Synkord 安装目录"
+          title="把 <path-to> 替换为 Synkord 安装目录"
           description={
             <Text>
               例如 <Text code>~/synkord/frontend/electron/local-mcp-service.cjs</Text>

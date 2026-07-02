@@ -19,7 +19,6 @@ import {
   Card,
   Col,
   Row,
-  Segmented,
   Select,
   Space,
   Spin,
@@ -179,10 +178,8 @@ export default function MCP() {
   const [refreshInterval, setRefreshInterval] = useState<number>(3) // 秒
   const [lastRefreshTime, setLastRefreshTime] = useState<string>('')
 
-  // IDE 配置
+  // STDIO 接入：clientId 仅表示"STDIO 区块的目标 IDE 预设"
   const [clientId, setClientId] = useState<ClientId>('codex')
-  const [transport, setTransport] = useState<'stdio' | 'http'>('stdio')
-  const [ideUrl, setIdeUrl] = useState('http://127.0.0.1:37991/mcp')
   const [ideConfig, setIdeConfig] = useState<string>('')
 
   // 最近访问日志
@@ -379,68 +376,30 @@ export default function MCP() {
   }, [status.state])
 
   // ==========================================================================
-  // IDE 配置生成
+  // STDIO 接入配置生成
   // ==========================================================================
 
-  // 客户端选择变更时自动切换 transport
+  // STDIO 区块的配置：只生成 stdio 模式 JSON，路径占位符待用户替换
   useEffect(() => {
-    const client = MCP_CLIENTS.find((c) => c.id === clientId)
-    if (client) setTransport(client.mode)
+    setIdeConfig(
+      JSON.stringify(
+        {
+          mcpServers: {
+            synkord: {
+              command: 'node',
+              args: ['<path-to>/local-mcp-service.cjs', 'stdio'],
+              env: {
+                SYNKORD_API_BASE: 'http://127.0.0.1:8000/api',
+                SYNKORD_HOME: '~/.synkord'
+              }
+            }
+          }
+        },
+        null,
+        2
+      )
+    )
   }, [clientId])
-
-  // 拉取 IDE 配置
-  useEffect(() => {
-    if (status.state === 'running' && status.url) {
-      setIdeUrl(status.url)
-    } else {
-      // 未运行时用默认 37991
-      window.synkord
-        ?.mcpGetIDEConfig?.()
-        .then((cfg: any) => {
-          if (cfg?.url) setIdeUrl(cfg.url)
-        })
-        .catch(() => {})
-    }
-  }, [status.state, status.url])
-
-  // 生成配置
-  useEffect(() => {
-    if (transport === 'http') {
-      setIdeConfig(
-        JSON.stringify(
-          {
-            mcpServers: {
-              synkord: {
-                type: 'streamable-http',
-                url: ideUrl
-              }
-            }
-          },
-          null,
-          2
-        )
-      )
-    } else {
-      setIdeConfig(
-        JSON.stringify(
-          {
-            mcpServers: {
-              synkord: {
-                command: 'node',
-                args: ['<path-to>/local-mcp-service.cjs', 'stdio'],
-                env: {
-                  SYNKORD_API_BASE: 'http://127.0.0.1:8000/api',
-                  SYNKORD_HOME: '~/.synkord'
-                }
-              }
-            }
-          },
-          null,
-          2
-        )
-      )
-    }
-  }, [transport, ideUrl])
 
   const copyConfig = async () => {
     try {
@@ -480,6 +439,12 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
     () => ['running', 'failed'].includes(status.state) && !pending,
     [status.state, pending]
   )
+
+  // 当前 clientId 是不是 HTTP 模式客户端（决定「未启动」是否要提示）
+  const needsHttp = useMemo(() => {
+    const c = MCP_CLIENTS.find((x) => x.id === clientId)
+    return c?.mode === 'http'
+  }, [clientId])
 
   const uptimeStr = useMemo(() => {
     const h = Math.floor(uptime / 3600)
@@ -531,7 +496,7 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
       <Card
         title={
           <Space>
-            <span>运行状态</span>
+            <span>HTTP 服务（端口 37991）</span>
             <Badge
               status={
                 status.state === 'running'
@@ -558,7 +523,7 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
               loading={pending === 'start'}
               onClick={handleStart}
             >
-              启动
+              启动 HTTP 服务
             </Button>
             <Button
               danger
@@ -581,6 +546,15 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
         }
         style={{ marginBottom: 16 }}
       >
+        <Space size={4} wrap style={{ marginBottom: 12 }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            支持的 HTTP 客户端：
+          </Text>
+          {MCP_CLIENTS.filter((c) => c.mode === 'http').map((c) => (
+            <Tag key={c.id}>{c.name}</Tag>
+          ))}
+        </Space>
+
         <Row gutter={16}>
           <Col span={6}>
             <Statistic
@@ -630,15 +604,29 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
                   <Tag>{status.activeProject.teamId.slice(0, 8)}...</Tag>
                 </>
               )}
-              <Text type="secondary">IDE 接入：</Text>
-              <Tag color={transport === 'http' ? 'geekblue' : 'purple'}>
-                {transport.toUpperCase()}
-              </Tag>
               <Text type="secondary">地址：</Text>
               <Text code style={{ fontSize: 12 }}>
                 {status.url ||
                   `http://127.0.0.1:${status.port ?? 37991}/mcp`}
               </Text>
+              <Button
+                size="small"
+                type="link"
+                icon={<CopyOutlined />}
+                onClick={async () => {
+                  const url =
+                    status.url ||
+                    `http://127.0.0.1:${status.port ?? 37991}/mcp`
+                  try {
+                    await navigator.clipboard.writeText(url)
+                    messageApi.success('URL 已复制')
+                  } catch {
+                    messageApi.error('复制失败')
+                  }
+                }}
+              >
+                复制 URL
+              </Button>
             </Space>
           </Col>
         </Row>
@@ -661,12 +649,12 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
         />
       )}
 
-      {status.state === 'idle' && (
+      {status.state === 'idle' && needsHttp && (
         <Alert
           type="info"
           showIcon
-          title="MCP Server 未启动"
-          description="点击右上角「启动」按钮启动本地 MCP 服务，让 IDE/Codex 接入 Synkord 项目数据。"
+          title="HTTP 服务未启动"
+          description="点击「启动 HTTP 服务」启动本地服务，让 Cursor / VS Code / JetBrains 接入 Synkord 项目数据。"
           style={{ marginBottom: 16 }}
         />
       )}
@@ -675,8 +663,8 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
         <Alert
           type="warning"
           showIcon
-          title="MCP Server 已停止"
-          description="服务已优雅关闭，重新启动后可继续接收 IDE 请求。"
+          title="HTTP 服务已停止"
+          description="服务已停止。重新启动后可继续接收 IDE 请求；使用 Codex / Claude CLI 则无需此服务。"
           style={{ marginBottom: 16 }}
         />
       )}
@@ -833,44 +821,31 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
         title={
           <Space>
             <FileTextOutlined />
-            <span>IDE 接入</span>
+            <span>STDIO 接入（Codex / Claude CLI）</span>
           </Space>
         }
       >
         <Row gutter={16} style={{ marginBottom: 16 }}>
           <Col span={12}>
             <Space>
-              <Text type="secondary">客户端：</Text>
+              <Text type="secondary">目标 IDE：</Text>
               <Select
                 value={clientId}
                 onChange={setClientId}
                 style={{ width: 180 }}
-                options={MCP_CLIENTS.map((c) => ({
-                  label: c.name,
-                  value: c.id
-                }))}
-              />
-            </Space>
-          </Col>
-          <Col span={12}>
-            <Space>
-              <Text type="secondary">模式：</Text>
-              <Segmented
-                value={transport}
-                onChange={(v) => setTransport(v as 'stdio' | 'http')}
-                options={[
-                  { label: 'STDIO', value: 'stdio' },
-                  { label: 'Streamable HTTP', value: 'http' }
-                ]}
+                options={MCP_CLIENTS.filter((c) => c.mode === 'stdio').map(
+                  (c) => ({
+                    label: c.name,
+                    value: c.id
+                  })
+                )}
               />
             </Space>
           </Col>
         </Row>
 
         <Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 12 }}>
-          {transport === 'http'
-            ? `将以下配置写入 IDE 的 MCP 配置文件（如 Cursor 的 .cursor/mcp.json）`
-            : `将以下配置写入 ~/.codex/mcp.json 或 Claude CLI 的 MCP 配置`}
+          把以下配置写到对应 IDE 的 MCP 配置文件；启动由 IDE 自己负责，本页面无需「启动」按钮。
         </Paragraph>
 
         <Card size="small" style={{ background: '#fafafa' }}>
@@ -900,15 +875,18 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
           </Tooltip>
         </Space>
 
-        {transport === 'stdio' && (
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginTop: 16 }}
-            title="需要以 STDIO 模式接入？"
-            description={<Text code>node local-mcp-service.cjs stdio</Text>}
-          />
-        )}
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginTop: 16 }}
+          title="请把 <path-to> 替换为 Synkord 安装目录"
+          description={
+            <Text>
+              例如 <Text code>~/synkord/frontend/electron/local-mcp-service.cjs</Text>
+              。配置路径：<Text code>~/.codex/mcp.json</Text>（Codex）或 Claude CLI 的对应文件。
+            </Text>
+          }
+        />
       </Card>
     </div>
   )

@@ -114,6 +114,39 @@ const STATE_META: Record<
 }
 
 // ============================================================================
+// Status 合并与脏检查工具
+// ============================================================================
+
+type StatusPatch = Partial<MCPStatus>
+
+/**
+ * 把事件 / 轮询返回的片段 status 合并进当前 status。
+ * - 顶层字段（state / reason / restartCount）按 patch 直接覆盖
+ * - 可空字段（port / url / pid / activeProject）仅在 patch 提供时覆盖
+ */
+const mergeStatus = (prev: MCPStatus, patch: StatusPatch): MCPStatus => ({
+  ...prev,
+  state: patch.state ?? prev.state,
+  port: patch.port ?? prev.port,
+  url: patch.url ?? prev.url,
+  pid: patch.pid ?? prev.pid,
+  reason: patch.reason,
+  activeProject: patch.activeProject ?? prev.activeProject,
+  restartCount: patch.restartCount ?? prev.restartCount
+})
+
+/**
+ * 判断新 status 是否相对当前有值得触发渲染的变化。
+ * 仅检查真正影响 UI 的字段（reason / restartCount 频繁轮询时抖动不大，不参与）。
+ */
+const isStatusDirty = (prev: MCPStatus, next: MCPStatus): boolean =>
+  prev.state !== next.state ||
+  prev.port !== next.port ||
+  prev.url !== next.url ||
+  prev.pid !== next.pid ||
+  prev.activeProject?.projectId !== next.activeProject?.projectId
+
+// ============================================================================
 // 主组件
 // ============================================================================
 
@@ -132,7 +165,10 @@ export default function MCP() {
     restartCount: 0
   })
   const [loading, setLoading] = useState(true)
-  const [acting, setActing] = useState(false)
+  // 当前正在进行的动作：用于按钮各自独立的 loading 态
+  const [pending, setPending] = useState<'start' | 'stop' | 'restart' | null>(
+    null
+  )
 
   // 运行时长
   const [uptime, setUptime] = useState(0)
@@ -167,64 +203,43 @@ export default function MCP() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 订阅主进程事件 + 定时轮询 fallback
+  // 订阅主进程事件（仅挂载一次）
   useEffect(() => {
-    const unsubscribe = window.synkord?.onMcpEvent?.((payload: MCPEvent) => {
-      console.log('[MCP.tsx] received mcp:event:', JSON.stringify(payload))
-      setStatus((prev) => ({
-        ...prev,
-        state: payload.state,
-        port: payload.port ?? prev.port,
-        url: payload.url ?? prev.url,
-        pid: payload.pid ?? prev.pid,
-        reason: payload.reason
-      }))
-      // running 时启动计时器
-      if (payload.state === 'running') {
-        startUptimeTimer()
-      } else if (['stopped', 'failed', 'idle'].includes(payload.state)) {
-        stopUptimeTimer()
-      }
-    })
     if (!window.synkord?.onMcpEvent) {
       console.error('[MCP.tsx] window.synkord.onMcpEvent is NOT available')
-    } else {
-      console.log('[MCP.tsx] subscribed to mcp:event')
+      return
     }
+    console.log('[MCP.tsx] subscribed to mcp:event')
+    const unsubscribe = window.synkord.onMcpEvent((payload: MCPEvent) => {
+      console.log('[MCP.tsx] received mcp:event:', JSON.stringify(payload))
+      setStatus((prev) => mergeStatus(prev, payload))
+    })
+    return unsubscribe
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-    // 兜底：每秒轮询状态（防止事件丢失）
-    const pollInterval = setInterval(async () => {
+  // 兜底：每秒轮询状态（防止事件丢失）
+  useEffect(() => {
+    const interval = setInterval(async () => {
       try {
         const s = await window.synkord?.mcpGetStatus?.()
         if (s) {
-          setStatus((prev) => {
-            if (
-              prev.state !== s.state ||
-              prev.port !== s.port ||
-              prev.pid !== s.pid ||
-              (s.reason && !prev.reason)
-            ) {
-              return {
-                ...prev,
-                state: s.state,
-                port: s.port,
-                url: s.url,
-                pid: s.pid,
-                reason: s.reason ?? prev.reason
-              }
-            }
-            return prev
-          })
-          if (s.state === 'running') startUptimeTimer()
+          setStatus((prev) =>
+            isStatusDirty(prev, s) ? mergeStatus(prev, s) : prev
+          )
         }
-      } catch (e) {
+      } catch {
         // ignore
       }
     }, 1000)
+    return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-    // 拉取访问日志（间隔可调）
-    const logInterval = setInterval(async () => {
-      if (!autoRefresh) return
+  // 拉取访问日志（间隔可调；autoRefresh 关闭时不创建 interval）
+  useEffect(() => {
+    if (!autoRefresh) return
+    const fetchLogs = async () => {
       try {
         // 后端只支持 limit 不支持 offset，采用客户端分页
         // 拉取当前页对应的总量，limit = page * pageSize（最小 50）
@@ -233,7 +248,8 @@ export default function MCP() {
         if (logs) {
           setAccessLogs(logs)
           setAccessTotal(logs.length)
-          if (logs.length > 0 && logs[0].ua !== lastClientUA) {
+          if (logs.length > 0) {
+            // 始终以最新一条日志覆盖 lastClientUA / lastClientTime
             setLastClientUA(logs[0].ua)
             setLastClientTime(logs[0].ts)
           }
@@ -242,14 +258,11 @@ export default function MCP() {
       } catch {
         // ignore
       }
-    }, refreshInterval * 1000)
-
-    return () => {
-      if (typeof unsubscribe === 'function') unsubscribe()
-      clearInterval(pollInterval)
-      clearInterval(logInterval)
     }
-  }, [autoRefresh, refreshInterval, accessPage, accessPageSize, lastClientUA])
+    fetchLogs()
+    const interval = setInterval(fetchLogs, refreshInterval * 1000)
+    return () => clearInterval(interval)
+  }, [autoRefresh, refreshInterval, accessPage, accessPageSize])
 
   // ==========================================================================
   // 操作
@@ -261,7 +274,6 @@ export default function MCP() {
       const s = await window.synkord?.mcpGetStatus?.()
       if (s) {
         setStatus(s)
-        if (s.state === 'running') startUptimeTimer()
       }
     } catch (e: any) {
       messageApi.error('获取状态失败：' + (e?.message || '未知错误'))
@@ -281,7 +293,6 @@ export default function MCP() {
       ])
       if (s) {
         setStatus(s)
-        if (s.state === 'running') startUptimeTimer()
       }
       if (logs) {
         setAccessLogs(logs)
@@ -290,6 +301,7 @@ export default function MCP() {
           setLastClientUA(logs[0].ua)
           setLastClientTime(logs[0].ts)
         }
+        setLastRefreshTime(new Date().toLocaleTimeString())
       }
       messageApi.success('已刷新')
     } catch (e: any) {
@@ -300,7 +312,7 @@ export default function MCP() {
   }
 
   const handleStart = async () => {
-    setActing(true)
+    setPending('start')
     try {
       const s = await window.synkord?.mcpStart?.()
       if (s) setStatus(s)
@@ -308,12 +320,12 @@ export default function MCP() {
     } catch (e: any) {
       messageApi.error('启动失败：' + (e?.message || '未知错误'))
     } finally {
-      setActing(false)
+      setPending(null)
     }
   }
 
   const handleStop = async () => {
-    setActing(true)
+    setPending('stop')
     try {
       const s = await window.synkord?.mcpStop?.()
       if (s) setStatus(s)
@@ -321,12 +333,12 @@ export default function MCP() {
     } catch (e: any) {
       messageApi.error('停止失败：' + (e?.message || '未知错误'))
     } finally {
-      setActing(false)
+      setPending(null)
     }
   }
 
   const handleRestart = async () => {
-    setActing(true)
+    setPending('restart')
     try {
       const s = await window.synkord?.mcpRestart?.()
       if (s) setStatus(s)
@@ -334,7 +346,7 @@ export default function MCP() {
     } catch (e: any) {
       messageApi.error('重启失败：' + (e?.message || '未知错误'))
     } finally {
-      setActing(false)
+      setPending(null)
     }
   }
 
@@ -355,8 +367,16 @@ export default function MCP() {
       clearInterval(uptimeTimer.current)
       uptimeTimer.current = null
     }
-    setUptime(0)
   }
+
+  // 根据 status.state 自动启停运行时长计时器（取代散落在各处的手动调用）
+  useEffect(() => {
+    if (status.state === 'running') {
+      startUptimeTimer()
+    } else {
+      stopUptimeTimer()
+    }
+  }, [status.state])
 
   // ==========================================================================
   // IDE 配置生成
@@ -449,16 +469,16 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
   const stateMeta = STATE_META[status.state] || STATE_META.idle
 
   const canStart = useMemo(
-    () => ['idle', 'stopped', 'failed'].includes(status.state) && !acting,
-    [status.state, acting]
+    () => ['idle', 'stopped', 'failed'].includes(status.state) && !pending,
+    [status.state, pending]
   )
   const canStop = useMemo(
-    () => ['running'].includes(status.state) && !acting,
-    [status.state, acting]
+    () => ['running', 'restarting'].includes(status.state) && !pending,
+    [status.state, pending]
   )
   const canRestart = useMemo(
-    () => ['running', 'failed'].includes(status.state) && !acting,
-    [status.state, acting]
+    () => ['running', 'failed'].includes(status.state) && !pending,
+    [status.state, pending]
   )
 
   const uptimeStr = useMemo(() => {
@@ -535,7 +555,7 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
               type="primary"
               icon={<PlayCircleOutlined />}
               disabled={!canStart}
-              loading={acting && status.state === 'starting'}
+              loading={pending === 'start'}
               onClick={handleStart}
             >
               启动
@@ -544,7 +564,7 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
               danger
               icon={<PoweroffOutlined />}
               disabled={!canStop}
-              loading={acting && status.state === 'stopped'}
+              loading={pending === 'stop'}
               onClick={handleStop}
             >
               停止
@@ -552,7 +572,7 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
             <Button
               icon={<ReloadOutlined />}
               disabled={!canRestart}
-              loading={acting && status.state === 'restarting'}
+              loading={pending === 'restart'}
               onClick={handleRestart}
             >
               重启
@@ -564,22 +584,22 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
         <Row gutter={16}>
           <Col span={6}>
             <Statistic
-              title="模式"
-              value={transport.toUpperCase()}
-              styles={{ content: { fontSize: 16 } }}
-            />
-          </Col>
-          <Col span={6}>
-            <Statistic
               title="端口"
-              value={status.port || 37991}
+              value={status.port ?? 37991}
               styles={{ content: { fontSize: 16 } }}
             />
           </Col>
           <Col span={6}>
             <Statistic
               title="PID"
-              value={status.pid || '-'}
+              value={status.pid ?? '-'}
+              styles={{ content: { fontSize: 16 } }}
+            />
+          </Col>
+          <Col span={6}>
+            <Statistic
+              title="重启次数"
+              value={status.restartCount ?? 0}
               styles={{ content: { fontSize: 16 } }}
             />
           </Col>
@@ -610,9 +630,14 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
                   <Tag>{status.activeProject.teamId.slice(0, 8)}...</Tag>
                 </>
               )}
+              <Text type="secondary">IDE 接入：</Text>
+              <Tag color={transport === 'http' ? 'geekblue' : 'purple'}>
+                {transport.toUpperCase()}
+              </Tag>
               <Text type="secondary">地址：</Text>
               <Text code style={{ fontSize: 12 }}>
-                {status.url || `http://127.0.0.1:${status.port || 37991}/mcp`}
+                {status.url ||
+                  `http://127.0.0.1:${status.port ?? 37991}/mcp`}
               </Text>
             </Space>
           </Col>
@@ -670,13 +695,18 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
               )}
               {lastClientTime && (
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  {new Date(lastClientTime).toLocaleTimeString()}
+                  {new Date(lastClientTime).toLocaleString()}
                 </Text>
               )}
             </Space>
           }
           extra={
             <Space>
+              {lastRefreshTime && (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  上次刷新 {lastRefreshTime}
+                </Text>
+              )}
               <Space size={4}>
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   自动刷新
@@ -761,7 +791,7 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
                   width: 200,
                   render: (v: string) => (
                     <Text type="secondary" style={{ fontSize: 12 }}>
-                      {new Date(v).toLocaleTimeString()}
+                      {new Date(v).toLocaleString()}
                     </Text>
                   )
                 },
@@ -870,17 +900,15 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
           </Tooltip>
         </Space>
 
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginTop: 16 }}
-          title={
-            <Space>
-              <Text>需要以 STDIO 模式接入？</Text>
-              <Text code>node local-mcp-service.cjs stdio</Text>
-            </Space>
-          }
-        />
+        {transport === 'stdio' && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginTop: 16 }}
+            title="需要以 STDIO 模式接入？"
+            description={<Text code>node local-mcp-service.cjs stdio</Text>}
+          />
+        )}
       </Card>
     </div>
   )

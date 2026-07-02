@@ -47,7 +47,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import type { ReactNode } from 'react'
 
-const { Title, Text, Paragraph } = Typography
+const { Title, Text } = Typography
 
 // ============================================================================
 // 类型别名（与全局类型对齐）
@@ -220,11 +220,14 @@ export default function MCP() {
           else if (next.length === 0) next.push(r.servicePath)
           return next
         })
+        messageApi.success('已更新安装路径')
       } else {
         setInstallPathStatus('failed')
+        messageApi.error('未检测到安装路径，请手动填写「参数」第一项')
       }
-    } catch {
+    } catch (e: any) {
       setInstallPathStatus('failed')
+      messageApi.error('路径检测失败：' + (e?.message || '未知错误'))
     }
   }
 
@@ -447,17 +450,6 @@ export default function MCP() {
         JSON.stringify(buildStdioConfig(), null, 2)
       )
       messageApi.success('MCP 配置已复制到剪贴板')
-    } catch {
-      messageApi.error('复制失败')
-    }
-  }
-
-  const copyShellScript = async () => {
-    const script = `export SYNKORD_MCP_TOKEN="<your-token>"
-export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
-    try {
-      await navigator.clipboard.writeText(script)
-      messageApi.success('Shell 脚本已复制')
     } catch {
       messageApi.error('复制失败')
     }
@@ -861,27 +853,53 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
           </Space>
         }
       >
-        <Paragraph type="secondary" style={{ marginBottom: 16, fontSize: 12 }}>
-          IDE 启动 MCP 客户端时由 IDE 自己 spawn 子进程；本页面只负责展示可复制的配置项。
-        </Paragraph>
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          title="如何把这套配置接入你的 IDE"
+          description={
+            <ol style={{ margin: 0, paddingLeft: 20, fontSize: 12 }}>
+              <li>点击下方「复制 MCP 配置」按钮，把 JSON 拷到剪贴板</li>
+              <li>
+                粘贴到 IDE 的 MCP 配置文件：
+                <ul style={{ marginTop: 4 }}>
+                  <li>
+                    <Text code>~/.codex/mcp.json</Text>（Codex CLI）
+                  </li>
+                  <li>
+                    <Text code>~/.claude.json</Text> 或{' '}
+                    <Text code>~/.claude/settings.json</Text>（Claude CLI）
+                  </li>
+                </ul>
+              </li>
+              <li>重启 IDE，stdin/stdout 由 IDE 自己 spawn</li>
+            </ol>
+          }
+        />
 
         <Form layout="vertical" size="small">
-          {/* 启动命令 */}
-          <Form.Item label="启动命令">
-            <Text
-              copyable={{ text: STDIO_DEFAULTS.command, tooltips: ['复制', '已复制'] }}
-              code
-              style={{ fontSize: 13 }}
-            >
-              {STDIO_DEFAULTS.command}
-            </Text>
-          </Form.Item>
-
-          {/* 参数 */}
+          {/* 启动命令 + 参数合并展示 */}
           <Form.Item
             label={
               <Space size={8}>
-                <span>参数</span>
+                <span>启动命令 + 参数</span>
+                {/* 路径检测状态：行内可见 */}
+                {installPathStatus === 'ok' && (
+                  <Tag color="success" icon={<CheckCircleOutlined />}>
+                    已检测
+                  </Tag>
+                )}
+                {installPathStatus === 'failed' && (
+                  <Tag color="error" icon={<ExclamationCircleOutlined />}>
+                    未检测
+                  </Tag>
+                )}
+                {installPathStatus === 'pending' && (
+                  <Tag color="processing" icon={<LoadingOutlined />}>
+                    检测中
+                  </Tag>
+                )}
                 <Tooltip
                   title={
                     installPathStatus === 'ok'
@@ -903,20 +921,39 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
               </Space>
             }
           >
-            {stdioArgs.map((arg, i) => (
-              <div key={i} style={{ marginBottom: 6 }}>
-                <Text
-                  copyable={{ text: arg, tooltips: ['复制', '已复制'] }}
-                  code
-                  style={{ fontSize: 13, wordBreak: 'break-all' }}
-                >
-                  {arg || '(空)'}
-                </Text>
-              </div>
-            ))}
+            {/* 启动命令（命令本身单独可复制） */}
+            <div style={{ marginBottom: 8 }}>
+              <Text
+                copyable={{
+                  text: STDIO_DEFAULTS.command,
+                  tooltips: ['复制命令', '已复制']
+                }}
+                code
+                style={{ fontSize: 13 }}
+              >
+                {STDIO_DEFAULTS.command}
+              </Text>
+            </div>
+            {/* 参数列表（每项单独可复制） */}
+            {stdioArgs.map((arg, i) => {
+              const isPlaceholder =
+                arg === '<path-to>/local-mcp-service.cjs' || arg === ''
+              return (
+                <div key={i} style={{ marginBottom: 6 }}>
+                  <Text
+                    copyable={{ text: arg, tooltips: ['复制', '已复制'] }}
+                    code
+                    type={isPlaceholder ? 'danger' : undefined}
+                    style={{ fontSize: 13, wordBreak: 'break-all' }}
+                  >
+                    {arg || '(空)'}
+                  </Text>
+                </div>
+              )
+            })}
           </Form.Item>
 
-          {/* 环境变量 */}
+          {/* 环境变量（每行：键、值、整段 三个独立可复制） */}
           <Form.Item label="环境变量">
             {STDIO_DEFAULTS.env.map((env, i) => (
               <div
@@ -960,32 +997,16 @@ export SYNKORD_API_BASE="http://127.0.0.1:8000/api"`
               </div>
             ))}
           </Form.Item>
-
-          {/* 环境变量传递 */}
-          <Form.Item label="环境变量传递">
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              （无）
-            </Text>
-          </Form.Item>
-
-          {/* 工作目录 */}
-          <Form.Item label="工作目录">
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              （未设置）
-            </Text>
-          </Form.Item>
         </Form>
 
-        <Space>
-          <Button type="primary" icon={<CopyOutlined />} onClick={copyConfig}>
-            复制 MCP 配置
-          </Button>
-          <Tooltip title="复制到 ~/.bashrc 或 ~/.zshrc">
-            <Button icon={<CopyOutlined />} onClick={copyShellScript}>
-              复制 Shell 脚本
-            </Button>
-          </Tooltip>
-        </Space>
+        <Button
+          type="primary"
+          icon={<CopyOutlined />}
+          onClick={copyConfig}
+          disabled={installPathStatus === 'pending' || installPathStatus === 'failed'}
+        >
+          复制 MCP 配置
+        </Button>
 
         <Alert
           type={installPathStatus === 'failed' ? 'warning' : 'info'}

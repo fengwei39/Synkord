@@ -49,7 +49,7 @@ import {
   PoweroffOutlined,
   ReloadOutlined
 } from '@ant-design/icons'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import type { ReactNode } from 'react'
 
@@ -249,10 +249,6 @@ export default function MCP() {
     null
   )
 
-  // 运行时长
-  const [uptime, setUptime] = useState(0)
-  const uptimeTimer = useRef<ReturnType<typeof setInterval> | null>(null)
-
   // 启动倒计时：进入 starting 时记录起点，每 100ms 触发重渲染让 Progress 平滑推进
   const [startingSince, setStartingSince] = useState<number | null>(null)
   const [, setTick] = useState(0)
@@ -324,7 +320,6 @@ export default function MCP() {
   useEffect(() => {
     refreshStatus()
     detectInstallPath()
-    return () => stopUptimeTimer()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -489,44 +484,10 @@ export default function MCP() {
   }
 
   // ==========================================================================
-  // 运行时长
+  // 启动倒计时
   // ==========================================================================
 
-  // 单独追踪"是否首次进入 running"，避免重复清零累计时长。
-  // 场景：运行中事件推送导致 status 短暂变为 running→running 抖动，
-  //       不应把已经累计的 uptime 归零。
-  const wasRunningRef = useRef(false)
-
-  const startUptimeTimer = () => {
-    if (uptimeTimer.current) return
-    // 只有"非 running → running"的转换才清零；保持 running 期间不重置
-    if (!wasRunningRef.current) {
-      setUptime(0)
-    }
-    uptimeTimer.current = setInterval(() => {
-      setUptime((u) => u + 1)
-    }, 1000)
-  }
-
-  const stopUptimeTimer = () => {
-    if (uptimeTimer.current) {
-      clearInterval(uptimeTimer.current)
-      uptimeTimer.current = null
-    }
-  }
-
-  // 根据 status.state 自动启停运行时长计时器（取代散落在各处的手动调用）
-  useEffect(() => {
-    if (status.state === 'running') {
-      startUptimeTimer()
-      wasRunningRef.current = true
-    } else {
-      stopUptimeTimer()
-      wasRunningRef.current = false
-    }
-  }, [status.state])
-
-  // 启动倒计时：进入 starting 记录起点，每 100ms 重渲染让 Progress 平滑推进
+  // 进入 starting 记录起点，每 100ms 重渲染让 Progress 平滑推进
   useEffect(() => {
     if (status.state !== 'starting') {
       setStartingSince(null)
@@ -655,13 +616,6 @@ export default function MCP() {
     [status.state, pending]
   )
 
-  const uptimeStr = useMemo(() => {
-    const h = Math.floor(uptime / 3600)
-    const m = Math.floor((uptime % 3600) / 60)
-    const s = uptime % 60
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  }, [uptime])
-
   // ==========================================================================
   // 渲染
   // ==========================================================================
@@ -774,32 +728,18 @@ export default function MCP() {
         </Space>
 
         <Row gutter={16}>
-          <Col span={6}>
+          <Col span={12}>
             <Statistic
               title="端口"
               value={status.port ?? 37991}
               styles={{ content: { fontSize: 18 } }}
             />
           </Col>
-          <Col span={6}>
+          <Col span={12}>
             <Statistic
               title="PID"
               value={status.pid ?? '-'}
               styles={{ content: { fontSize: 14 } }}
-            />
-          </Col>
-          <Col span={6}>
-            <Statistic
-              title="重启次数"
-              value={status.restartCount ?? 0}
-              styles={{ content: { fontSize: 14 } }}
-            />
-          </Col>
-          <Col span={6}>
-            <Statistic
-              title="运行时长"
-              value={status.state === 'running' ? uptimeStr : '--:--:--'}
-              styles={{ content: { fontSize: 18 } }}
             />
           </Col>
         </Row>

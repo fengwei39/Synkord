@@ -18,7 +18,6 @@ import {
   Button,
   Card,
   Col,
-  Collapse,
   Descriptions,
   Form,
   Input,
@@ -261,6 +260,8 @@ export default function MCP() {
   // STDIO 接入：只读展示 + 复制。固定字段用 STDIO_DEFAULTS 常量。
 // - stdioArgs：state（用户可手动改 args[0] 覆盖默认路径）
 // - installPath：preload 同步暴露的应用常量（路径固定不变）
+// args[1]='stdio' 是必传参数：local-mcp-service.cjs 默认 mode='http'，
+// 不传 stdio 会进入 HTTP 模式而不是 STDIO JSON-RPC 通信
 const [stdioArgs, setStdioArgs] = useState<string[]>(() => [
   window.synkord?.mcpServicePath || '',
   'stdio'
@@ -469,6 +470,8 @@ const hasInstallPath = Boolean(installPath)
   // ==========================================================================
 
   // 由 STDIO_DEFAULTS + stdioArgs 组装出最终写入 IDE 配置文件的对象
+  // 说明：只输出 local-mcp-service.cjs 实际读取的字段（command / args / env）。
+  // envPassThrough / cwd 是 IDE 端字段但 MCP server 不消费，避免输出误导用户的占位值。
   const buildStdioConfig = () => {
     const server: Record<string, unknown> = {
       command: STDIO_DEFAULTS.command,
@@ -977,193 +980,145 @@ const hasInstallPath = Boolean(installPath)
           </Space>
         }
       >
-        <Collapse
-          ghost
-          style={{ marginBottom: 16 }}
-          items={[
-            {
-              key: 'guide',
-              label: (
-                <Space>
-                  <ExclamationCircleOutlined />
-                  <Text strong>如何把这套配置接入你的 IDE</Text>
-                </Space>
-              ),
-              children: (
-                <ol style={{ margin: 0, paddingLeft: 20, fontSize: 12 }}>
-                  <li>点击下方「复制 MCP 配置」按钮，把 JSON 拷到剪贴板</li>
-                  <li>
-                    粘贴到 IDE 的 MCP 配置文件：
-                    <ul style={{ marginTop: 4 }}>
-                      <li>
-                        <Text code>~/.codex/mcp.json</Text>（Codex CLI）
-                      </li>
-                      <li>
-                        <Text code>~/.claude.json</Text> 或{' '}
-                        <Text code>~/.claude/settings.json</Text>（Claude CLI）
-                      </li>
-                    </ul>
-                  </li>
-                  <li>重启 IDE，stdin/stdout 由 IDE 自己 spawn</li>
-                </ol>
-              )
-            }
-          ]}
-        />
+        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 16 }}>
+          把下面 3 个属性逐个复制到 IDE 配置页面对应字段
+        </Text>
 
-        <Form layout="vertical" size="small">
-          {/* 启动命令 + 参数合并展示 */}
-          <Form.Item
-            label={
-              <Space size={8}>
-                <span>启动命令 + 参数</span>
-                {/* 路径检测状态：行内可见（preload 同步暴露，无 pending 中间态） */}
-                {hasInstallPath ? (
-                  <Tooltip title={`安装路径：${installPath}`}>
-                    <Tag color="success" icon={<CheckCircleOutlined />}>
-                      已检测
-                    </Tag>
-                  </Tooltip>
-                ) : (
-                  <Tag color="error" icon={<ExclamationCircleOutlined />}>
-                    未检测
-                  </Tag>
-                )}
-              </Space>
-            }
+        {/* ① 启动命令 command */}
+        <Form.Item
+          label={
+            <Space size={8}>
+              <Text strong>启动命令</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                command
+              </Text>
+            </Space>
+          }
+        >
+          <Text
+            copyable={{
+              text: STDIO_DEFAULTS.command,
+              tooltips: ['复制命令', '已复制']
+            }}
+            code
+            style={{ fontSize: 13 }}
           >
-            {/* 启动命令（命令本身单独可复制） */}
-            <div style={{ marginBottom: 8 }}>
+            {STDIO_DEFAULTS.command}
+          </Text>
+        </Form.Item>
+
+        {/* ② 参数 args（每项独立可复制；失败时第一项允许内联编辑） */}
+        <Form.Item
+          label={
+            <Space size={8}>
+              <Text strong>参数</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                args
+              </Text>
+              {/* 路径检测状态：行内可见（preload 同步暴露，无 pending 中间态） */}
+              {hasInstallPath ? (
+                <Tooltip title={`安装路径：${installPath}`}>
+                  <Tag color="success" icon={<CheckCircleOutlined />}>
+                    已检测
+                  </Tag>
+                </Tooltip>
+              ) : (
+                <Tag color="error" icon={<ExclamationCircleOutlined />}>
+                  未检测
+                </Tag>
+              )}
+            </Space>
+          }
+        >
+          {stdioArgs.map((arg, i) => {
+            const isPlaceholder =
+              arg === '<path-to>/local-mcp-service.cjs' || arg === ''
+            // 未检测到路径 + 第一项（路径参数）→ 允许内联编辑，闭环"请手动填写"
+            const editable = i === 0 && !hasInstallPath
+            return (
+              <div key={i} style={{ marginBottom: 6 }}>
+                {editable ? (
+                  <Input
+                    size="small"
+                    value={arg}
+                    placeholder="例如 /Users/you/synkord/frontend/electron/local-mcp-service.cjs"
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      const next = [...stdioArgs]
+                      next[i] = e.target.value
+                      setStdioArgs(next)
+                    }}
+                    style={{ fontSize: 13, maxWidth: 720 }}
+                  />
+                ) : (
+                  <Text
+                    copyable={{
+                      text: arg,
+                      tooltips: ['复制', '已复制']
+                    }}
+                    code
+                    type={isPlaceholder ? 'danger' : undefined}
+                    style={{ fontSize: 13, wordBreak: 'break-all' }}
+                  >
+                    {arg || '(空)'}
+                  </Text>
+                )}
+              </div>
+            )
+          })}
+        </Form.Item>
+
+        {/* ③ 环境变量 env（键、值分开独立可复制） */}
+        <Form.Item
+          label={
+            <Space size={8}>
+              <Text strong>环境变量</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                env
+              </Text>
+            </Space>
+          }
+        >
+          {STDIO_DEFAULTS.env.map((env, i) => (
+            <div
+              key={i}
+              style={{
+                marginBottom: 8,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                flexWrap: 'wrap'
+              }}
+            >
+              {/* 键：单独可复制 */}
               <Text
-                copyable={{
-                  text: STDIO_DEFAULTS.command,
-                  tooltips: ['复制命令', '已复制']
-                }}
+                copyable={{ text: env.key, tooltips: ['复制键', '已复制'] }}
                 code
                 style={{ fontSize: 13 }}
               >
-                {STDIO_DEFAULTS.command}
+                {env.key}
+              </Text>
+              <Text type="secondary">=</Text>
+              {/* 值：单独可复制 */}
+              <Text
+                copyable={{ text: env.value, tooltips: ['复制值', '已复制'] }}
+                code
+                style={{ fontSize: 13 }}
+              >
+                {env.value}
               </Text>
             </div>
-            {/* 参数列表（每项单独可复制；失败时第一项允许内联编辑） */}
-            {stdioArgs.map((arg, i) => {
-              const isPlaceholder =
-                arg === '<path-to>/local-mcp-service.cjs' || arg === ''
-              // 未检测到路径 + 第一项（路径参数）→ 允许内联编辑，闭环"请手动填写"
-              const editable =
-                i === 0 && !hasInstallPath
-              return (
-                <div key={i} style={{ marginBottom: 6 }}>
-                  {editable ? (
-                    <Input
-                      size="small"
-                      value={arg}
-                      placeholder="例如 /Users/you/synkord/frontend/electron/local-mcp-service.cjs"
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                        const next = [...stdioArgs]
-                        next[i] = e.target.value
-                        setStdioArgs(next)
-                      }}
-                      style={{ fontSize: 13, maxWidth: 720 }}
-                    />
-                  ) : (
-                    <Text
-                      copyable={{
-                        text: arg,
-                        tooltips: ['复制', '已复制']
-                      }}
-                      code
-                      type={isPlaceholder ? 'danger' : undefined}
-                      style={{ fontSize: 13, wordBreak: 'break-all' }}
-                    >
-                      {arg || '(空)'}
-                    </Text>
-                  )}
-                </div>
-              )
-            })}
-          </Form.Item>
-
-          {/* 环境变量（每行：键、值、整段 三个独立可复制） */}
-          <Form.Item label="环境变量">
-            {STDIO_DEFAULTS.env.map((env, i) => (
-              <div
-                key={i}
-                style={{
-                  marginBottom: 8,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  flexWrap: 'wrap'
-                }}
-              >
-                {/* 键：单独可复制 */}
-                <Text
-                  copyable={{ text: env.key, tooltips: ['复制键', '已复制'] }}
-                  code
-                  style={{ fontSize: 13 }}
-                >
-                  {env.key}
-                </Text>
-                <Text type="secondary">=</Text>
-                {/* 值：单独可复制 */}
-                <Text
-                  copyable={{ text: env.value, tooltips: ['复制值', '已复制'] }}
-                  code
-                  style={{ fontSize: 13 }}
-                >
-                  {env.value}
-                </Text>
-                {/* KEY=VALUE 组合：方便 .env 文件粘贴 */}
-                <Text
-                  copyable={{
-                    text: `${env.key}=${env.value}`,
-                    tooltips: ['复制 KEY=VALUE', '已复制']
-                  }}
-                  type="secondary"
-                  style={{ fontSize: 12 }}
-                >
-                  · 整段
-                </Text>
-              </div>
-            ))}
-          </Form.Item>
-        </Form>
+          ))}
+        </Form.Item>
 
         <Button
           type="primary"
           icon={<CopyOutlined />}
           onClick={copyConfig}
           disabled={!stdioArgs[0]?.trim()}
+          style={{ marginTop: 8 }}
         >
-          复制 MCP 配置
+          复制完整 JSON 配置
         </Button>
-
-        <Alert
-          type={hasInstallPath ? 'info' : 'warning'}
-          showIcon
-          style={{ marginTop: 16 }}
-          title={
-            hasInstallPath
-              ? '已自动检测到安装路径'
-              : '未检测到安装路径，请手动填写「参数」第一项'
-          }
-          description={
-            <Text>
-              {hasInstallPath ? (
-                <>
-                  当前路径：<Text code>{installPath}</Text>
-                </>
-              ) : (
-                <>
-                  路径示例：<Text code>~/synkord/frontend/electron/local-mcp-service.cjs</Text>
-                </>
-              )}
-              <br />
-              IDE 配置文件：<Text code>~/.codex/mcp.json</Text>（Codex）或 Claude CLI 对应文件
-            </Text>
-          }
-        />
       </Card>
               </>
             )

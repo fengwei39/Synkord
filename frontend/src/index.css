@@ -1006,6 +1006,233 @@ select {
   font-size: 12px;
 }
 
+/* ============================================================== */
+/* MCP 快捷面板（顶栏 chip 下出卡片）                                */
+/* ============================================================== */
+
+.mcp-quick-panel {
+  width: 320px;
+  padding: 14px 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+  color: #1f2d46;
+}
+
+.mcp-quick-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mcp-quick-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2d46;
+}
+
+.mcp-quick-title .anticon {
+  font-size: 14px;
+}
+
+.mcp-quick-sub {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mcp-quick-sub strong {
+  color: #1f2d46;
+  font-weight: 600;
+}
+
+.mcp-quick-sub-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mcp-quick-jump {
+  border: 0;
+  background: transparent;
+  padding: 2px 6px;
+  color: #2563eb;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.mcp-quick-jump:hover:not(:disabled) {
+  background: #eff6ff;
+}
+.mcp-quick-jump:disabled {
+  color: #cbd5e1;
+  cursor: not-allowed;
+}
+
+.mcp-quick-divider {
+  height: 1px;
+  background: #eef1f6;
+  margin: 2px -2px;
+}
+
+.mcp-quick-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mcp-quick-copy-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e4e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.mcp-quick-url {
+  flex: 1;
+  min-width: 0;
+  color: #334155;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-quick-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.mcp-quick-btn.block {
+  width: 100%;
+}
+
+.mcp-quick-btn.primary {
+  color: #fff;
+  background: #2563eb;
+  border-color: #2563eb;
+}
+.mcp-quick-btn.primary:hover:not(:disabled) {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+.mcp-quick-btn.ghost {
+  color: #34425b;
+  background: #fff;
+  border-color: #dde4ef;
+}
+.mcp-quick-btn.ghost:hover:not(:disabled) {
+  border-color: #b9c4d6;
+  background: #f8faff;
+}
+
+.mcp-quick-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.mcp-quick-config {
+  position: relative;
+  display: flex;
+}
+
+.mcp-quick-config .mcp-quick-btn {
+  width: 100%;
+  position: relative;
+}
+
+.mcp-quick-config .mcp-quick-btn[aria-expanded="true"] {
+  border-color: #93c5fd;
+  background: #f8faff;
+}
+
+.mcp-quick-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border: 1px solid #e4e8f0;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08);
+}
+
+.mcp-quick-menu-item {
+  border: 0;
+  background: transparent;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+.mcp-quick-menu-item:hover {
+  background: #f0f2f7;
+}
+
+.mcp-quick-menu-title {
+  color: #1f2d46;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.mcp-quick-menu-hint {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.mcp-quick-link {
+  border: 0;
+  background: transparent;
+  padding: 6px 4px 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #2563eb;
+  font-size: 12px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+.mcp-quick-link:hover {
+  color: #1d4ed8;
+}
+
+/* Popover 容器：去掉默认 padding，由 .mcp-quick-panel 自己控制 */
+.ant-popover-inner {
+  padding: 0 !important;
+}
+.ant-popover-inner-content {
+  padding: 0 !important;
+}
+
 @media (max-width: 980px) {
   .synkord-body {
     grid-template-columns: 250px minmax(0, 1fr);

@@ -51,6 +51,7 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import type { ReactNode } from 'react'
+import { STDIO_DEFAULTS, buildIdeConfig } from '../utils/mcpConfig'
 
 const { Title, Text } = Typography
 
@@ -91,18 +92,6 @@ const MCP_CLIENTS = [
     mode: 'http'
   }
 ] as const
-
-// ============================================================================
-// STDIO 接入默认值（只读展示用）
-// ============================================================================
-
-const STDIO_DEFAULTS = {
-  command: 'node',
-  env: [
-    { key: 'SYNKORD_API_BASE', value: 'http://127.0.0.1:8000/api' },
-    { key: 'SYNKORD_HOME', value: '~/.synkord' }
-  ]
-} as const
 
 // ============================================================================
 // 状态展示辅助
@@ -469,28 +458,12 @@ const hasInstallPath = Boolean(installPath)
   // STDIO 接入配置生成
   // ==========================================================================
 
-  // 由 STDIO_DEFAULTS + stdioArgs 组装出最终写入 IDE 配置文件的对象
-  // 说明：只输出 local-mcp-service.cjs 实际读取的字段（command / args / env）。
-  // envPassThrough / cwd 是 IDE 端字段但 MCP server 不消费，避免输出误导用户的占位值。
-  const buildStdioConfig = () => {
-    const server: Record<string, unknown> = {
-      command: STDIO_DEFAULTS.command,
-      args: stdioArgs.map((a) => a.trim()).filter(Boolean)
-    }
-    const env = Object.fromEntries(
-      STDIO_DEFAULTS.env
-        .filter((e) => e.key.trim())
-        .map((e) => [e.key.trim(), e.value])
-    )
-    if (Object.keys(env).length > 0) server.env = env
-    return { mcpServers: { synkord: server } }
-  }
-
+  // 实际生成逻辑下沉到 utils/mcpConfig.buildIdeConfig，
+  // 这里只负责剪贴板写入与用户反馈。
   const copyConfig = async () => {
     try {
-      await navigator.clipboard.writeText(
-        JSON.stringify(buildStdioConfig(), null, 2)
-      )
+      const { text } = buildIdeConfig({ transport: 'stdio', stdioArgs })
+      await navigator.clipboard.writeText(text)
       messageApi.success('MCP 配置已复制到剪贴板')
     } catch {
       messageApi.error('复制失败')

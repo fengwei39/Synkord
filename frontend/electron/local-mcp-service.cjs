@@ -113,6 +113,7 @@ const { registerBuiltinTools } = require('./mcp-tools/index.cjs');
 const { codeError, CODES, rpcError, serializeError, RPC_ERRORS } = require('./mcp-core/errors.cjs');
 const { initAccessLog, logAccess, closeAccessLog, info, warn, error, debug } = require('./mcp-core/logging.cjs');
 const { redactSensitive, getClientIp, readJsonFile } = require('./mcp-core/utils.cjs');
+const { callTool } = require('./mcp-core/backend-client.cjs');
 
 // 注册 5 个内置工具（仅一次）
 registerBuiltinTools();
@@ -260,25 +261,22 @@ function runStdioMode() {
     const isNotification = req.id === undefined || req.id === null;
 
     try {
-      // 已知非工具方法：直接处理（不走 dispatch）
-      if (req.method === 'initialize' ||
-          req.method === 'notifications/initialized' ||
-          req.method === 'tools/list' ||
-          req.method === 'tools/call' ||
-          req.method === 'ping') {
-        const result = await handleRpcMethod(req);
-        if (!isNotification) {
-          sendRpcResponseToStdout(req.id, result);
-        }
-      } else {
-        // 未知方法：直接返回 JSON-RPC 错误
-        sendRpcErrorToStdout(req.id, rpcError('METHOD_NOT_FOUND', `method not found: ${req.method}`));
+      // 统一走 handleRpcMethod（含 resources/list 等桩方法）
+      // handleRpcMethod 内部对未知方法抛 METHOD_NOT_FOUND
+      const result = await handleRpcMethod(req);
+      if (!isNotification) {
+        sendRpcResponseToStdout(req.id, result);
       }
     } catch (e) {
-      error('RPC handler error', { method: req.method, error: e.message });
-      if (!isNotification) {
-        const rpcErr = codeError(CODES.INTERNAL, e.message || 'internal error');
-        sendRpcErrorToStdout(req.id, rpcErr);
+      // handleRpcMethod 抛的 RPC 错误（METHOD_NOT_FOUND 等）保留原始结构
+      if (e?.code !== undefined && e?.message !== undefined && typeof e.code === 'number') {
+        sendRpcErrorToStdout(req.id, e);
+      } else {
+        error('RPC handler error', { method: req.method, error: e.message });
+        if (!isNotification) {
+          const rpcErr = codeError(CODES.INTERNAL, e.message || 'internal error');
+          sendRpcErrorToStdout(req.id, rpcErr);
+        }
       }
     }
   });
@@ -330,7 +328,14 @@ async function handleRpcMethod(req) {
     return {
       protocolVersion: negotiated,
       serverInfo: { name: 'synkord-mcp', version: '0.1.0' },
-      capabilities: { tools: {} },
+      // 【同步】完整 capabilities 声明，与 HTTP 模式保持一致
+      capabilities: {
+        tools: { listChanged: false },
+        resources: { subscribe: false, listChanged: false },
+        prompts: { listChanged: false },
+        logging: {}
+      },
+      instructions: 'Synkord MCP server: query project entities, APIs, dependencies. Use tools/list for available tools.'
     };
   }
 
@@ -341,7 +346,13 @@ async function handleRpcMethod(req) {
   }
 
   if (method === 'tools/list') {
-    return { tools: globalRegistry.list() };
+    const tools = globalRegistry.list();
+    // 【新增】详细日志：记录 tools/list 请求与返回的工具数量
+    info('mcp tools/list', {
+      tool_count: tools.length,
+      tool_names: tools.map(t => t.name),
+    });
+    return { tools };
   }
 
   if (method === 'tools/call') {
@@ -354,8 +365,206 @@ async function handleRpcMethod(req) {
     return { status: 'pong' };
   }
 
+  // ============================================================================
+  // 【补全】resources 能力完整定义
+  //
+  // 【问题原因】原实现仅返回空数组，Codex 等客户端拿到空 resources 会进一步
+  // 怀疑 server 完整度，甚至影响 tools 命名空间的暴露。
+  //
+  // 【修复逻辑】按 MCP 2025-03-26 协议提供真实可用的 resources 与 templates：
+  //   - 3 个静态资源：server 状态、当前激活项目、工具清单
+  //   - 2 个参数化模板：按名称查实体、按 method+path 查 API
+  //   - resources/read 真正读取资源内容
+  // 资源内容由内存中的 loader（ConfigLoader）实时提供，与 tools/call 共享
+  // 同一份上下文数据源。
+  // ============================================================================
+  if (method === 'resources/list') {
+    const resources = buildStaticResources();
+    info('mcp resources/list', { resource_count: resources.length, resources: resources.map(r => r.uri) });
+    return { resources };
+  }
+  if (method === 'resources/templates/list') {
+    const templates = buildResourceTemplates();
+    info('mcp resources/templates/list', { template_count: templates.length });
+    return { resourceTemplates: templates };
+  }
+  if (method === 'resources/read') {
+    const uri = params.uri;
+    if (!uri || typeof uri !== 'string') {
+      throw rpcError('INVALID_PARAMS', 'resources/read requires uri parameter');
+    }
+    const content = await readResource(uri, loader);
+    info('mcp resources/read', { uri });
+    return content;
+  }
+
+  if (method === 'prompts/list') {
+    return { prompts: [] };
+  }
+
   // 未知方法：抛 JSON-RPC 标准错误
   throw rpcError('METHOD_NOT_FOUND', `method not found: ${method}`);
+}
+
+// ============================================================================
+// Resources 实现
+// ============================================================================
+
+/**
+ * 静态资源列表（无参数）
+ * - synkord://status：server 运行状态（版本、协议、启动时间）
+ * - synkord://active-project：当前激活项目（来自 ConfigLoader 内存）
+ * - synkord://tools-manifest：工具清单（含每个工具的 inputSchema）
+ */
+function buildStaticResources() {
+  return [
+    {
+      uri: 'synkord://status',
+      name: 'Server Status',
+      description: '当前 MCP server 的运行状态：版本、协议版本、启动时间、工具数。',
+      mimeType: 'application/json',
+    },
+    {
+      uri: 'synkord://active-project',
+      name: 'Active Project',
+      description: '当前激活项目的上下文信息（team_id / project_id / project_name）。',
+      mimeType: 'application/json',
+    },
+    {
+      uri: 'synkord://tools-manifest',
+      name: 'Tools Manifest',
+      description: '所有可用工具的完整定义（name / description / inputSchema）。',
+      mimeType: 'application/json',
+    },
+  ];
+}
+
+/**
+ * 参数化资源模板（URI Template RFC 6570）
+ * - synkord://entity/{name}：按实体名称查询单个实体定义
+ * - synkord://api/{method}/{path}：按 HTTP method + path 查询单个 API 端点
+ */
+function buildResourceTemplates() {
+  return [
+    {
+      uriTemplate: 'synkord://entity/{name}',
+      name: 'Entity by Name',
+      description: '按名称查询指定实体的完整定义（字段、版本、引用关系）。name 为实体名，如 UserDTO。',
+      mimeType: 'application/json',
+    },
+    {
+      uriTemplate: 'synkord://api/{method}/{path}',
+      name: 'API Endpoint',
+      description: '按 HTTP method + path 查询指定 API 端点的定义（请求/响应 schema）。method 不区分大小写（GET/POST/PUT/DELETE/PATCH）。',
+      mimeType: 'application/json',
+    },
+  ];
+}
+
+/**
+ * 读取资源内容
+ * 支持静态资源（synkord://status 等）和模板资源（synkord://entity/{name}）
+ *
+ * @param {string} uri
+ * @param {ConfigLoader} loader
+ * @returns {Promise<{contents: Array<{uri, mimeType, text}>}>}
+ */
+async function readResource(uri, loader) {
+  const ctx = loader.resolveContext();
+  const auth = loader.resolveAuth();
+
+  // 静态资源
+  if (uri === 'synkord://status') {
+    return {
+      contents: [{
+        uri,
+        mimeType: 'application/json',
+        text: JSON.stringify({
+          server: { name: 'synkord-mcp', version: '0.1.0' },
+          protocol: { supported: SUPPORTED_PROTOCOL_VERSIONS, default: DEFAULT_PROTOCOL_VERSION },
+          uptime_started_at: new Date(Date.now() - (process.uptime() * 1000)).toISOString(),
+          tools_count: globalRegistry.size(),
+          has_active_project: Boolean(ctx && ctx.project_id),
+          has_auth: Boolean(auth && auth.user_id),
+          pid: process.pid,
+        }, null, 2),
+      }],
+    };
+  }
+
+  if (uri === 'synkord://active-project') {
+    return {
+      contents: [{
+        uri,
+        mimeType: 'application/json',
+        text: JSON.stringify({
+          context: ctx || null,
+          has_context: Boolean(ctx && ctx.team_id && ctx.project_id),
+        }, null, 2),
+      }],
+    };
+  }
+
+  if (uri === 'synkord://tools-manifest') {
+    return {
+      contents: [{
+        uri,
+        mimeType: 'application/json',
+        text: JSON.stringify({
+          tools: globalRegistry.list(),
+        }, null, 2),
+      }],
+    };
+  }
+
+  // 模板资源：synkord://entity/{name}
+  const entityMatch = uri.match(/^synkord:\/\/entity\/(.+)$/);
+  if (entityMatch) {
+    const name = decodeURIComponent(entityMatch[1]);
+    // 复用 tool handler 的逻辑获取单个实体
+    const resp = await callTool({
+      loader,
+      auth,
+      tool: 'get_entity_dependencies',
+      args: { model_name: name },
+    });
+    return {
+      contents: [{
+        uri,
+        mimeType: 'application/json',
+        text: JSON.stringify({
+          entity_name: name,
+          data: resp?.result || resp || null,
+        }, null, 2),
+      }],
+    };
+  }
+
+  // 模板资源：synkord://api/{method}/{path}
+  const apiMatch = uri.match(/^synkord:\/\/api\/([^/]+)\/(.+)$/);
+  if (apiMatch) {
+    const method = decodeURIComponent(apiMatch[1]).toUpperCase();
+    const apiPath = '/' + decodeURIComponent(apiMatch[2]);
+    const resp = await callTool({
+      loader,
+      auth,
+      tool: 'get_api_dependencies',
+      args: { api_path: apiPath, api_method: method },
+    });
+    return {
+      contents: [{
+        uri,
+        mimeType: 'application/json',
+        text: JSON.stringify({
+          api_method: method,
+          api_path: apiPath,
+          data: resp?.result || resp || null,
+        }, null, 2),
+      }],
+    };
+  }
+
+  throw rpcError('RESOURCE_NOT_FOUND', `resource not found: ${uri}`);
 }
 
 // ============================================================================
@@ -476,6 +685,27 @@ async function handleMcpPOST(req, res) {
   const start = Date.now();
   const connId = ++httpConnectionCounter;
 
+  // 【新增】可选 Bearer Token 鉴权（环境变量 MCP_BEARER_TOKEN 控制）
+  // - 空（默认）→ 跳过鉴权，开发与本地集成友好
+  // - 非空 → 必须携带 `Authorization: Bearer <token>`，否则 401
+  // 这样避免"未配置 token 但服务端强制鉴权"导致的握手静默失败
+  const REQUIRED_BEARER = process.env.MCP_BEARER_TOKEN || '';
+  if (REQUIRED_BEARER) {
+    const authHeader = String(req.headers.authorization || '');
+    if (authHeader !== `Bearer ${REQUIRED_BEARER}`) {
+      warn('bearer auth rejected', {
+        remote: getClientIp(req),
+        ua: req.headers['user-agent'] || '',
+        reason: REQUIRED_BEARER ? 'token_mismatch' : 'token_required',
+      });
+      const err = rpcError('UNAUTHORIZED', 'invalid or missing bearer token');
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ jsonrpc: '2.0', error: err }));
+      logAccess({ conn: connId, method: 'POST', path: '/mcp', status: 401, durMs: Date.now() - start, remote: getClientIp(req), ua: req.headers['user-agent'] || '', rpc: 'auth_failed' });
+      return;
+    }
+  }
+
   let body;
   try {
     body = await readBody(req);
@@ -522,6 +752,9 @@ async function handleMcpPOST(req, res) {
   }
 
   try {
+    // initialize 是 HTTP 模式唯一需要特判的方法（要分配 session id）
+    // 其它方法（含 notifications/initialized、tools/*、ping、resources/*、prompts/* 桩）
+    // 统一走 handleRpcMethod
     if (rpcMethod === 'initialize') {
       const clientVersion = (rpcReq.params || {}).protocolVersion;
       const negotiated = negotiateProtocolVersion(clientVersion);
@@ -532,34 +765,57 @@ async function handleMcpPOST(req, res) {
         ua: req.headers['user-agent'] || '',
         negotiatedVersion: negotiated,
       });
+      // 【修复】补全 capabilities 声明。
+      // 原代码只声明 { tools: {} }，MCP 2025-03-26 协议允许声明多种能力。
+      // Codex 等客户端会按 capabilities 决定如何暴露 MCP 工具到自己的命名空间
+      // （mcp__<server>__<tool>），声明越完整，客户端越有信心暴露工具。
+      // resources / prompts 暂时返回空数组（真实定义见 handleRpcMethod 中
+      // resources/list 桩方法；后续可补全）。logging 能力声明让客户端支持
+      // setLevel 协议方法（虽然本服务暂不实现）。
       result = {
         protocolVersion: negotiated,
         serverInfo: { name: 'synkord-mcp', version: '0.1.0' },
-        capabilities: { tools: {} },
+        capabilities: {
+          tools: { listChanged: false },
+          resources: { subscribe: false, listChanged: false },
+          prompts: { listChanged: false },
+          logging: {}
+        },
+        // 指示客户端应使用的协议说明（MCP 2025-03-26 §Implementation Notes）
+        instructions: 'Synkord MCP server: query project entities, APIs, dependencies. Use tools/list for available tools.'
       };
-    } else if (rpcMethod === 'notifications/initialized') {
+      // 【新增】详细握手日志：记录客户端 UA、协议版本、能力声明，便于排查
+      info('mcp initialize handshake', {
+        remote: getClientIp(req),
+        ua: req.headers['user-agent'] || '',
+        client_protocol_version: clientVersion || null,
+        negotiated_protocol_version: negotiated,
+        client_capabilities: (rpcReq.params || {}).capabilities || null,
+        session_id: newSessionId,
+      });
+    } else if (rpcMethod === 'notifications/initialized' && isNotification) {
       // 通知消息：HTTP 返回 202 Accepted（无 body），不抛错，不断开
       // 这是 Codex 等客户端标准握手第三步
-      if (isNotification) {
-        res.writeHead(202, {
-          'Content-Type': 'application/json',
-        });
-        res.end();
-        logAccess({ conn: connId, method: 'POST', path: '/mcp', status: 202, durMs: Date.now() - start, remote: getClientIp(req), ua: req.headers['user-agent'] || '', rpc: rpcMethod });
-        return;
-      }
-      // 非通知形式（异常带 id）：返回空成功结果
-      result = {};
-    } else if (rpcMethod === 'tools/list') {
-      result = { tools: globalRegistry.list() };
-    } else if (rpcMethod === 'tools/call') {
-      const { name, arguments: args } = rpcReq.params || {};
-      result = await globalRegistry.dispatch({ tool: name, args: args || {}, loader });
-    } else if (rpcMethod === 'ping') {
-      result = { status: 'pong' };
+      res.writeHead(202, {
+        'Content-Type': 'application/json',
+      });
+      res.end();
+      logAccess({ conn: connId, method: 'POST', path: '/mcp', status: 202, durMs: Date.now() - start, remote: getClientIp(req), ua: req.headers['user-agent'] || '', rpc: rpcMethod });
+      return;
     } else {
-      errOut = rpcError('METHOD_NOT_FOUND', `method not found: ${rpcMethod}`);
-      httpStatus = 400;
+      // 统一路由：tools/* / ping / resources/* / prompts/* 桩 / 未知方法
+      // handleRpcMethod 对未知方法抛 RPC 错误（METHOD_NOT_FOUND）
+      try {
+        result = await handleRpcMethod(rpcReq);
+      } catch (e) {
+        // 区分 JSON-RPC 错误（保留原始 code/message）和内部异常
+        if (typeof e?.code === 'number' && typeof e?.message === 'string') {
+          errOut = e;
+          httpStatus = 400;
+        } else {
+          throw e;
+        }
+      }
     }
   } catch (e) {
     errOut = codeError(CODES.INTERNAL, e.message);
@@ -589,7 +845,49 @@ async function handleMcpPOST(req, res) {
   logAccess({ conn: connId, method: 'POST', path: '/mcp', status: httpStatus, durMs: Date.now() - start, remote: getClientIp(req), ua: req.headers['user-agent'] || '', rpc: rpcMethod });
 }
 
+// ============================================================================
+// GET /mcp 入口
+//
+// 【问题原因】原实现无论客户端 Accept 头是什么，都直接返回 SSE 长连接。
+// 浏览器默认 GET（如在地址栏访问 http://127.0.0.1:37991/mcp）会一直挂起，
+// 表现为"超时"。但 Streamable HTTP 规范的 GET 用于服务端推送（server→client
+// notifications / requests），仅在客户端明确声明 Accept: text/event-stream
+// 时才有意义。
+//
+// 【修复逻辑】按 Accept 头分流：
+//   - 客户端 Accept 包含 text/event-stream → 走 SSE 长连接（规范用法）
+//   - 其他（浏览器默认 / curl 无 Accept）→ 返回 JSON 状态页，即时关闭
+//
+// 这样浏览器 / 健康探测 / 监控脚本访问 /mcp 不再超时，SSE 通道仍对 MCP
+// 客户端可用。
+// ============================================================================
 function handleMcpGET(req, res) {
+  const accept = String(req.headers.accept || '').toLowerCase();
+  const wantsSse = accept.includes('text/event-stream');
+
+  if (!wantsSse) {
+    // 浏览器 / 探测请求：返回 JSON 状态页，避免挂起
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({
+      name: 'synkord-mcp',
+      version: '0.1.0',
+      transport: 'streamable-http',
+      instructions: {
+        initialize: 'POST /mcp with method=initialize',
+        rpc: 'POST /mcp with method=<rpc_method>',
+        sse: 'GET /mcp with Accept: text/event-stream (for server-initiated messages)',
+      },
+      capabilities: {
+        tools: { listChanged: false },
+        resources: { subscribe: false, listChanged: false },
+        prompts: { listChanged: false },
+        logging: {}
+      }
+    }, null, 2));
+    return;
+  }
+
+  // 客户端明确要 SSE：走 Streamable HTTP 长连接通道
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');

@@ -72,7 +72,7 @@ export function DangerConfirm({
       onOk={handleOk}
       onCancel={onCancel}
       width={460}
-      destroyOnClose
+      destroyOnHidden
     >
       {typeof impactCount === 'number' && impactCount > 0 && (
         <Alert

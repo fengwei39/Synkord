@@ -3,6 +3,7 @@ package services
 
 import (
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"github.com/synkord/core/models"
@@ -26,6 +27,7 @@ func testDBMCPRoot(t *testing.T) *gorm.DB {
 		&models.Dependency{},
 		&models.MCPAuditLog{},
 		&models.ActiveContract{},
+		&models.MCPStatus{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -167,5 +169,160 @@ func TestActiveContractSetAndClear(t *testing.T) {
 	ac, _ = GetActiveContract(db)
 	if ac != nil {
 		t.Fatalf("expected nil after clear, got %+v", ac)
+	}
+}
+
+// seedAuditLogs 写入若干条审计日志用于摘要/统计测试
+func seedAuditLogs(t *testing.T, db *gorm.DB, userID, contractID string, entries []struct {
+	Tool   string
+	Status string
+	HourAgo int
+}) {
+	t.Helper()
+	now := time.Now()
+	for _, e := range entries {
+		ts := now.Add(-time.Duration(e.HourAgo) * time.Hour)
+		log := &models.MCPAuditLog{
+			ContractID:   contractID,
+			UserID:       userID,
+			ToolName:     e.Tool,
+			Caller:       "test",
+			ParamsSummary: "{}",
+			ResultStatus: e.Status,
+			Status:       200,
+			DurationMs:   1,
+		}
+		// 直接 Create 走 BeforeCreate（生成 ID），但 GORM 的 CreatedAt 在 Save/Update 时才会写
+		if err := db.Create(log).Error; err != nil {
+			t.Fatalf("seed audit: %v", err)
+		}
+		// 强制覆盖 created_at（gorm 默认会填 time.Now()，但我们需要"过去某小时"）
+		if err := db.Model(log).Update("created_at", ts).Error; err != nil {
+			t.Fatalf("override created_at: %v", err)
+		}
+	}
+}
+
+func TestMCPHealthSummaryCountsErrorsAndConsecutives(t *testing.T) {
+	db := testDBMCPRoot(t)
+	user, contract := createMCPFixture(t, db)
+
+	// 4 条：3 错误 + 1 成功（最新一条是成功）
+	// 用不同 HourAgo 保证 created_at 倒序确定性：
+	// 0h = success（最新），1h = error，2h = error，3h = error
+	seedAuditLogs(t, db, user.ID, contract.ID, []struct {
+		Tool    string
+		Status  string
+		HourAgo int
+	}{
+		{"get_contract_apis", "error", 3},
+		{"get_contract_apis", "error", 2},
+		{"get_contract_apis", "error", 1},
+		{"get_contract_entities", "success", 0},
+	})
+
+	h := GetMCPHealthSummary(db)
+	if h.RecentErrors != 3 {
+		t.Errorf("RecentErrors = %d, want 3", h.RecentErrors)
+	}
+	if h.ConsecutiveFailures != 0 {
+		t.Errorf("ConsecutiveFailures = %d, want 0 (latest is success)", h.ConsecutiveFailures)
+	}
+	if h.Calls24h != 4 {
+		t.Errorf("Calls24h = %d, want 4", h.Calls24h)
+	}
+	expectedRate := 3.0 / 4.0
+	if h.ErrorRate24h < expectedRate-1e-9 || h.ErrorRate24h > expectedRate+1e-9 {
+		t.Errorf("ErrorRate24h = %v, want %v", h.ErrorRate24h, expectedRate)
+	}
+	if h.QPS24h <= 0 {
+		t.Errorf("QPS24h = %v, want > 0", h.QPS24h)
+	}
+}
+
+func TestMCPHealthSummaryConsecutiveFailuresFromLatest(t *testing.T) {
+	db := testDBMCPRoot(t)
+	user, contract := createMCPFixture(t, db)
+
+	// 用不同 HourAgo 保证 created_at 倒序确定性：
+	// 最新（0h）= error，1h = error，2h = success
+	// → ConsecutiveFailures=2
+	seedAuditLogs(t, db, user.ID, contract.ID, []struct {
+		Tool    string
+		Status  string
+		HourAgo int
+	}{
+		{"get_api_detail", "error", 0},
+		{"get_api_detail", "error", 1},
+		{"get_api_detail", "success", 2},
+	})
+	h := GetMCPHealthSummary(db)
+	if h.ConsecutiveFailures != 2 {
+		t.Errorf("ConsecutiveFailures = %d, want 2", h.ConsecutiveFailures)
+	}
+	if h.RecentErrors != 2 {
+		t.Errorf("RecentErrors = %d, want 2", h.RecentErrors)
+	}
+}
+
+func TestGetMCPRuntimeSummaryEmptyDB(t *testing.T) {
+	db := testDBMCPRoot(t)
+	// 单例表为空：应返回零值 + 空 health，不 panic
+	s := GetMCPRuntimeSummary(db)
+	if s.PID != nil {
+		t.Errorf("PID = %v, want nil", s.PID)
+	}
+	if s.StartedAt != nil {
+		t.Errorf("StartedAt = %v, want nil", s.StartedAt)
+	}
+	if s.UptimeSeconds != nil {
+		t.Errorf("UptimeSeconds = %v, want nil", s.UptimeSeconds)
+	}
+	if s.RestartCount != 0 {
+		t.Errorf("RestartCount = %d, want 0", s.RestartCount)
+	}
+	// Health 是零值结构体（OK）
+}
+
+func TestGetAccessLogStatsSparklineAndTop(t *testing.T) {
+	db := testDBMCPRoot(t)
+	user, contract := createMCPFixture(t, db)
+
+	// 3 个不同工具，不同时间桶
+	// tool A: 1h 之前 2 次 + 0h 之前 1 次
+	// tool B: 0h 之前 1 次
+	// tool C: 0h 之前 1 次（错误）
+	seedAuditLogs(t, db, user.ID, contract.ID, []struct {
+		Tool    string
+		Status  string
+		HourAgo int
+	}{
+		{"tool_a", "success", 1},
+		{"tool_a", "success", 1},
+		{"tool_a", "success", 0},
+		{"tool_b", "success", 0},
+		{"tool_c", "error", 0},
+	})
+
+	stats := GetAccessLogStats(db)
+	if len(stats.Sparkline) != 24 {
+		t.Fatalf("Sparkline length = %d, want 24", len(stats.Sparkline))
+	}
+	if stats.Sparkline[0] != 3 {
+		t.Errorf("Sparkline[0] (current hour) = %d, want 3", stats.Sparkline[0])
+	}
+	if stats.Sparkline[1] != 2 {
+		t.Errorf("Sparkline[1] (1h ago) = %d, want 2", stats.Sparkline[1])
+	}
+	// 总计 5 次中 1 次错误 → 0.2
+	if stats.ErrorRate < 0.2-1e-9 || stats.ErrorRate > 0.2+1e-9 {
+		t.Errorf("ErrorRate = %v, want 0.2", stats.ErrorRate)
+	}
+	// Top: tool_a=3, tool_b=1, tool_c=1 → 第一名 tool_a
+	if len(stats.TopTools) == 0 || stats.TopTools[0].ToolName != "tool_a" {
+		t.Errorf("TopTools[0] = %+v, want tool_a", stats.TopTools)
+	}
+	if stats.TopTools[0].Count != 3 {
+		t.Errorf("TopTools[0].Count = %d, want 3", stats.TopTools[0].Count)
 	}
 }

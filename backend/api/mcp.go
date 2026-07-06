@@ -22,12 +22,17 @@ func RegisterMCPRoutes(r *gin.RouterGroup) {
 		m.POST("/stop", stopMCP)
 		m.POST("/restart", restartMCP)
 
+		// 评审 R-2：运行时摘要（PID / 启动时间 / 重启次数 / 健康度）
+		m.GET("/summary", getMCPRuntimeSummary)
+
 		m.GET("/active-contract", getActiveContract)
 		m.PUT("/active-contract", setActiveContract)
 
 		m.GET("/ide-config", getIDEConfig)
 
 		m.GET("/access-log", listAccessLog)
+		// 评审 R-3：24h 时序统计（sparkline / 错误率 / Top 工具）
+		m.GET("/access-log/stats", getAccessLogStats)
 		m.POST("/query", executeMCPQuery)
 	}
 }
@@ -136,6 +141,18 @@ func listAccessLog(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"items": items, "total": total})
+}
+
+// getMCPRuntimeSummary 返回 MCP 运行时完整摘要
+// 评审 R-2：让"状态卡"展示 PID / 启动时间 / 重启次数，避免"加载中…"占位
+func getMCPRuntimeSummary(c *gin.Context) {
+	c.JSON(http.StatusOK, services.GetMCPRuntimeSummary(database.DB))
+}
+
+// getAccessLogStats 返回 24h 访问日志统计
+// 评审 R-3：sparkline + 错误率 + Top 工具，供 MCP 主页 sparkline 区使用
+func getAccessLogStats(c *gin.Context) {
+	c.JSON(http.StatusOK, services.GetAccessLogStats(database.DB))
 }
 
 // executeMCPQuery 处理 MCP 工具调用（本地 Connect 进程调用）

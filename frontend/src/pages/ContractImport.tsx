@@ -406,7 +406,7 @@ export default function ContractImport() {
             }
             style={{ marginBottom: 16 }}
           >
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+            <Space orientation="vertical" size="small" style={{ width: '100%' }}>
               {parseResult.apis.map((api) => {
                 const k = apiKey(api as ApiDefinition)
                 const isExcludedDefault = shouldExcludeByDefault(api.path)
@@ -481,7 +481,7 @@ export default function ContractImport() {
       {/* Step 5: Done */}
       {step === 'done' && (
         <Card>
-          <Space direction="vertical" size="large" style={{ textAlign: 'center', width: '100%', padding: 32 }}>
+          <Space orientation="vertical" size="large" style={{ textAlign: 'center', width: '100%', padding: 32 }}>
             <CheckCircleOutlined style={{ fontSize: 64, color: '#52c41a' }} />
             <Title level={4} style={{ margin: 0 }}>导入完成</Title>
             <Paragraph>

@@ -305,7 +305,7 @@ export default function ContractEntities() {
         open={editorOpen}
         onClose={closeEditor}
         width={620}
-        destroyOnClose
+        destroyOnHidden
         extra={
           <Space>
             <Button onClick={closeEditor}>取消</Button>

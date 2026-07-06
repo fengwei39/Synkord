@@ -77,7 +77,7 @@ export default function Settings() {
         {!user ? (
           <Alert type="warning" message="未登录" showIcon />
         ) : (
-          <Space direction="vertical" size="small">
+          <Space orientation="vertical" size="small">
             <Text>用户名：<Text strong>{user.username}</Text></Text>
             <Text>角色：<Tag color={user.role === 'admin' ? 'red' : 'blue'}>{user.role || 'viewer'}</Tag></Text>
             {user.email && <Text>邮箱：{user.email}</Text>}

@@ -12,7 +12,6 @@ import {
   Card,
   Form,
   Input,
-  List,
   Modal,
   Popconfirm,
   Radio,
@@ -301,7 +300,7 @@ export default function ContractMembers() {
           setUserSearchResults([])
         }}
         footer={null}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form layout="vertical">
           <Form.Item label="搜索用户">
@@ -328,15 +327,33 @@ export default function ContractMembers() {
           </Form.Item>
 
           {userSearchResults.length > 0 && (
-            <List
-              size="small"
-              header={<Text type="secondary">搜索结果</Text>}
-              dataSource={userSearchResults}
-              renderItem={(u) => (
-                <List.Item
-                  actions={[
+            <div className="user-search-results">
+              <div className="user-search-results-header">
+                <Text type="secondary">搜索结果</Text>
+              </div>
+              <Space
+                orientation="vertical"
+                size={6}
+                style={{ width: '100%' }}
+              >
+                {userSearchResults.map((u) => (
+                  <div
+                    key={u.id}
+                    className="user-search-result-item"
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '6px 8px',
+                      borderRadius: 6,
+                      background: '#f8fafc',
+                    }}
+                  >
+                    <Space>
+                      <Avatar size="small">{u.username?.[0]?.toUpperCase()}</Avatar>
+                      <Text>{u.username}</Text>
+                    </Space>
                     <Button
-                      key="add"
                       type="link"
                       size="small"
                       icon={<PlusOutlined />}
@@ -344,16 +361,11 @@ export default function ContractMembers() {
                       onClick={() => handleInvite(u.id)}
                     >
                       添加为 {roleLabels[inviteRole]}
-                    </Button>,
-                  ]}
-                >
-                  <Space>
-                    <Avatar size="small">{u.username?.[0]?.toUpperCase()}</Avatar>
-                    <Text>{u.username}</Text>
-                  </Space>
-                </List.Item>
-              )}
-            />
+                    </Button>
+                  </div>
+                ))}
+              </Space>
+            </div>
           )}
         </Form>
       </Modal>

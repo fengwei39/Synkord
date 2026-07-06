@@ -169,7 +169,7 @@ export function AccessLogModal({ open, onClose }: AccessLogModalProps) {
       onCancel={onClose}
       footer={null}
       width={920}
-      destroyOnClose
+      destroyOnHidden
     >
       {/* 评审 R-4：日志筛选区（时间 / 级别 / 关键字） */}
       <Space wrap style={{ marginBottom: 12 }} size="middle">

@@ -278,7 +278,7 @@ export default function ContractApis() {
         open={editorOpen}
         onClose={closeEditor}
         width={520}
-        destroyOnClose
+        destroyOnHidden
         extra={
           <Space>
             <Button onClick={closeEditor}>取消</Button>

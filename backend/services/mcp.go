@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -511,4 +512,158 @@ func boolArg(args map[string]interface{}, key string) bool {
 		return b
 	}
 	return false
+}
+
+// ============================================================================
+// 运行时摘要 + 访问日志统计（v1.2 评审 R-2 / R-3）
+// 供前端 MCP 主页"状态卡 / 最近调用 sparkline + Top 工具"使用
+// ============================================================================
+
+// McpHealthSummary MCP 健康度摘要
+// 字段命名与前端 types/contract.ts McpHealthSummary 一致
+type McpHealthSummary struct {
+	RecentErrors        int     `json:"recent_errors"`
+	ConsecutiveFailures int     `json:"consecutive_failures"`
+	Calls24h            int     `json:"calls_24h"`
+	QPS24h              float64 `json:"qps_24h"`
+	ErrorRate24h        float64 `json:"error_rate_24h"`
+}
+
+// McpRuntimeSummary MCP 运行时摘要（PID / 启动时间 / 重启次数 / 健康度）
+type McpRuntimeSummary struct {
+	PID           *int            `json:"pid"`
+	StartedAt     *time.Time      `json:"started_at"`
+	UptimeSeconds *int            `json:"uptime_seconds"`
+	RestartCount  int             `json:"restart_count"`
+	Health        McpHealthSummary `json:"health"`
+}
+
+// TopToolStat 工具调用次数统计项
+type TopToolStat struct {
+	ToolName string `json:"tool_name"`
+	Count    int    `json:"count"`
+}
+
+// AccessLogStats 24h 访问日志统计
+type AccessLogStats struct {
+	Sparkline []int         `json:"sparkline"` // 长度 24；索引 0 = 当前小时
+	ErrorRate float64       `json:"error_rate"`
+	TopTools  []TopToolStat `json:"top_tools"`
+}
+
+// GetMCPHealthSummary 计算 MCP 健康度摘要
+// 数据为空时返回零值结构体，不返回 error（前端不因空数据报错）
+func GetMCPHealthSummary(db *gorm.DB) McpHealthSummary {
+	summary := McpHealthSummary{}
+
+	// 最近 100 条（按时间倒序）
+	var recent []models.MCPAuditLog
+	if err := db.Order("created_at DESC").Limit(100).Find(&recent).Error; err != nil {
+		return summary
+	}
+	for _, log := range recent {
+		if log.ResultStatus == "error" {
+			summary.RecentErrors++
+		}
+	}
+	// 连续失败（从最新往回数，遇到第一条成功即停）
+	for _, log := range recent {
+		if log.ResultStatus == "error" {
+			summary.ConsecutiveFailures++
+		} else {
+			break
+		}
+	}
+
+	// 24h 全量
+	since24h := time.Now().Add(-24 * time.Hour)
+	var dayLogs []models.MCPAuditLog
+	if err := db.Where("created_at >= ?", since24h).Find(&dayLogs).Error; err != nil {
+		return summary
+	}
+	summary.Calls24h = len(dayLogs)
+	var errCount int
+	for _, log := range dayLogs {
+		if log.ResultStatus == "error" {
+			errCount++
+		}
+	}
+	if summary.Calls24h > 0 {
+		summary.ErrorRate24h = float64(errCount) / float64(summary.Calls24h)
+	}
+	summary.QPS24h = float64(summary.Calls24h) / 86400.0
+	return summary
+}
+
+// GetMCPRuntimeSummary 获取 MCP 运行时摘要
+// 单例表为空时仍返回结构（health 仍可计算）
+func GetMCPRuntimeSummary(db *gorm.DB) McpRuntimeSummary {
+	summary := McpRuntimeSummary{
+		Health: GetMCPHealthSummary(db),
+	}
+	var status models.MCPStatus
+	if err := db.First(&status).Error; err != nil {
+		return summary
+	}
+	summary.PID = status.PID
+	summary.StartedAt = status.StartedAt
+	summary.RestartCount = status.RestartCount
+	if status.StartedAt != nil && status.State == "running" {
+		secs := int(time.Since(*status.StartedAt).Seconds())
+		if secs >= 0 {
+			summary.UptimeSeconds = &secs
+		}
+	}
+	return summary
+}
+
+// GetAccessLogStats 24h 访问日志统计
+// sparkline 索引 0 = 当前小时（部分填充），索引 23 = 23 小时前
+func GetAccessLogStats(db *gorm.DB) AccessLogStats {
+	stats := AccessLogStats{
+		Sparkline: make([]int, 24),
+		TopTools:  []TopToolStat{},
+	}
+
+	since24h := time.Now().Add(-24 * time.Hour)
+	var dayLogs []models.MCPAuditLog
+	if err := db.Where("created_at >= ?", since24h).Find(&dayLogs).Error; err != nil {
+		return stats
+	}
+
+	nowHour := time.Now().Truncate(time.Hour)
+	toolCounts := map[string]int{}
+	var errCount int
+	for _, log := range dayLogs {
+		bucketHour := log.CreatedAt.Truncate(time.Hour)
+		idx := int(nowHour.Sub(bucketHour).Hours())
+		if idx >= 0 && idx < 24 {
+			stats.Sparkline[idx]++
+		}
+		toolCounts[log.ToolName]++
+		if log.ResultStatus == "error" {
+			errCount++
+		}
+	}
+	if len(dayLogs) > 0 {
+		stats.ErrorRate = float64(errCount) / float64(len(dayLogs))
+	}
+
+	// Top 5 工具（按调用次数倒序）
+	type kv struct {
+		Name  string
+		Count int
+	}
+	var topK []kv
+	for k, v := range toolCounts {
+		topK = append(topK, kv{k, v})
+	}
+	sort.Slice(topK, func(i, j int) bool { return topK[i].Count > topK[j].Count })
+	for i := 0; i < len(topK) && i < 5; i++ {
+		stats.TopTools = append(stats.TopTools, TopToolStat{
+			ToolName: topK[i].Name,
+			Count:    topK[i].Count,
+		})
+	}
+	return stats
 }

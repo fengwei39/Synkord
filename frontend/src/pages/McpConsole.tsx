@@ -30,7 +30,6 @@ import {
   Divider,
   Empty,
   Input,
-  List,
   Row,
   Segmented,
   Select,
@@ -596,7 +595,7 @@ export default function McpConsole() {
                     <Skeleton active />
                   ) : (
                     <Space
-                      direction="vertical"
+                      orientation="vertical"
                       size="middle"
                       style={{ width: '100%' }}
                     >
@@ -704,7 +703,7 @@ export default function McpConsole() {
                     <Skeleton active />
                   ) : (
                     <Space
-                      direction="vertical"
+                      orientation="vertical"
                       size="middle"
                       style={{ width: '100%' }}
                     >
@@ -874,11 +873,12 @@ export default function McpConsole() {
                 style={{ padding: '12px 0' }}
               />
             ) : (
-              <List
-                size="small"
-                dataSource={recentLogs}
-                renderItem={(log) => (
-                  <List.Item className={`recent-log-item log-${log.result_status}`}>
+              <div className="recent-logs-list" style={{ marginTop: 8 }}>
+                {recentLogs.map((log) => (
+                  <div
+                    key={log.id}
+                    className={`recent-log-item log-${log.result_status}`}
+                  >
                     <div className="log-row">
                       <Tag
                         color={
@@ -899,10 +899,9 @@ export default function McpConsole() {
                         {log.error_message}
                       </Text>
                     )}
-                  </List.Item>
-                )}
-                style={{ marginTop: 8 }}
-              />
+                  </div>
+                ))}
+              </div>
             )}
           </Card>
         </Col>
@@ -922,33 +921,33 @@ export default function McpConsole() {
       >
         {/* 修复 3.5：用 currentStep 强调"流程进展"，替代 current=-1 */}
         <Steps
-          direction="horizontal"
+          orientation="horizontal"
           size="small"
           current={isRunning ? 4 : ideConfig ? 2 : 1}
           items={[
             {
               title: '选择 IDE',
-              description: selectedIde?.label || '尚未选择',
+              content: selectedIde?.label || '尚未选择',
               icon: <CodeOutlined />,
             },
             {
               title: '复制配置',
-              description: '点击「复制 STDIO 配置」',
+              content: '点击「复制 STDIO 配置」',
               icon: <CopyOutlined />,
             },
             {
               title: '粘贴到 IDE',
-              description: selectedIde?.configPath || '',
+              content: selectedIde?.configPath || '',
               icon: <FileTextOutlined />,
             },
             {
               title: '重启 IDE',
-              description: '配置生效',
+              content: '配置生效',
               icon: <ReloadOutlined />,
             },
             {
               title: '让 AI 写代码',
-              description: `问 AI："基于${activeContract?.contract_name || '当前契约集'}，写一个查询接口的代码"`,
+              content: `问 AI："基于${activeContract?.contract_name || '当前契约集'}，写一个查询接口的代码"`,
               icon: <ExperimentOutlined />,
             },
           ]}
@@ -964,7 +963,7 @@ export default function McpConsole() {
             <span>最近连接 / 历史</span>
           </Space>
         }
-        bodyStyle={{ padding: isRunning && status?.last_connection ? 16 : 12 }}
+        styles={{ body: { padding: isRunning && status?.last_connection ? 16 : 12 } }}
       >
         {isRunning && status?.last_connection ? (
           <Paragraph

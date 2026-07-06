@@ -27,21 +27,23 @@ import {
   Button,
   Card,
   Col,
+  Divider,
   Empty,
   Input,
   List,
   Row,
+  Segmented,
   Select,
   Skeleton,
   Space,
   Steps,
-  Tabs,
   Tag,
   Tooltip,
   Typography,
 } from 'antd'
 // 注：用户反馈"运行时指标不需要折叠了"，不再需要 Collapse / CaretRightOutlined
 import {
+  ApiOutlined,
   ArrowRightOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
@@ -116,6 +118,9 @@ export default function McpConsole() {
   const [stopOpen, setStopOpen] = useState(false)
   const [restartOpen, setRestartOpen] = useState(false)
   const [ideType, setIdeType] = useState<IdeType>('cursor')
+  // 用户反馈：STDIO 模式不需要启动，HTTP 模式需要启动服务。
+  // 这里记录当前激活的传输模式（IDE 配置卡的 tab），用于让顶栏按钮"动态显示"。
+  const [transport, setTransport] = useState<'stdio' | 'http'>('stdio')
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const ideConfigRef = useRef<IdeConfig | null>(null)
@@ -325,6 +330,51 @@ export default function McpConsole() {
         <SafetyCertificateOutlined /> MCP
       </Title>
 
+      {/* ========== 0. 顶层模式选择器（用户反馈：放在最顶部） ========== */}
+      <div className="mcp-mode-bar" role="region" aria-label="接入模式">
+        <div className="mcp-mode-bar-left">
+          <span className="mcp-mode-bar-label">
+            <ApiOutlined /> 接入模式
+          </span>
+          <Segmented
+            value={transport}
+            onChange={(v) => setTransport(v as 'stdio' | 'http')}
+            options={[
+              {
+                label: (
+                  <Space size={4}>
+                    <span>STDIO</span>
+                    <Tag color="green" style={{ margin: 0, fontSize: 10 }}>
+                      推荐
+                    </Tag>
+                  </Space>
+                ),
+                value: 'stdio',
+              },
+              { label: 'HTTP', value: 'http' },
+            ]}
+            aria-label="选择接入模式"
+          />
+        </div>
+        <div className="mcp-mode-bar-right">
+          <Text type="secondary" style={{ fontSize: '12.5px' }}>
+            {transport === 'stdio' ? (
+              <>
+                <CheckCircleOutlined style={{ color: '#52c41a', marginRight: 4 }} />
+                <strong style={{ color: '#52c41a' }}>STDIO</strong>：IDE 会自动拉起
+                synkord-mcp 进程，无需启动服务
+              </>
+            ) : (
+              <>
+                <ExclamationCircleOutlined style={{ color: '#faad14', marginRight: 4 }} />
+                <strong style={{ color: '#d48806' }}>HTTP</strong>
+                ：必须先启动 MCP 服务，IDE 通过 URL 连接
+              </>
+            )}
+          </Text>
+        </div>
+      </div>
+
       {/* ========== 0. 置顶操作条 ========== 评审 1.7（用户反馈"按钮布局太乱"） */}
       <div
         className="mcp-action-bar"
@@ -371,7 +421,7 @@ export default function McpConsole() {
 
         {/* —— 右：统一按钮组（信息类 + 控制类 一行收编） —— */}
         <div className="mcp-action-bar-actions">
-          {/* 信息类：测试连接 */}
+          {/* 信息类：测试连接 —— STDIO/HTTP 都可点 */}
           <Button
             icon={<ExperimentOutlined />}
             onClick={handleTestConnection}
@@ -382,7 +432,7 @@ export default function McpConsole() {
             测试连接
           </Button>
 
-          {/* 信息类：刷新 */}
+          {/* 信息类：刷新 —— STDIO/HTTP 都可点 */}
           <Button
             icon={<ReloadOutlined />}
             onClick={() => {
@@ -399,42 +449,78 @@ export default function McpConsole() {
           {/* 分组分隔 */}
           <div className="mcp-action-bar-divider" aria-hidden="true" />
 
-          {/* 主操作：启动 */}
-          <Button
-            type="primary"
-            icon={<RocketOutlined />}
-            onClick={handleStart}
-            loading={actionLoading === 'starting'}
-            disabled={isRunning || mcpState === 'starting'}
-            className="mcp-action-btn"
+          {/*
+            控制类（启动 / 停止 / 重启）—— 用户反馈：
+            STDIO 模式下 IDE 会自拉取 synkord-mcp 子进程，无需手动启停；
+            只有 HTTP 模式需要管理后台来控制。
+            因此当 transport === 'stdio' 时禁用，并给出明确原因 Tooltip。
+          */}
+          <Tooltip
+            title={
+              transport === 'stdio'
+                ? '当前为 STDIO 模式，IDE 会在需要时自动拉起 synkord-mcp 进程，无需手动启动'
+                : ''
+            }
+            placement="bottom"
           >
-            启动
-          </Button>
+            <Button
+              type="primary"
+              icon={<RocketOutlined />}
+              onClick={handleStart}
+              loading={actionLoading === 'starting'}
+              disabled={
+                isRunning || mcpState === 'starting' || transport === 'stdio'
+              }
+              className="mcp-action-btn"
+            >
+              启动
+            </Button>
+          </Tooltip>
 
-          {/* 次操作：停止 / 重启 */}
-          <Button
-            icon={<StopOutlined />}
-            onClick={() => setStopOpen(true)}
-            loading={(actionLoading as string) === 'stopping'}
-            disabled={!isRunning}
-            className="mcp-action-btn outline danger"
+          <Tooltip
+            title={
+              transport === 'stdio'
+                ? 'STDIO 模式没有常驻进程，停止按钮不适用。请切换到 HTTP 模式管理服务'
+                : ''
+            }
+            placement="bottom"
           >
-            停止
-          </Button>
-          <Button
-            icon={<PoweroffOutlined />}
-            onClick={() => setRestartOpen(true)}
-            loading={actionLoading === 'restarting'}
-            disabled={!isRunning && mcpState !== 'failed'}
-            className="mcp-action-btn outline"
+            <Button
+              icon={<StopOutlined />}
+              onClick={() => setStopOpen(true)}
+              loading={(actionLoading as string) === 'stopping'}
+              disabled={!isRunning || transport === 'stdio'}
+              className="mcp-action-btn outline danger"
+            >
+              停止
+            </Button>
+          </Tooltip>
+
+          <Tooltip
+            title={
+              transport === 'stdio'
+                ? 'STDIO 模式没有常驻进程，重启不适用。请切换到 HTTP 模式'
+                : ''
+            }
+            placement="bottom"
           >
-            重启
-          </Button>
+            <Button
+              icon={<PoweroffOutlined />}
+              onClick={() => setRestartOpen(true)}
+              loading={actionLoading === 'restarting'}
+              disabled={
+                (!isRunning && mcpState !== 'failed') || transport === 'stdio'
+              }
+              className="mcp-action-btn outline"
+            >
+              重启
+            </Button>
+          </Tooltip>
 
           {/* 分组分隔 */}
           <div className="mcp-action-bar-divider" aria-hidden="true" />
 
-          {/* 弱操作：访问日志（文字样式，不与控制动作竞争） */}
+          {/* 弱操作：访问日志 —— STDIO/HTTP 都可点 */}
           <Button
             type="text"
             icon={<HistoryOutlined />}
@@ -455,15 +541,25 @@ export default function McpConsole() {
         onClearTestResult={() => setTestResult(null)}
       />
 
-      {/* ========== 2. IDE 配置 + 调用统计 ========== 评审 R-9 / R-3 */}
+      {/* ========== 2. IDE 接入向导 + 最近调用 ========== 用户反馈：
+           先选模式（顶部）→ 再看 IDE 配置（中部）→ 再复制（底部） */}
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col xs={24} lg={14}>
           <Card
-            className="ide-config-card"
+            className={`ide-config-card ide-onboarding-card ide-flow-${transport}`}
             title={
               <Space>
-                <CodeOutlined />
-                <span>接入 AI IDE</span>
+                {transport === 'stdio' ? (
+                  <ApiOutlined />
+                ) : (
+                  <RocketOutlined />
+                )}
+                <span>
+                  {transport === 'stdio' ? 'STDIO 接入' : 'HTTP 接入'}
+                </span>
+                <Tag color={transport === 'http' ? 'blue' : 'green'}>
+                  {transport.toUpperCase()}
+                </Tag>
               </Space>
             }
             extra={
@@ -476,34 +572,43 @@ export default function McpConsole() {
                   onChange={setIdeType}
                   size="small"
                   style={{ width: 160 }}
-                  options={IDE_TYPES.map((i) => ({ value: i.value, label: i.label }))}
+                  options={IDE_TYPES.map((i) => ({
+                    value: i.value,
+                    label: i.label,
+                  }))}
                   aria-label="选择 IDE 类型"
                 />
               </Space>
             }
           >
-            {selectedIde && (
-              // 修复 1.5 / R-9：明示当前 IDE 的"如何接入"，不再写死 ~/.cursor/mcp.json
-              <IdeHintPanel ide={ideType} selectedConfigPath={selectedIde.configPath} />
-            )}
-
-            <Tabs
-              defaultActiveKey="stdio"
-              items={[
-                {
-                  key: 'stdio',
-                  label: (
-                    <Space>
-                      <span>STDIO</span>
-                      <Tag color="green" style={{ fontSize: 10, margin: 0 }}>
-                        推荐
-                      </Tag>
-                    </Space>
-                  ),
-                  children: !ideConfig ? (
+            {transport === 'stdio' ? (
+              // ============ STDIO 流程 ============
+              // 特点：无需启停服务，IDE 自启子进程；只用一段 JSON 配置
+              <div className="ide-flow">
+                <section className="ide-step">
+                  <div className="ide-step-head">
+                    <span className="ide-step-num">①</span>
+                    <span className="ide-step-title">
+                      复制 STDIO 配置
+                    </span>
+                  </div>
+                  {!ideConfig ? (
                     <Skeleton active />
                   ) : (
-                    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                    <Space
+                      direction="vertical"
+                      size="middle"
+                      style={{ width: '100%' }}
+                    >
+                      <Paragraph
+                        type="secondary"
+                        style={{ marginBottom: 0, fontSize: 12.5 }}
+                      >
+                        <strong>STDIO</strong> 模式下，IDE 会在调用时自动拉起{' '}
+                        <code className="mono-inline">synkord-mcp</code>{' '}
+                        子进程。下面是给 {selectedIde?.label || '你的 IDE'}{' '}
+                        的 JSON 配置片段。
+                      </Paragraph>
                       <Input.TextArea
                         value={stdioText}
                         readOnly
@@ -511,7 +616,6 @@ export default function McpConsole() {
                         className="ide-config-textarea"
                       />
                       <Space wrap>
-                        {/* 修复 🟡：复制配置后给 toast */}
                         <CopyButton
                           type="primary"
                           text={stdioText}
@@ -523,48 +627,190 @@ export default function McpConsole() {
                         </Text>
                       </Space>
                     </Space>
-                  ),
-                },
-                {
-                  key: 'http',
-                  label: <span>HTTP</span>,
-                  children: !ideConfig ? (
+                  )}
+                </section>
+
+                <Divider style={{ margin: '20px 0 16px' }} />
+
+                <section className="ide-step">
+                  <div className="ide-step-head">
+                    <span className="ide-step-num">②</span>
+                    <span className="ide-step-title">
+                      按 {selectedIde?.label || '当前 IDE'} 的方式接入
+                    </span>
+                  </div>
+                  {selectedIde && (
+                    <IdeHintPanel
+                      ide={ideType}
+                      selectedConfigPath={selectedIde.configPath}
+                    />
+                  )}
+                </section>
+              </div>
+            ) : (
+              // ============ HTTP 流程 ============
+              // 特点：需要先启动服务（HTTP 服务器），通过 URL + Token 接入
+              // 步骤比 STDIO 多：启动 → 复制 → 测试 → 接入
+              <div className="ide-flow">
+                {/* ① 启动服务 —— HTTP 模式独有 */}
+                <section className="ide-step">
+                  <div className="ide-step-head">
+                    <span className="ide-step-num">①</span>
+                    <span className="ide-step-title">
+                      启动 MCP 服务
+                    </span>
+                    <Tag color="orange" style={{ marginLeft: 8 }}>
+                      HTTP 模式独有
+                    </Tag>
+                  </div>
+                  <Paragraph
+                    type="secondary"
+                    style={{ marginBottom: 10, fontSize: 12.5 }}
+                  >
+                    HTTP 模式需要一个常驻服务监听端口。请点击顶栏的"启动"按钮，或在此处直接启动。
+                  </Paragraph>
+                  <Space wrap>
+                    <Button
+                      type="primary"
+                      icon={<RocketOutlined />}
+                      onClick={handleStart}
+                      loading={actionLoading === 'starting'}
+                      disabled={isRunning}
+                    >
+                      启动服务
+                    </Button>
+                    {isRunning ? (
+                      <Tag color="green" icon={<CheckCircleOutlined />}>
+                        已运行（{status?.pid ?? '—'}） · URL:{' '}
+                        {httpUrl || '未配置'}
+                      </Tag>
+                    ) : (
+                      <Tag color="default">未启动</Tag>
+                    )}
+                  </Space>
+                </section>
+
+                <Divider style={{ margin: '20px 0 16px' }} />
+
+                {/* ② 复制 URL / Token */}
+                <section className="ide-step">
+                  <div className="ide-step-head">
+                    <span className="ide-step-num">②</span>
+                    <span className="ide-step-title">
+                      复制接入地址 / 令牌
+                    </span>
+                  </div>
+                  {!ideConfig ? (
                     <Skeleton active />
                   ) : (
-                    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                      <Input.TextArea
-                        value={httpText}
-                        readOnly
-                        autoSize={{ minRows: 6, maxRows: 12 }}
-                        className="ide-config-textarea"
-                      />
+                    <Space
+                      direction="vertical"
+                      size="middle"
+                      style={{ width: '100%' }}
+                    >
+                      <div className="ide-http-field">
+                        <span className="ide-http-field-label">URL</span>
+                        <Input
+                          value={httpUrl}
+                          readOnly
+                          addonAfter={
+                            <CopyButton
+                              type="text"
+                              iconOnly
+                              text={httpUrl}
+                              onCopied={() => handleConfigCopied('URL')}
+                            />
+                          }
+                          className="ide-config-url"
+                        />
+                      </div>
+                      <div className="ide-http-field">
+                        <span className="ide-http-field-label">
+                          Bearer Token
+                        </span>
+                        <Input.Password
+                          value={httpToken}
+                          readOnly
+                          addonAfter={
+                            <CopyButton
+                              type="text"
+                              iconOnly
+                              text={httpToken}
+                              onCopied={() => handleConfigCopied('Token')}
+                            />
+                          }
+                          className="ide-config-url"
+                        />
+                      </div>
                       <Space wrap>
                         <CopyButton
                           type="primary"
                           text={httpText}
-                          label="复制 HTTP 配置"
+                          label="复制完整 HTTP 配置"
                           onCopied={() => handleConfigCopied('HTTP 配置')}
                         />
-                        <Tooltip title="仅复制 URL">
-                          <CopyButton
-                            text={httpUrl}
-                            label="仅 URL"
-                            onCopied={() => handleConfigCopied('URL')}
-                          />
-                        </Tooltip>
-                        <Tooltip title="仅复制 Token">
-                          <CopyButton
-                            text={httpToken}
-                            label="仅 Token"
-                            onCopied={() => handleConfigCopied('Token')}
-                          />
-                        </Tooltip>
                       </Space>
                     </Space>
-                  ),
-                },
-              ]}
-            />
+                  )}
+                </section>
+
+                <Divider style={{ margin: '20px 0 16px' }} />
+
+                {/* ③ 测试连接 —— HTTP 模式独有 */}
+                <section className="ide-step">
+                  <div className="ide-step-head">
+                    <span className="ide-step-num">③</span>
+                    <span className="ide-step-title">
+                      测试连通性
+                    </span>
+                    <Tag color="orange" style={{ marginLeft: 8 }}>
+                      HTTP 模式独有
+                    </Tag>
+                  </div>
+                  <Space wrap>
+                    <Button
+                      icon={<ExperimentOutlined />}
+                      onClick={handleTestConnection}
+                      loading={testing}
+                    >
+                      测试连接
+                    </Button>
+                    {testResult && (
+                      <Tag
+                        color={testResult.ok ? 'green' : 'red'}
+                        icon={
+                          testResult.ok ? (
+                            <CheckCircleOutlined />
+                          ) : (
+                            <ExclamationCircleOutlined />
+                          )
+                        }
+                      >
+                        {testResult.ok ? '连通正常' : '连接失败'}
+                      </Tag>
+                    )}
+                  </Space>
+                </section>
+
+                <Divider style={{ margin: '20px 0 16px' }} />
+
+                {/* ④ 接入步骤 */}
+                <section className="ide-step">
+                  <div className="ide-step-head">
+                    <span className="ide-step-num">④</span>
+                    <span className="ide-step-title">
+                      按 {selectedIde?.label || '当前 IDE'} 的方式接入
+                    </span>
+                  </div>
+                  {selectedIde && (
+                    <IdeHintPanel
+                      ide={ideType}
+                      selectedConfigPath={selectedIde.configPath}
+                    />
+                  )}
+                </section>
+              </div>
+            )}
           </Card>
         </Col>
 

@@ -5,7 +5,6 @@ import apiClient from './client'
 export interface DependencyNode {
   id: string
   name: string
-  project_type: string
 }
 
 export interface DependencyEdge {

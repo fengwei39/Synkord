@@ -70,7 +70,6 @@
 | 参数 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `keyword` | string | 否 | 名称模糊匹配 |
-| `project_type` | enum: backend\|web\|app | 否 | 类型过滤 |
 | `include_archived` | boolean | 否 | 默认 false |
 | `limit` | number | 否 | 默认 50 |
 | `offset` | number | 否 | 默认 0 |

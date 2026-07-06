@@ -10,7 +10,6 @@ import {
   Checkbox,
   Empty,
   Input,
-  Select,
   Skeleton,
   Space,
   Table,
@@ -30,18 +29,6 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle'
 
 const { Title, Text } = Typography
 
-const projectTypeLabels: Record<string, string> = {
-  backend: '后端服务',
-  web: 'Web 前端',
-  app: 'App 移动端',
-}
-
-const projectTypeColors: Record<string, string> = {
-  backend: 'blue',
-  web: 'green',
-  app: 'purple',
-}
-
 const roleLabels: Record<string, string> = {
   owner: '创建者',
   editor: '编辑者',
@@ -51,10 +38,9 @@ const roleLabels: Record<string, string> = {
 export default function ContractList() {
   const navigate = useNavigate()
   const { message } = AntApp.useApp()
-  const { contracts, activeContract, refreshContracts, setActiveContract, loading } = useContract()
+  const { contracts, activeContract, refreshContracts, setActiveContract, loading, openCreateModal } = useContract()
   useDocumentTitle('契约集')
   const [keyword, setKeyword] = useState('')
-  const [typeFilter, setTypeFilter] = useState<string | undefined>()
   const [includeArchived, setIncludeArchived] = useState(false)
   const [settingActive, setSettingActive] = useState<string | null>(null)
 
@@ -66,12 +52,11 @@ export default function ContractList() {
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase()
     return contracts.filter((c) => {
-      if (typeFilter && c.project_type !== typeFilter) return false
       if (!includeArchived && c.archived) return false
       if (kw && !c.name.toLowerCase().includes(kw)) return false
       return true
     })
-  }, [contracts, keyword, typeFilter, includeArchived])
+  }, [contracts, keyword, includeArchived])
 
   const handleSetActive = async (record: ContractSet, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -102,11 +87,12 @@ export default function ContractList() {
       ),
     },
     {
-      title: '类型',
-      dataIndex: 'project_type',
-      key: 'project_type',
-      width: 120,
-      render: (t: string) => <Tag color={projectTypeColors[t] || 'default'}>{projectTypeLabels[t] || t}</Tag>,
+      title: '描述',
+      dataIndex: 'description',
+      key: 'description',
+      ellipsis: true,
+      render: (desc?: string) =>
+        desc ? <Text type="secondary">{desc}</Text> : <Text type="secondary">-</Text>,
     },
     {
       title: '我的角色',
@@ -154,7 +140,7 @@ export default function ContractList() {
         <Title level={3} style={{ margin: 0 }}>我的契约集</Title>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={refreshContracts}>刷新</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/contracts/new')}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
             新建契约集
           </Button>
         </Space>
@@ -169,18 +155,6 @@ export default function ContractList() {
           allowClear
           style={{ width: 280 }}
         />
-        <Select
-          placeholder="类型"
-          value={typeFilter}
-          onChange={setTypeFilter}
-          allowClear
-          style={{ width: 140 }}
-          options={[
-            { value: 'backend', label: '后端服务' },
-            { value: 'web', label: 'Web 前端' },
-            { value: 'app', label: 'App 移动端' },
-          ]}
-        />
         <Checkbox checked={includeArchived} onChange={(e) => setIncludeArchived(e.target.checked)}>
           包含归档
         </Checkbox>
@@ -191,12 +165,12 @@ export default function ContractList() {
       ) : filtered.length === 0 ? (
         <Empty
           description={
-            keyword || typeFilter
+            keyword
               ? '未找到匹配的契约集'
               : '还没有契约集'
           }
         >
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/contracts/new')}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
             创建契约集
           </Button>
         </Empty>

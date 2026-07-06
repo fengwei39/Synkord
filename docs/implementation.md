@@ -187,7 +187,6 @@ src/
 │   ├── ContractEntityDetail.tsx       数据模型详情
 │   ├── ContractMembers.tsx            成员管理（新增）
 │   ├── ContractImport.tsx             导入页面
-│   └── ContractCreate.tsx             创建契约集
 ├── components/
 │   ├── LoadState.tsx                  加载/错误/空状态
 │   ├── ContractSwitcher.tsx           契约集切换下拉
@@ -243,7 +242,7 @@ package.json                           electron-builder 配置
 src/
 ├── pages/Projects.tsx                 → ContractList
 ├── pages/ProjectDetail.tsx            → ContractDetail
-├── pages/ProjectCreate.tsx            → ContractCreate
+├── pages/ProjectCreate.tsx            (删除，迁移为 ContractCreateModal 全局弹窗)
 ├── pages/Teams.tsx                    (删除)
 ├── pages/TeamInfo.tsx                 (删除)
 ├── pages/TeamCreate.tsx               (删除)

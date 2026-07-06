@@ -125,14 +125,10 @@ func GetContractForUser(db *gorm.DB, contractID, userID string) (*models.Contrac
 }
 
 // CreateContract 创建契约集（创建者自动成为 owner）
-func CreateContract(db *gorm.DB, userID, name, projectType, description string) (*models.ContractSet, error) {
+func CreateContract(db *gorm.DB, userID, name, description string) (*models.ContractSet, error) {
 	name = strings.TrimSpace(name)
 	if len(name) < 2 || len(name) > 128 {
 		return nil, errors.New("name must be between 2 and 128 characters")
-	}
-	pt := models.ContractSetType(projectType)
-	if pt != models.ContractBackend && pt != models.ContractWeb && pt != models.ContractApp {
-		return nil, errors.New("invalid project_type")
 	}
 
 	tx := db.Begin()
@@ -147,7 +143,6 @@ func CreateContract(db *gorm.DB, userID, name, projectType, description string) 
 
 	c := &models.ContractSet{
 		Name:        name,
-		ProjectType: pt,
 		Description: description,
 		CreatorID:   userID,
 	}
@@ -207,11 +202,36 @@ func UpdateContract(db *gorm.DB, contractID, userID string, name, description *s
 	return GetContractByID(db, contractID)
 }
 
+// ErrContractNotEmpty 契约集非空，禁止删除
+var ErrContractNotEmpty = errors.New("contract is not empty: remove all APIs, data models and other members before deleting")
+
 // DeleteContract 删除契约集（级联删除所有内容，仅 owner）
+//
+// 前置条件：契约集必须为空
+//   - api_count == 0
+//   - entity_count == 0
+//   - member_count == 1（仅创建者本人）
+//
+// 满足全部条件后才执行级联删除。
 func DeleteContract(db *gorm.DB, contractID, userID string) error {
 	role, err := getMemberRole(db, contractID, userID)
 	if err != nil || role != models.ContractRoleOwner {
 		return errors.New("only owner can delete contract")
+	}
+
+	// 前置条件：必须为空（含成员只有创建者）
+	var apiCount, entityCount, memberCount int64
+	if err := db.Model(&models.APIEndpoint{}).Where("contract_id = ?", contractID).Count(&apiCount).Error; err != nil {
+		return err
+	}
+	if err := db.Model(&models.DataModel{}).Where("contract_id = ?", contractID).Count(&entityCount).Error; err != nil {
+		return err
+	}
+	if err := db.Model(&models.ContractMember{}).Where("contract_id = ?", contractID).Count(&memberCount).Error; err != nil {
+		return err
+	}
+	if apiCount > 0 || entityCount > 0 || memberCount > 1 {
+		return ErrContractNotEmpty
 	}
 
 	tx := db.Begin()
@@ -249,7 +269,11 @@ func DeleteContract(db *gorm.DB, contractID, userID string) error {
 		tx.Rollback()
 		return err
 	}
-	if err := tx.Where("contract_id = ?", contractID).Delete(&models.DataModelVersion{}).Error; err != nil {
+	// entity_versions 没有 contract_id 列，要先找属于本契约集的 entity id 集合
+	if err := tx.Exec(
+		`DELETE FROM entity_versions WHERE entity_id IN (SELECT id FROM entities WHERE contract_id = ?)`,
+		contractID,
+	).Error; err != nil {
 		tx.Rollback()
 		return err
 	}

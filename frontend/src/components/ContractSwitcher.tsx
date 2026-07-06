@@ -25,22 +25,10 @@ interface ContractSwitcherProps {
   variant: 'topbar' | 'mcp-page'
 }
 
-const projectTypeLabels: Record<string, string> = {
-  backend: '后端服务',
-  web: 'Web 前端',
-  app: 'App 移动端',
-}
-
-const projectTypeColors: Record<string, string> = {
-  backend: 'blue',
-  web: 'green',
-  app: 'purple',
-}
-
 export function ContractSwitcher({ variant }: ContractSwitcherProps) {
   const navigate = useNavigate()
   const { message } = AntApp.useApp()
-  const { contracts, activeContract, setActiveContract } = useContract()
+  const { contracts, activeContract, setActiveContract, openCreateModal } = useContract()
   const [open, setOpen] = useState(false)
   const [keyword, setKeyword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -174,7 +162,7 @@ export function ContractSwitcher({ variant }: ContractSwitcherProps) {
                   className="switcher-action-btn primary"
                   onClick={() => {
                     setOpen(false)
-                    navigate('/contracts/new')
+                    openCreateModal()
                   }}
                 >
                   <PlusOutlined /> {keyword ? '创建契约集' : '创建第一个契约集'}
@@ -200,9 +188,6 @@ export function ContractSwitcher({ variant }: ContractSwitcherProps) {
                         <span className="item-name-text">{c.name}</span>
                       </div>
                       <div className="item-meta">
-                        <Tag color={projectTypeColors[c.project_type] || 'default'}>
-                          {projectTypeLabels[c.project_type] || c.project_type}
-                        </Tag>
                         {isCurrent && <Tag color="blue">当前</Tag>}
                       </div>
                     </div>

@@ -111,7 +111,6 @@ interface User {
 interface ContractSet {
   id: string
   name: string
-  project_type: 'backend' | 'web' | 'app'
   description?: string
   creator_id: string                    // owner 的 user_id
   created_at: string
@@ -263,8 +262,8 @@ interface ApiError {
 
 | 方法 | 路径 | 请求 | 响应 |
 |---|---|---|---|
-| GET | `/contracts` | query: `keyword?, project_type?, include_archived?, limit?, offset?` | `{ total, items: ContractSet[] }` |
-| POST | `/contracts` | `{ name, project_type, description? }` | `ContractSet` |
+| GET | `/contracts` | query: `keyword?, include_archived?, limit?, offset?` | `{ total, items: ContractSet[] }` |
+| POST | `/contracts` | `{ name, description? }` | `ContractSet` |
 | GET | `/contracts/:id` | - | `ContractSet` |
 | PATCH | `/contracts/:id` | `{ name?, description?, archived? }` | `ContractSet` |
 | DELETE | `/contracts/:id` | - | `void` |

@@ -5,10 +5,12 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/synkord/core/database"
+	"github.com/synkord/core/models"
 	"github.com/synkord/core/services"
 )
 
@@ -64,7 +66,6 @@ func RegisterContractRoutes(r *gin.RouterGroup) {
 func listContracts(c *gin.Context) {
 	userID := c.GetString("user_id")
 	keyword := c.Query("keyword")
-	projectType := c.Query("project_type")
 	includeArchived := c.Query("include_archived") == "true"
 
 	contracts, err := services.ListUserContractsWithCounts(database.DB, userID)
@@ -76,9 +77,6 @@ func listContracts(c *gin.Context) {
 	filtered := make([]services.ContractWithCounts, 0, len(contracts))
 	for _, ct := range contracts {
 		if keyword != "" && !contains(ct.Name, keyword) {
-			continue
-		}
-		if projectType != "" && string(ct.ProjectType) != projectType {
 			continue
 		}
 		if !includeArchived && ct.Archived {
@@ -96,7 +94,6 @@ func listContracts(c *gin.Context) {
 func createContract(c *gin.Context) {
 	var req struct {
 		Name        string `json:"name" binding:"required,min=2,max=128"`
-		ProjectType string `json:"project_type" binding:"required"`
 		Description string `json:"description"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -104,7 +101,7 @@ func createContract(c *gin.Context) {
 		return
 	}
 	userID := c.GetString("user_id")
-	contract, err := services.CreateContract(database.DB, userID, req.Name, req.ProjectType, req.Description)
+	contract, err := services.CreateContract(database.DB, userID, req.Name, req.Description)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
@@ -120,16 +117,34 @@ func getContract(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"detail": "Contract not found or access denied"})
 		return
 	}
+
+	// 详情页也需要 3 个计数（用于"删除契约集"前置条件 + Tab 计数）
+	var apiCount, entityCount, memberCount int64
+	if err := database.DB.Model(&models.APIEndpoint{}).Where("contract_id = ?", contractID).Count(&apiCount).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+		return
+	}
+	if err := database.DB.Model(&models.DataModel{}).Where("contract_id = ?", contractID).Count(&entityCount).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+		return
+	}
+	if err := database.DB.Model(&models.ContractMember{}).Where("contract_id = ?", contractID).Count(&memberCount).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"id":          contract.ID,
-		"name":        contract.Name,
-		"project_type": contract.ProjectType,
-		"description": contract.Description,
-		"creator_id":  contract.CreatorID,
-		"created_at":  contract.CreatedAt,
-		"updated_at":  contract.UpdatedAt,
-		"archived":    contract.Archived,
-		"my_role":     role,
+		"id":           contract.ID,
+		"name":         contract.Name,
+		"description":  contract.Description,
+		"creator_id":   contract.CreatorID,
+		"created_at":   contract.CreatedAt,
+		"updated_at":   contract.UpdatedAt,
+		"archived":     contract.Archived,
+		"my_role":      role,
+		"api_count":    apiCount,
+		"entity_count": entityCount,
+		"member_count": memberCount,
 	})
 }
 
@@ -163,6 +178,10 @@ func deleteContract(c *gin.Context) {
 	if err := services.DeleteContract(database.DB, contractID, userID); err != nil {
 		if err.Error() == "only owner can delete contract" {
 			c.JSON(http.StatusForbidden, gin.H{"detail": err.Error()})
+			return
+		}
+		if errors.Is(err, services.ErrContractNotEmpty) {
+			c.JSON(http.StatusConflict, gin.H{"detail": err.Error()})
 			return
 		}
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})

@@ -1064,7 +1064,7 @@ function ContractMasterCard({
   summary,
   onClearTestResult,
 }: ContractMasterCardProps) {
-  const { contracts, activeContractSet } = useContract()
+  const { contracts, activeContractSet, openCreateModal } = useContract()
 
   // —— 空状态：还没有任何契约集
   if (contracts.length === 0) {
@@ -1079,7 +1079,7 @@ function ContractMasterCard({
             <Button
               type="primary"
               icon={<PlusOutlined />}
-              onClick={() => navigate('/contracts/new')}
+              onClick={openCreateModal}
             >
               创建第一个契约集
             </Button>
@@ -1110,12 +1110,6 @@ function ContractMasterCard({
         </Empty>
       </Card>
     )
-  }
-
-  const projectTypeMap: Record<string, string> = {
-    backend: '后端',
-    web: 'Web',
-    app: 'App',
   }
 
   const pid = summary?.pid ?? status?.pid ?? null
@@ -1167,13 +1161,6 @@ function ContractMasterCard({
         <section className="contract-master-info-col">
           <h4 className="contract-master-info-title">契约属性</h4>
           <dl className="contract-master-info-list">
-            <dt>类型</dt>
-            <dd>
-              <Tag color="default" style={{ margin: 0 }}>
-                {projectTypeMap[activeContractSet.project_type] ||
-                  activeContractSet.project_type}
-              </Tag>
-            </dd>
             <dt>所有者</dt>
             <dd>
               <UserOutlined style={{ marginRight: 4, opacity: 0.7 }} />

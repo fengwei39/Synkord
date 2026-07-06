@@ -14,6 +14,7 @@ import { useContract } from '../contexts/ContractContext'
 import { ContractSwitcher } from './ContractSwitcher'
 import { McpStatusDot } from './McpStatusDot'
 import WindowControlBar from './WindowControlBar'
+import ContractCreateModal from './ContractCreateModal'
 
 export default function AppLayout() {
   const navigate = useNavigate()
@@ -118,6 +119,9 @@ export default function AppLayout() {
       <main className="synkord-main">
         <Outlet />
       </main>
+
+      {/* 全局"创建契约集"弹窗 */}
+      <ContractCreateModal />
     </div>
   )
 }

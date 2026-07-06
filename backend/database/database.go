@@ -145,5 +145,35 @@ func resetIncompatibleSQLiteTables(db *gorm.DB) error {
 		}
 	}
 
+	// 清理已废弃的 contract_sets.project_type 列（Phase X：移除项目类型后）
+	// 注：不能用 gorm.Migrator.DropColumn，因为 ProjectType 已从 struct 中移除，
+	//     gorm 会尝试从 struct 反射查字段，找不到就 nil pointer。
+	//     改用原始 PRAGMA + ALTER TABLE。
+	if hasColumn(db, "contract_sets", "project_type") {
+		if err := db.Exec(`ALTER TABLE contract_sets DROP COLUMN project_type`).Error; err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+// hasColumn 用 PRAGMA table_info 探测列是否存在（不依赖 struct，避免 ProjectType 已被删除时的反射失败）
+func hasColumn(db *gorm.DB, table, column string) bool {
+	if !db.Migrator().HasTable(table) {
+		return false
+	}
+	type colInfo struct {
+		Name string
+	}
+	var cols []colInfo
+	if err := db.Raw(`PRAGMA table_info(`+table+`)`).Scan(&cols).Error; err != nil {
+		return false
+	}
+	for _, c := range cols {
+		if c.Name == column {
+			return true
+		}
+	}
+	return false
 }

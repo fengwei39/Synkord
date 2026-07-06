@@ -1,12 +1,12 @@
 // Synkord App routes
 // 详见 docs/ui-spec.md §一、docs/architecture.md §二
 
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { Spin } from 'antd'
 import AppLayout from './components/AppLayout'
 import McpConsole from './pages/McpConsole'
 import ContractList from './pages/ContractList'
-import ContractCreate from './pages/ContractCreate'
 import ContractDetail from './pages/ContractDetail'
 import ContractApis from './pages/ContractApis'
 import ContractApiDetail from './pages/ContractApiDetail'
@@ -17,7 +17,21 @@ import ContractImport from './pages/ContractImport'
 import Settings from './pages/Settings'
 import Login from './pages/Login'
 import { AuthProvider, useAuth } from './api/auth'
-import { ContractProvider } from './contexts/ContractContext'
+import { ContractProvider, useContract } from './contexts/ContractContext'
+
+/**
+ * `/contracts/new` 兼容路由：历史书签/浏览器后退可能仍命中此 URL。
+ * 弹窗由 AppLayout 统一挂载，这里只需触发打开并 replace 到列表页。
+ */
+function ContractNewRedirect() {
+  const navigate = useNavigate()
+  const { openCreateModal } = useContract()
+  useEffect(() => {
+    openCreateModal()
+    navigate('/contracts', { replace: true })
+  }, [openCreateModal, navigate])
+  return null
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, bootstrapping } = useAuth()
@@ -54,7 +68,7 @@ export default function App() {
 
           {/* 契约集管理 */}
           <Route path="contracts" element={<ContractList />} />
-          <Route path="contracts/new" element={<ContractCreate />} />
+          <Route path="contracts/new" element={<ContractNewRedirect />} />
           <Route path="contracts/:id" element={<ContractDetail />} />
           <Route path="contracts/:id/apis" element={<ContractApis />} />
           <Route path="contracts/:id/apis/:apiId" element={<ContractApiDetail />} />

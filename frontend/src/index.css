@@ -2536,3 +2536,54 @@ select {
     flex-direction: column;
   }
 }
+
+/* ============================================================
+ * ContractDetail - 基本信息"查看态"展示块
+ * 取代原本的 Descriptions 重复块，与 Form 完全互斥
+ * ============================================================ */
+.basic-info-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.basic-info-view .info-row {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+}
+.basic-info-view .info-row:last-child {
+  border-bottom: none;
+}
+.basic-info-view .info-label {
+  flex-shrink: 0;
+  width: 88px;
+  color: rgba(0, 0, 0, 0.55);
+  font-size: 13px;
+}
+.basic-info-view .info-value {
+  flex: 1;
+  color: rgba(0, 0, 0, 0.88);
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: break-word;
+  min-height: 22px;
+}
+
+/* ============================================================
+ * ContractDetail - 危险操作区
+ * 显式 block 布局，避免与父级 flex 串行
+ * ============================================================ */
+.danger-zone {
+  display: block;
+}
+.danger-zone-label {
+  margin-bottom: 12px;
+}
+.danger-zone-alert {
+  margin-bottom: 12px;
+}
+.danger-zone-action {
+  display: block;
+}

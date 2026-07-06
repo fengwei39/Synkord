@@ -23,9 +23,8 @@
 |---|---|---|
 | `/login` | `Login` | 登录 |
 | `/mcp` | `McpConsole` | MCP 主控台（登录后默认） |
-| `/contracts` | `ContractList` | 契约集列表 |
-| `/contracts/new` | `ContractCreate` | 创建契约集 |
-| `/contracts/:id` | `ContractDetail` | 契约集详情（Tabs：接口/模型/影响/成员/设置） |
+| `/contracts` | `ContractList` | 契约集列表（含"新建契约集"弹窗入口） |
+| `/contracts/:id` | `ContractDetail` | 契约集详情（Tabs：接口/模型/影响/成员/基本信息） |
 | `/contracts/:id/apis` | `ContractApis` | 接口列表（可独立路由，也可作 Tab） |
 | `/contracts/:id/apis/:apiId` | `ContractApiDetail` | 接口详情/编辑 |
 | `/contracts/:id/models` | `ContractEntities` | 数据模型列表 |

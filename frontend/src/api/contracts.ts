@@ -9,7 +9,6 @@ import type { ContractSet, ContractSetRole, ActiveContract, McpStatus } from '..
 
 export interface ListContractsOpts {
   keyword?: string
-  project_type?: 'backend' | 'web' | 'app'
   include_archived?: boolean
   limit?: number
   offset?: number
@@ -25,7 +24,6 @@ export async function listContracts(opts: ListContractsOpts = {}): Promise<{
 
 export interface CreateContractInput {
   name: string
-  project_type: 'backend' | 'web' | 'app'
   description?: string
 }
 

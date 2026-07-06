@@ -42,7 +42,7 @@ func createMCPFixture(t *testing.T, db *gorm.DB) (*models.User, *models.Contract
 	if err := db.Create(user).Error; err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	c, err := CreateContract(db, user.ID, "mcp-test", "backend", "")
+	c, err := CreateContract(db, user.ID, "mcp-test", "")
 	if err != nil {
 		t.Fatalf("create contract: %v", err)
 	}

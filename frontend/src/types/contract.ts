@@ -13,7 +13,6 @@ export interface User {
 export interface ContractSet {
   id: string
   name: string
-  project_type: 'backend' | 'web' | 'app'
   description?: string
   creator_id: string
   created_at: string

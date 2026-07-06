@@ -31,11 +31,14 @@ interface ContractContextType {
   /** 创建契约集（创建后自动设为活跃） */
   createNewContract: (input: {
     name: string
-    project_type: 'backend' | 'web' | 'app'
     description?: string
   }) => Promise<ContractSet>
   /** 清空活跃契约集 */
   clearActiveContract: () => Promise<void>
+  /** 全局"创建契约集"弹窗：打开/关闭 */
+  createModalOpen: boolean
+  openCreateModal: () => void
+  closeCreateModal: () => void
 }
 
 const ContractContext = createContext<ContractContextType>({
@@ -51,6 +54,9 @@ const ContractContext = createContext<ContractContextType>({
     throw new Error('ContractProvider not mounted')
   },
   clearActiveContract: async () => {},
+  createModalOpen: false,
+  openCreateModal: () => {},
+  closeCreateModal: () => {},
 })
 
 export function ContractProvider({ children }: { children: React.ReactNode }) {
@@ -59,6 +65,10 @@ export function ContractProvider({ children }: { children: React.ReactNode }) {
   const [activeContract, setActiveContractState] = useState<ActiveContract | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [createModalOpen, setCreateModalOpen] = useState(false)
+
+  const openCreateModal = useCallback(() => setCreateModalOpen(true), [])
+  const closeCreateModal = useCallback(() => setCreateModalOpen(false), [])
 
   const refreshContracts = useCallback(async () => {
     if (!user) {
@@ -108,7 +118,6 @@ export function ContractProvider({ children }: { children: React.ReactNode }) {
   const createNewContract = useCallback(
     async (input: {
       name: string
-      project_type: 'backend' | 'web' | 'app'
       description?: string
     }) => {
       const contract = await createContract(input)
@@ -140,6 +149,9 @@ export function ContractProvider({ children }: { children: React.ReactNode }) {
       setActiveContract,
       createNewContract,
       clearActiveContract,
+      createModalOpen,
+      openCreateModal,
+      closeCreateModal,
     }),
     [
       contracts,
@@ -152,6 +164,9 @@ export function ContractProvider({ children }: { children: React.ReactNode }) {
       setActiveContract,
       createNewContract,
       clearActiveContract,
+      createModalOpen,
+      openCreateModal,
+      closeCreateModal,
     ],
   )
 

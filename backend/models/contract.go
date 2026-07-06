@@ -15,15 +15,6 @@ const (
 	ContractRoleViewer ContractSetRole = "viewer"
 )
 
-// ContractSetType 契约集类型
-type ContractSetType string
-
-const (
-	ContractBackend ContractSetType = "backend"
-	ContractWeb     ContractSetType = "web"
-	ContractApp     ContractSetType = "app"
-)
-
 // ContractSet 是 Synkord 的核心实体。
 //
 // 命名变更：
@@ -31,17 +22,16 @@ const (
 // - 移除 Team 层级，每个 ContractSet 是独立工作空间
 // - 每个 ContractSet 由创建者（CreatorID）拥有 + 管理成员
 type ContractSet struct {
-	ID          string          `json:"id" gorm:"primaryKey;size:36"`
-	Name        string          `json:"name" gorm:"size:128;not null;uniqueIndex:idx_contract_name"`
-	ProjectType ContractSetType `json:"project_type" gorm:"size:16;not null"`
-	Description string          `json:"description" gorm:"size:512"`
-	CreatorID   string          `json:"creator_id" gorm:"size:36;not null;index"`
-	Archived    bool            `json:"archived" gorm:"default:false"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
-	DeletedAt   gorm.DeletedAt  `json:"-" gorm:"index"`
+	ID          string         `json:"id" gorm:"primaryKey;size:36"`
+	Name        string         `json:"name" gorm:"size:128;not null;uniqueIndex:idx_contract_name"`
+	Description string         `json:"description" gorm:"size:512"`
+	CreatorID   string         `json:"creator_id" gorm:"size:36;not null;index"`
+	Archived    bool           `json:"archived" gorm:"default:false"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
 	// MyRole 仅在 ListUserContracts (JOIN contract_members) 时填充
-	MyRole      ContractSetRole `json:"my_role,omitempty" gorm:"-"`
+	MyRole ContractSetRole `json:"my_role,omitempty" gorm:"-"`
 
 	Creator      *User            `json:"creator,omitempty" gorm:"foreignKey:CreatorID"`
 	Members      []ContractMember `json:"-" gorm:"foreignKey:ContractID"`

@@ -52,7 +52,6 @@
 | `/login` | `Login` | 登录页 |
 | `/mcp` | `McpConsole` | **顶级**，MCP 主控台，登录后默认落地 |
 | `/contracts` | `ContractList` | 契约集列表 |
-| `/contracts/new` | `ContractCreate` | 创建契约集 |
 | `/contracts/:id` | `ContractDetail` | 契约集详情 |
 | `/contracts/:id/apis` | `ContractApis` | 接口列表 |
 | `/contracts/:id/apis/:apiId` | `ContractApiDetail` | 接口详情 |

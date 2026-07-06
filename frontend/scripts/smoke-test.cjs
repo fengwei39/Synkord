@@ -201,7 +201,7 @@ async function main() {
   section('5. MCP 工具调用 (端到端)');
   // 创建一个测试契约集
   const createResp = await new Promise((resolve) => {
-    const body = JSON.stringify({ name: 'smoketest-' + Date.now(), project_type: 'backend' });
+    const body = JSON.stringify({ name: 'smoketest-' + Date.now() });
     const req = http.request({
       hostname: '127.0.0.1',
       port,

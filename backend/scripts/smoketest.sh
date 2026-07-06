@@ -23,7 +23,7 @@ echo "=== Login OK ==="
 # Create contract (use English name to avoid encoding issues in shell)
 echo ""
 echo "=== Create contract ==="
-CONTRACT=$(curl -s -X POST http://127.0.0.1:8000/api/contracts -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"name":"order-platform","project_type":"backend","description":"Order Service"}')
+CONTRACT=$(curl -s -X POST http://127.0.0.1:8000/api/contracts -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"name":"order-platform","description":"Order Service"}')
 CID=$(echo "$CONTRACT" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 echo "$CONTRACT" | head -c 200
 echo ""

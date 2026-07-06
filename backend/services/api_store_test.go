@@ -42,7 +42,7 @@ func createOwnerContract(t *testing.T, db *gorm.DB, name string) (*models.User, 
 	if err := db.Create(user).Error; err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	c, err := CreateContract(db, user.ID, name, "backend", "test")
+	c, err := CreateContract(db, user.ID, name, "test")
 	if err != nil {
 		t.Fatalf("create contract: %v", err)
 	}

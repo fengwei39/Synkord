@@ -49,6 +49,7 @@ func RegisterContractRoutes(r *gin.RouterGroup) {
 		// 导入
 		c.POST("/:id/import/parse", parseImport)
 		c.POST("/:id/import/commit", commitImport)
+		c.POST("/:id/import/fetch-url", fetchImportURL)
 
 		// 依赖图
 		c.GET("/:id/dependencies/graph", getContractDependencyGraph)

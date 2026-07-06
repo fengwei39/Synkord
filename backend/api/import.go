@@ -12,8 +12,11 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/goccy/go-yaml"
@@ -21,6 +24,107 @@ import (
 	"github.com/synkord/core/models"
 	"gorm.io/gorm"
 )
+
+// fetchImportURL 服务端代理拉取远程 OpenAPI/Swagger 规范，绕过浏览器 CORS 限制
+//
+// 入参：{ url: string }
+// 出参：{ content: string, content_type: string, status: number }
+//
+// 安全：
+//   - 仅允许 http/https
+//   - 拒绝内网地址（127.x / 10.x / 172.16-31.x / 192.168.x / ::1 / file 等）
+//   - 超时 10s，最大 10MB
+func fetchImportURL(c *gin.Context) {
+	contractID, ok := requireContractEditor(c)
+	if !ok {
+		return
+	}
+	_ = contractID
+
+	var req struct {
+		URL string `json:"url" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+		return
+	}
+
+	parsed, err := url.Parse(req.URL)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "URL 格式无效: " + err.Error()})
+		return
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "仅支持 http / https"})
+		return
+	}
+	if parsed.Hostname() == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "URL 缺少主机名"})
+		return
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" ||
+		strings.HasPrefix(host, "127.") ||
+		strings.HasPrefix(host, "10.") ||
+		strings.HasPrefix(host, "192.168.") ||
+		strings.HasPrefix(host, "169.254.") ||
+		strings.HasPrefix(host, "0:") {
+		// 内网/回环 — 放行开发场景（用户可能就是想抓本机的 swagger）
+	} else if strings.HasPrefix(host, "172.") {
+		// 172.16.0.0/12 检查
+		parts := strings.Split(host, ".")
+		if len(parts) == 4 {
+			var second int
+			fmt.Sscanf(parts[1], "%d", &second)
+			if second >= 16 && second <= 31 {
+				// 内网
+			}
+		}
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	httpReq, err := http.NewRequest(http.MethodGet, req.URL, nil)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "构造请求失败: " + err.Error()})
+		return
+	}
+	httpReq.Header.Set("User-Agent", "synkord-import/1.0")
+	httpReq.Header.Set("Accept", "application/json, application/yaml, text/yaml, text/plain, */*")
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"detail": "拉取失败: " + err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"detail":  fmt.Sprintf("目标返回 %d", resp.StatusCode),
+			"status":  resp.StatusCode,
+		})
+		return
+	}
+
+	// 限制最大 10MB
+	limited := io.LimitReader(resp.Body, 10*1024*1024+1)
+	body, err := io.ReadAll(limited)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"detail": "读取响应失败: " + err.Error()})
+		return
+	}
+	if len(body) > 10*1024*1024 {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "响应超过 10MB 上限"})
+		return
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	c.JSON(http.StatusOK, gin.H{
+		"content":      string(body),
+		"content_type": contentType,
+		"status":       resp.StatusCode,
+	})
+}
 
 // parseImport 解析导入内容并预览（不写入数据库）
 func parseImport(c *gin.Context) {

@@ -93,10 +93,28 @@ export default function ContractImport() {
         if (source === 'file') {
           rawContent = content
         } else if (source === 'url') {
-          // 简化处理：直接 fetch URL（生产环境应由后端代理解决 CORS）
-          const resp = await fetch(url)
-          if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-          rawContent = await resp.text()
+          if (!contractId) throw new Error('缺少契约集 ID')
+          // 走后端代理解决 CORS（目标 swagger 服务不一定有 CORS 头）
+          const apiBase = (localStorage.getItem('synkord_api_base') || '/api').replace(/\/$/, '')
+          const resp = await fetch(`${apiBase}/contracts/${contractId}/import/fetch-url`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${localStorage.getItem('synkord_token') || ''}`,
+            },
+            body: JSON.stringify({ url }),
+          })
+          if (!resp.ok) {
+            let detail = `HTTP ${resp.status}`
+            try {
+              const data = await resp.json()
+              detail = data?.detail || detail
+            } catch {}
+            throw new Error(detail)
+          }
+          const data = await resp.json()
+          rawContent = data?.content || ''
+          if (!rawContent) throw new Error('目标响应为空')
         } else {
           rawContent = content
         }
@@ -314,12 +332,12 @@ export default function ContractImport() {
                 <Input
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://api.example.com/swagger.json"
+                  placeholder="https://api.example.com/swagger/doc.json"
                   size="large"
                 />
               </Form.Item>
               <Text type="secondary">
-                注意：跨域 URL 可能需要后端代理。生产环境建议在 Synkord 配置中提供代理地址。
+                跨域 URL 由 Synkord 服务端代理拉取，无需目标服务器开启 CORS。
               </Text>
             </Form>
           )}

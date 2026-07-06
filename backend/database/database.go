@@ -54,15 +54,15 @@ func Init(cfg *config.Config) error {
 func autoMigrate(db *gorm.DB) error {
 	return db.AutoMigrate(
 		&models.User{},
-		&models.Team{},
-		&models.TeamMember{},
-		&models.Project{},
+		&models.ContractSet{},
+		&models.ContractMember{},
 		&models.SwaggerSpec{},
 		&models.APIEndpoint{},
 		&models.DataModel{},
 		&models.DataModelVersion{},
 		&models.Dependency{},
 		&models.MCPAuditLog{},
+		&models.ActiveContract{},
 	)
 }
 
@@ -107,9 +107,11 @@ func resetIncompatibleSQLiteTables(db *gorm.DB) error {
 		table   string
 		columns []string
 	}{
-		{table: "api_endpoints", columns: []string{"team_id"}},
-		{table: "dependencies", columns: []string{"team_id"}},
-		{table: "mcp_audit_logs", columns: []string{"project_id"}},
+		{table: "api_endpoints", columns: []string{"team_id", "project_id"}},
+		{table: "dependencies", columns: []string{"team_id", "source_project_id", "target_project_id"}},
+		{table: "mcp_audit_logs", columns: []string{"team_id", "project_id"}},
+		{table: "swagger_specs", columns: []string{"team_id", "project_id"}},
+		{table: "entities", columns: []string{"team_id", "project_id"}},
 	}
 
 	for _, check := range checks {
@@ -117,7 +119,7 @@ func resetIncompatibleSQLiteTables(db *gorm.DB) error {
 			continue
 		}
 		for _, column := range check.columns {
-			if !db.Migrator().HasColumn(check.table, column) {
+			if db.Migrator().HasColumn(check.table, column) {
 				if err := db.Migrator().DropTable(check.table); err != nil {
 					return err
 				}
@@ -126,22 +128,20 @@ func resetIncompatibleSQLiteTables(db *gorm.DB) error {
 		}
 	}
 
-	for _, table := range []string{"team_mcp_settings", "global_mcp_server_configs", "change_sets", "notifications", "webhook_configs"} {
+	for _, table := range []string{
+		"teams",
+		"team_members",
+		"projects",
+		"team_mcp_settings",
+		"global_mcp_server_configs",
+		"change_sets",
+		"notifications",
+		"webhook_configs",
+	} {
 		if db.Migrator().HasTable(table) {
 			if err := db.Migrator().DropTable(table); err != nil {
 				return err
 			}
-		}
-	}
-
-	if db.Migrator().HasTable("entities") && db.Migrator().HasColumn("entities", "is_global") {
-		if db.Migrator().HasTable("entity_versions") {
-			if err := db.Migrator().DropTable("entity_versions"); err != nil {
-				return err
-			}
-		}
-		if err := db.Migrator().DropTable("entities"); err != nil {
-			return err
 		}
 	}
 

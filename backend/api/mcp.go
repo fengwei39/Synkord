@@ -1,248 +1,181 @@
+// Synkord MCP API
+// 活跃契约集 + 工具调用 + 访问日志
+// 详见 docs/requirements.md §四.7
+
 package api
 
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/synkord/core/database"
-	"github.com/synkord/core/models"
 	"github.com/synkord/core/services"
 )
 
-// MCP 接口：基于项目上下文，无需 Token 认证
-// IDE/Codex 通过本地 MCP 服务访问，自动使用当前登录用户身份
-
-type mcpQueryRequest struct {
-	TeamID    string                 `json:"team_id"`
-	ProjectID string                 `json:"project_id"`
-	Tool      string                 `json:"tool"`
-	Args      map[string]interface{} `json:"args"`
-}
-
-type mcpAuditInput struct {
-	TeamID        string `json:"team_id"`
-	ProjectID     string `json:"project_id"`
-	ToolName      string `json:"tool_name"`
-	Caller        string `json:"caller"`
-	ParamsSummary string `json:"params_summary"`
-	ResultStatus  string `json:"result_status"`
-	ErrorMessage  string `json:"error_message"`
-}
-
-func RegisterProjectMCPRoutes(r *gin.RouterGroup) {
-	m := r.Group("/teams/:team_id/projects/:project_id/mcp")
-	{
-		// 获取项目 MCP 概览
-		m.GET("", func(c *gin.Context) {
-			if !requireProjectMember(c) {
-				return
-			}
-			overview, err := services.GetProjectMCPOverview(database.DB, c.Param("team_id"), c.Param("project_id"))
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
-				return
-			}
-			c.JSON(http.StatusOK, overview)
-		})
-
-		// 获取调用记录（按当前用户过滤）
-		m.GET("/audit", func(c *gin.Context) {
-			if !requireProjectMember(c) {
-				return
-			}
-			skip, _ := strconv.Atoi(c.DefaultQuery("skip", "0"))
-			limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
-			userID := c.GetString("user_id")
-			items, total, err := services.ListMCPAuditLogs(database.DB, c.Param("team_id"), c.Param("project_id"), userID, skip, limit)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
-				return
-			}
-			c.JSON(http.StatusOK, gin.H{"items": items, "total": total})
-		})
-
-		// IDE 接入说明
-		m.GET("/onboarding", func(c *gin.Context) {
-			if !requireProjectMember(c) {
-				return
-			}
-			c.JSON(http.StatusOK, gin.H{
-				"description": "将以下配置写入 IDE 的 MCP 配置文件。无需 Token，切换项目后自动跟随激活上下文。",
-				"modes": gin.H{
-					"stdio": gin.H{
-						"description":    "适用于 Codex CLI、Claude CLI 等 stdio 模式客户端。",
-						"example_command": "node local-mcp-service.cjs --mode stdio",
-					},
-					"http": gin.H{
-						"description":    "适用于 VS Code、Cursor、JetBrains 等 IDE。需要 Electron 运行。",
-						"example_command": "http://127.0.0.1:37991/mcp",
-					},
-				},
-				"templates": gin.H{
-					"cursor": gin.H{
-						"path":  ".cursor/mcp.json",
-						"value": cursorTemplate,
-					},
-					"vscode": gin.H{
-						"path":  ".vscode/mcp.json",
-						"value": vscodeTemplate,
-					},
-					"pycharm": gin.H{
-						"path":  ".idea/mcp.json",
-						"value": jetbrainsTemplate,
-					},
-					"codex_stdio": gin.H{
-						"path":  ".codex/mcp.json",
-						"value": codexStdioTemplate,
-					},
-				},
-				"notes": []string{
-					"IDE 端无需任何 Token 或认证。",
-					"团队和项目由 ~/.synkord/active-context.json 决定。",
-					"切换项目后无需修改配置。",
-					"MCP 服务内部使用当前登录用户身份调用后端 API。",
-				},
-			})
-		})
-	}
-}
-
-// Local MCP 服务调用后端的接口
-func RegisterLocalMCPRoutes(r *gin.RouterGroup) {
+func RegisterMCPRoutes(r *gin.RouterGroup) {
 	m := r.Group("/mcp")
 	{
-		// MCP 查询：本地 MCP 服务以当前用户身份调用后端
-		m.POST("/query", func(c *gin.Context) {
-			var req mcpQueryRequest
-			if err := c.ShouldBindJSON(&req); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
-				return
-			}
+		m.GET("/status", getMCPStatus)
+		m.POST("/start", startMCP)
+		m.POST("/stop", stopMCP)
+		m.POST("/restart", restartMCP)
 
-			// 权限验证：当前用户必须是项目成员
-			userID := c.GetString("user_id")
-			if _, err := services.GetTeamForUser(database.DB, req.TeamID, userID); err != nil {
-				c.JSON(http.StatusForbidden, gin.H{"detail": "Not a team member"})
-				return
-			}
+		m.GET("/active-contract", getActiveContract)
+		m.PUT("/active-contract", setActiveContract)
 
-			result, status, errorMessage := services.ExecuteMCPQueryWithUser(database.DB, req.TeamID, req.ProjectID, userID, req.Tool, req.Args)
-			_, _ = services.CreateMCPAuditLog(database.DB, services.MCPAuditInput{
-				TeamID:        req.TeamID,
-				ProjectID:     req.ProjectID,
-				UserID:        userID,
-				ToolName:      req.Tool,
-				Caller:        c.GetString("caller"),
-				ParamsSummary: summarizeMCPArgs(req.Args),
-				ResultStatus:  status,
-				ErrorMessage:  errorMessage,
-			})
-			if status == "error" {
-				c.JSON(http.StatusBadRequest, gin.H{"detail": errorMessage})
-				return
-			}
-			c.JSON(http.StatusOK, gin.H{"result": result})
-		})
+		m.GET("/ide-config", getIDEConfig)
 
-		// 客户端上报审计
-		m.POST("/audit", func(c *gin.Context) {
-			var req mcpAuditInput
-			if err := c.ShouldBindJSON(&req); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
-				return
-			}
-			userID := c.GetString("user_id")
-			_, err := services.CreateMCPAuditLog(database.DB, services.MCPAuditInput{
-				TeamID:        req.TeamID,
-				ProjectID:     req.ProjectID,
-				UserID:        userID,
-				ToolName:      req.ToolName,
-				Caller:        req.Caller,
-				ParamsSummary: req.ParamsSummary,
-				ResultStatus:  req.ResultStatus,
-				ErrorMessage:  req.ErrorMessage,
-			})
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
-				return
-			}
-			c.JSON(http.StatusCreated, gin.H{"ok": true})
-		})
+		m.GET("/access-log", listAccessLog)
+		m.POST("/query", executeMCPQuery)
 	}
 }
 
-func requireProjectMember(c *gin.Context) bool {
-	if _, err := services.GetTeamForUser(database.DB, c.Param("team_id"), c.GetString("user_id")); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"detail": "Team not found"})
-		return false
-	}
-	return requireProjectExists(c)
+// MCP 状态 - MVP: 返回固定 running（MCP 由 Electron 进程管理）
+func getMCPStatus(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"state":     "running",
+		"pid":       nil,
+		"port":      nil,
+		"url":       "http://127.0.0.1:47211/mcp",
+		"started_at": time.Now().Format(time.RFC3339),
+	})
 }
 
-func requireProjectExists(c *gin.Context) bool {
-	var project models.Project
-	if err := database.DB.First(&project, "id = ? AND team_id = ?", c.Param("project_id"), c.Param("team_id")).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"detail": "Project not found"})
-		return false
+func startMCP(c *gin.Context)    { c.JSON(http.StatusOK, gin.H{"state": "running"}) }
+func stopMCP(c *gin.Context)     { c.JSON(http.StatusOK, gin.H{"state": "stopped"}) }
+func restartMCP(c *gin.Context)  { c.JSON(http.StatusOK, gin.H{"state": "running"}) }
+
+func getActiveContract(c *gin.Context) {
+	ac, err := services.GetActiveContract(database.DB)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+		return
 	}
-	return true
+	if ac == nil {
+		c.JSON(http.StatusOK, nil)
+		return
+	}
+	c.JSON(http.StatusOK, ac)
 }
 
-func summarizeMCPArgs(args map[string]interface{}) string {
-	if len(args) == 0 {
-		return "{}"
+func setActiveContract(c *gin.Context) {
+	var req struct {
+		ContractID string `json:"contract_id"`
 	}
-	out := "{"
-	count := 0
-	for key := range args {
-		if count > 0 {
-			out += ", "
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+		return
+	}
+	if req.ContractID == "" {
+		// 清空
+		if err := services.ClearActiveContract(database.DB); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+			return
 		}
-		out += key
-		count++
-		if count >= 8 {
-			out += ", ..."
-			break
-		}
+		c.JSON(http.StatusOK, nil)
+		return
 	}
-	out += "}"
-	return out
+	userID := c.GetString("user_id")
+	ac, err := services.SetActiveContract(database.DB, req.ContractID, userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, ac)
 }
 
-// IDE 接入配置模板（无需 Token）
-const (
-	cursorTemplate = `{
-  "mcpServers": {
-    "synkord": {
-      "url": "http://127.0.0.1:37991/mcp"
-    }
-  }
-}`
+// getIDEConfig 返回给 IDE 的连接配置
+func getIDEConfig(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"stdio": gin.H{
+			"command": "synkord-mcp",
+			"args":    []string{"stdio"},
+		},
+		"http": gin.H{
+			"url":   "http://127.0.0.1:47211/mcp",
+			"token": "synk_local_placeholder",
+		},
+	})
+}
 
-	vscodeTemplate = `{
-  "servers": {
-    "synkord": {
-      "type": "http",
-      "url": "http://127.0.0.1:37991/mcp"
-    }
-  }
-}`
+// listAccessLog 列出访问日志
+func listAccessLog(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	items, total, err := services.ListMCPAuditLogs(database.DB, offset, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items, "total": total})
+}
 
-	jetbrainsTemplate = `{
-  "mcpServers": {
-    "synkord": {
-      "url": "http://127.0.0.1:37991/mcp"
-    }
-  }
-}`
+// executeMCPQuery 处理 MCP 工具调用（本地 Connect 进程调用）
+func executeMCPQuery(c *gin.Context) {
+	var req struct {
+		ContractID string                 `json:"contract_id"`
+		Tool       string                 `json:"tool" binding:"required"`
+		Args       map[string]interface{} `json:"args"`
+		Caller     string                 `json:"caller"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+		return
+	}
+	userID := c.GetString("user_id")
+	// 如果没传 contract_id，使用活跃契约集
+	contractID := req.ContractID
+	if contractID == "" {
+		ac, err := services.GetActiveContract(database.DB)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+			return
+		}
+		if ac == nil {
+			recordAndRespond(c, userID, req.Tool, req.Args, req.Caller, 400, 0, "NO_ACTIVE_CONTRACT")
+			return
+		}
+		contractID = ac.ContractID
+	}
 
-	codexStdioTemplate = `{
-  "mcpServers": {
-    "synkord": {
-      "command": "node",
-      "args": ["${SYNKORD_HOME}/synkord/frontend/electron/local-mcp-service.cjs", "--mode", "stdio"]
-    }
-  }
-}`
-)
+	// 校验权限
+	if _, _, err := services.GetContractForUser(database.DB, contractID, userID); err != nil {
+		recordAndRespond(c, userID, req.Tool, req.Args, req.Caller, 403, 0, "CONTRACT_ACCESS_DENIED")
+		return
+	}
+
+	start := time.Now()
+	result, err := services.DefaultMCPToolRegistry.Execute(database.DB, req.Tool, contractID, userID, req.Args)
+	duration := int(time.Since(start).Milliseconds())
+	if err != nil {
+		recordAndRespond(c, userID, req.Tool, req.Args, req.Caller, 400, duration, err.Error())
+		return
+	}
+	_, _ = services.CreateMCPAuditLog(database.DB, services.MCPAuditInput{
+		ContractID:   contractID,
+		UserID:       userID,
+		ToolName:     req.Tool,
+		Caller:       req.Caller,
+		Args:         req.Args,
+		ResultStatus: "success",
+		Status:       200,
+		DurationMs:   duration,
+	})
+	c.JSON(http.StatusOK, gin.H{"result": result})
+}
+
+func recordAndRespond(c *gin.Context, userID, tool string, args map[string]interface{}, caller string, status, duration int, errMsg string) {
+	_, _ = services.CreateMCPAuditLog(database.DB, services.MCPAuditInput{
+		UserID:       userID,
+		ToolName:     tool,
+		Caller:       caller,
+		Args:         args,
+		ResultStatus: "error",
+		Status:       status,
+		DurationMs:   duration,
+		ErrorMessage: errMsg,
+	})
+	c.JSON(status, gin.H{"detail": errMsg})
+}

@@ -6,14 +6,14 @@ import (
 	"gorm.io/gorm"
 )
 
+// APIEndpoint 接口定义（属于 ContractSet）
 type APIEndpoint struct {
 	ID              string    `json:"id" gorm:"primaryKey;size:36"`
-	TeamID          string    `json:"team_id" gorm:"size:36;not null;index"`
-	ProjectID       string    `json:"project_id" gorm:"size:36;not null;index"`
+	ContractID      string    `json:"contract_id" gorm:"size:36;not null;index"`
 	SpecID          string    `json:"spec_id" gorm:"size:36;index"`
 	Path            string    `json:"path" gorm:"size:512;not null;index"`
 	Method          string    `json:"method" gorm:"size:16;not null;index"`
-	Tag             string    `json:"tag" gorm:"size:128;index"`
+	Tags            string    `json:"tags" gorm:"size:512"` // JSON-encoded array
 	Summary         string    `json:"summary" gorm:"size:512"`
 	Description     string    `json:"description" gorm:"type:text"`
 	ParametersJSON  string    `json:"parameters_json" gorm:"type:text"`
@@ -25,9 +25,8 @@ type APIEndpoint struct {
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 
-	Team    *Team        `json:"team,omitempty" gorm:"foreignKey:TeamID"`
-	Project *Project     `json:"project,omitempty" gorm:"foreignKey:ProjectID"`
-	Spec    *SwaggerSpec `json:"spec,omitempty" gorm:"foreignKey:SpecID"`
+	ContractSet *ContractSet `json:"-" gorm:"foreignKey:ContractID"`
+	Spec        *SwaggerSpec `json:"-" gorm:"foreignKey:SpecID"`
 }
 
 func (a *APIEndpoint) BeforeCreate(tx *gorm.DB) error {

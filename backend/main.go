@@ -35,22 +35,17 @@ func main() {
 	r.Use(middleware.AuthMiddleware(cfg))
 
 	apiGroup := r.Group("/api")
-	api.RegisterAuthRoutes(apiGroup, cfg)
-	api.RegisterLocalMCPRoutes(apiGroup)
+	// 公共路由
+	api.RegisterAuthRoutesV2(apiGroup, cfg)
+
+	// 受保护路由
 	protectedAPI := apiGroup.Group("")
 	protectedAPI.Use(middleware.RequireAuthenticated())
-	api.RegisterTeamRoutes(protectedAPI)
-	api.RegisterTeamProjectRoutes(protectedAPI)
-	api.RegisterTeamAPIRoutes(protectedAPI)
-	api.RegisterTeamSwaggerSpecRoutes(protectedAPI)
-	api.RegisterTeamModelRoutes(protectedAPI)
-	api.RegisterTeamDependencyRoutes(protectedAPI)
-	api.RegisterProjectMCPRoutes(protectedAPI)
-	api.RegisterProjectRoutes(protectedAPI)
+	api.RegisterContractRoutes(protectedAPI)
+	api.RegisterMCPRoutes(protectedAPI)
+	api.RegisterUserRoutes(protectedAPI)
 
 	// GET /health
-	// 返回后端运行状态与数据库可用性。供部署、监控、Docker 健康检查使用。
-	// 不需要鉴权。
 	r.GET("/health", func(c *gin.Context) {
 		dbStatus := "ok"
 		dbErr := ""
@@ -75,7 +70,7 @@ func main() {
 		payload := gin.H{
 			"status":     status,
 			"service":    "synkord-core",
-			"version":    "0.1.0",
+			"version":    "1.0.0",
 			"components": gin.H{
 				"database": dbStatus,
 			},

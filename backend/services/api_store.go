@@ -1,7 +1,11 @@
+// Synkord APIEndpoint service
+// 接口定义 CRUD + OpenAPI / Postman 导入
+
 package services
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -10,54 +14,169 @@ import (
 	"gorm.io/gorm"
 )
 
+// ImportOpenAPIResult 导入结果
 type ImportOpenAPIResult struct {
-	ProjectID   string               `json:"project_id"`
-	SpecID      string               `json:"spec_id"`
-	SpecName    string               `json:"spec_name"`
-	SpecVersion string               `json:"spec_version"`
-	APICount    int                  `json:"api_count"`
-	RefCount    int                  `json:"ref_count"`
-	DepCount    int                  `json:"dependency_count"`
-	APIs        []models.APIEndpoint `json:"apis"`
+	ContractID   string               `json:"contract_id"`
+	SpecID       string               `json:"spec_id"`
+	SpecName     string               `json:"spec_name"`
+	SpecVersion  string               `json:"spec_version"`
+	APICount     int                  `json:"api_count"`
+	RefCount     int                  `json:"ref_count"`
+	DepCount     int                  `json:"dependency_count"`
+	APIs         []models.APIEndpoint `json:"apis"`
 }
 
 func ErrUnsupportedAPIImportFormat(format string) error {
 	return fmt.Errorf("unsupported API import format: %s", format)
 }
 
-type postmanCollection struct {
-	Info postmanInfo   `json:"info"`
-	Item []postmanItem `json:"item"`
+// ListContractAPIs 列出契约集下的接口（支持 keyword / method / tag / include_deprecated）
+func ListContractAPIs(db *gorm.DB, contractID, keyword, method, tag string, includeDeprecated bool, offset, limit int) ([]models.APIEndpoint, int64, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	q := db.Model(&models.APIEndpoint{}).Where("contract_id = ?", contractID)
+	if keyword != "" {
+		like := "%" + keyword + "%"
+		q = q.Where("path LIKE ? OR summary LIKE ? OR tags LIKE ?", like, like, like)
+	}
+	if method != "" {
+		q = q.Where("method = ?", strings.ToUpper(method))
+	}
+	if tag != "" {
+		q = q.Where("tags LIKE ?", "%\""+tag+"\"%")
+	}
+	if !includeDeprecated {
+		q = q.Where("deprecated = ?", false)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var apis []models.APIEndpoint
+	if err := q.Order("path, method").Offset(offset).Limit(limit).Find(&apis).Error; err != nil {
+		return nil, 0, err
+	}
+	return apis, total, nil
 }
 
-type postmanInfo struct {
-	Name string `json:"name"`
+// GetContractAPI 获取单个接口
+func GetContractAPI(db *gorm.DB, contractID, apiID string) (*models.APIEndpoint, error) {
+	var a models.APIEndpoint
+	if err := db.Where("id = ? AND contract_id = ?", apiID, contractID).First(&a).Error; err != nil {
+		return nil, err
+	}
+	return &a, nil
 }
 
-type postmanItem struct {
-	Name    string          `json:"name"`
-	Item    []postmanItem   `json:"item"`
-	Request *postmanRequest `json:"request"`
+// CreateContractAPI 创建接口
+func CreateContractAPI(db *gorm.DB, contractID string, api *models.APIEndpoint) (*models.APIEndpoint, error) {
+	api.ContractID = contractID
+	if err := db.Create(api).Error; err != nil {
+		return nil, err
+	}
+	return api, nil
 }
 
-type postmanRequest struct {
-	Method      string           `json:"method"`
-	Header      interface{}      `json:"header"`
-	Body        interface{}      `json:"body"`
-	URL         postmanURL       `json:"url"`
-	Description postmanTextOrRaw `json:"description"`
+// CreateContractAPIFromInput 从前端入参创建接口（处理 tags / parameters / requestBody 等 JSON 字段）
+func CreateContractAPIFromInput(db *gorm.DB, contractID string, input any) (*models.APIEndpoint, error) {
+	type apiInput struct {
+		Path        string                 `json:"path"`
+		Method      string                 `json:"method"`
+		Summary     string                 `json:"summary"`
+		Description string                 `json:"description"`
+		Tags        []string               `json:"tags"`
+		Parameters  []map[string]any       `json:"parameters"`
+		RequestBody map[string]any         `json:"request_body"`
+		Responses   map[string]any         `json:"responses"`
+		Deprecated  bool                   `json:"deprecated"`
+	}
+	var in apiInput
+	b, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(b, &in); err != nil {
+		return nil, err
+	}
+	if in.Path == "" || in.Method == "" {
+		return nil, errors.New("path and method are required")
+	}
+	tagsJSON, _ := json.Marshal(in.Tags)
+	paramsJSON, _ := json.Marshal(in.Parameters)
+	bodyJSON, _ := json.Marshal(in.RequestBody)
+	respJSON, _ := json.Marshal(in.Responses)
+
+	api := &models.APIEndpoint{
+		ContractID:      contractID,
+		Path:            in.Path,
+		Method:          strings.ToUpper(in.Method),
+		Tags:            string(tagsJSON),
+		Summary:         in.Summary,
+		Description:     in.Description,
+		ParametersJSON:  string(paramsJSON),
+		RequestBodyJSON: string(bodyJSON),
+		ResponsesJSON:   string(respJSON),
+		Deprecated:      in.Deprecated,
+	}
+	return CreateContractAPI(db, contractID, api)
 }
 
-type postmanURL struct {
-	Raw  string        `json:"raw"`
-	Path []interface{} `json:"path"`
+// UpdateContractAPI 更新接口
+func UpdateContractAPI(db *gorm.DB, contractID, apiID string, patch map[string]interface{}) (*models.APIEndpoint, error) {
+	if err := db.Model(&models.APIEndpoint{}).
+		Where("id = ? AND contract_id = ?", apiID, contractID).
+		Updates(patch).Error; err != nil {
+		return nil, err
+	}
+	return GetContractAPI(db, contractID, apiID)
 }
 
-type postmanTextOrRaw struct {
-	Raw string `json:"raw"`
+// DeleteContractAPI 删除接口
+func DeleteContractAPI(db *gorm.DB, contractID, apiID string) error {
+	return db.Where("id = ? AND contract_id = ?", apiID, contractID).Delete(&models.APIEndpoint{}).Error
 }
 
-func ImportOpenAPISpec(db *gorm.DB, projectID, spec string) (*ImportOpenAPIResult, error) {
+// GetAPIDependencies 获取 API 的依赖关系
+func GetAPIDependencies(db *gorm.DB, contractID, apiID string) (map[string]interface{}, error) {
+	api, err := GetContractAPI(db, contractID, apiID)
+	if err != nil {
+		return nil, err
+	}
+	// 找出该 API 引用的实体（api_entity）
+	var deps []models.Dependency
+	if err := db.Where("contract_id = ? AND api_path = ? AND api_method = ?", contractID, api.Path, api.Method).Find(&deps).Error; err != nil {
+		return nil, err
+	}
+	usesEntities := make([]map[string]string, 0, len(deps))
+	for _, d := range deps {
+		usesEntities = append(usesEntities, map[string]string{
+			"entity_id":   "",
+			"entity_name": d.EntityName,
+			"usage":       d.DependencyType,
+		})
+	}
+	// 找出引用该 API 的其他 API（同 contract）
+	var usedBy []models.APIEndpoint
+	if err := db.Where("contract_id = ? AND id != ?", contractID, apiID).Find(&usedBy).Error; err != nil {
+		return nil, err
+	}
+	usedByApis := make([]map[string]string, 0, len(usedBy))
+	for _, u := range usedBy {
+		usedByApis = append(usedByApis, map[string]string{
+			"api_id": u.ID,
+			"path":   u.Path,
+			"method": u.Method,
+		})
+	}
+	return map[string]interface{}{
+		"uses_entities": usesEntities,
+		"used_by_apis":  usedByApis,
+	}, nil
+}
+
+// ImportOpenAPISpec 解析 OpenAPI/Swagger 文本并存入数据库
+func ImportOpenAPISpec(db *gorm.DB, contractID, spec string) (*ImportOpenAPIResult, error) {
 	var doc map[string]interface{}
 	if err := json.Unmarshal([]byte(spec), &doc); err != nil {
 		if yamlErr := yaml.Unmarshal([]byte(spec), &doc); yamlErr != nil {
@@ -83,9 +202,9 @@ func ImportOpenAPISpec(db *gorm.DB, projectID, spec string) (*ImportOpenAPIResul
 		specName = "default"
 	}
 
-	var project models.Project
-	if err := db.First(&project, "id = ?", projectID).Error; err != nil {
-		return nil, fmt.Errorf("project not found: %w", err)
+	var c models.ContractSet
+	if err := db.First(&c, "id = ?", contractID).Error; err != nil {
+		return nil, fmt.Errorf("contract not found: %w", err)
 	}
 
 	tx := db.Begin()
@@ -98,15 +217,14 @@ func ImportOpenAPISpec(db *gorm.DB, projectID, spec string) (*ImportOpenAPIResul
 		}
 	}()
 
-	specVersion, err := nextSpecVersion(tx, projectID, specName, infoVersion)
+	specVersion, err := nextSpecVersion(tx, contractID, specName, infoVersion)
 	if err != nil {
 		tx.Rollback()
 		return nil, err
 	}
 
 	swaggerSpec := &models.SwaggerSpec{
-		TeamID:         project.TeamID,
-		ProjectID:      projectID,
+		ContractID:     contractID,
 		Name:           specName,
 		Version:        specVersion,
 		Source:         models.SpecSourceOpenAPI,
@@ -118,11 +236,11 @@ func ImportOpenAPISpec(db *gorm.DB, projectID, spec string) (*ImportOpenAPIResul
 		return nil, err
 	}
 
-	if err := tx.Where("project_id = ?", projectID).Delete(&models.APIEndpoint{}).Error; err != nil {
+	if err := tx.Where("contract_id = ?", contractID).Delete(&models.APIEndpoint{}).Error; err != nil {
 		tx.Rollback()
 		return nil, err
 	}
-	if err := tx.Where("source_project_id = ? AND source = ?", projectID, "openapi").Delete(&models.Dependency{}).Error; err != nil {
+	if err := tx.Where("contract_id = ? AND source = ?", contractID, "openapi").Delete(&models.Dependency{}).Error; err != nil {
 		tx.Rollback()
 		return nil, err
 	}
@@ -150,13 +268,13 @@ func ImportOpenAPISpec(db *gorm.DB, projectID, spec string) (*ImportOpenAPIResul
 			if !ok {
 				continue
 			}
+			tagsJSON, _ := json.Marshal(op["tags"])
 			endpoint := models.APIEndpoint{
-				TeamID:          project.TeamID,
-				ProjectID:       projectID,
+				ContractID:      contractID,
 				SpecID:          swaggerSpec.ID,
 				Path:            path,
 				Method:          strings.ToUpper(methodLower),
-				Tag:             firstTag(op["tags"]),
+				Tags:            string(tagsJSON),
 				Summary:         stringValue(op["summary"]),
 				Description:     stringValue(op["description"]),
 				ParametersJSON:  mustJSON(op["parameters"]),
@@ -185,14 +303,12 @@ func ImportOpenAPISpec(db *gorm.DB, projectID, spec string) (*ImportOpenAPIResul
 				}
 				depSeen[key] = true
 				dep := models.Dependency{
-					TeamID:          project.TeamID,
-					SourceProjectID: projectID,
-					TargetProjectID: projectID,
-					EntityName:      entityName,
-					APIPath:         endpoint.Path,
-					APIMethod:       endpoint.Method,
-					DependencyType:  "api_entity",
-					Source:          "openapi",
+					ContractID:    contractID,
+					EntityName:    entityName,
+					APIPath:       endpoint.Path,
+					APIMethod:     endpoint.Method,
+					DependencyType: "api_entity",
+					Source:        "openapi",
 				}
 				if err := tx.Create(&dep).Error; err != nil {
 					tx.Rollback()
@@ -203,15 +319,7 @@ func ImportOpenAPISpec(db *gorm.DB, projectID, spec string) (*ImportOpenAPIResul
 		}
 	}
 
-	if err := tx.Model(&swaggerSpec).Update("api_count", len(apis)).Error; err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-
-	if err := tx.Model(&models.Project{}).Where("id = ?", projectID).Updates(map[string]interface{}{
-		"open_api_spec":    spec,
-		"open_api_version": oasVersion,
-	}).Error; err != nil {
+	if err := tx.Model(swaggerSpec).Update("api_count", len(apis)).Error; err != nil {
 		tx.Rollback()
 		return nil, err
 	}
@@ -221,7 +329,7 @@ func ImportOpenAPISpec(db *gorm.DB, projectID, spec string) (*ImportOpenAPIResul
 	}
 
 	return &ImportOpenAPIResult{
-		ProjectID:   projectID,
+		ContractID:  contractID,
 		SpecID:      swaggerSpec.ID,
 		SpecName:    swaggerSpec.Name,
 		SpecVersion: specVersion,
@@ -232,225 +340,9 @@ func ImportOpenAPISpec(db *gorm.DB, projectID, spec string) (*ImportOpenAPIResul
 	}, nil
 }
 
-func ImportPostmanCollection(db *gorm.DB, projectID, collectionJSON string) (*ImportOpenAPIResult, error) {
-	var collection postmanCollection
-	if err := json.Unmarshal([]byte(collectionJSON), &collection); err != nil {
-		return nil, fmt.Errorf("postman collection parse failed: %w", err)
-	}
-	if len(collection.Item) == 0 {
-		return nil, fmt.Errorf("postman collection item is missing or empty")
-	}
-
-	specName := strings.TrimSpace(collection.Info.Name)
-	if specName == "" {
-		specName = "default"
-	}
-
-	var project models.Project
-	if err := db.First(&project, "id = ?", projectID).Error; err != nil {
-		return nil, fmt.Errorf("project not found: %w", err)
-	}
-
-	tx := db.Begin()
-	if tx.Error != nil {
-		return nil, tx.Error
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
-
-	specVersion, err := nextSpecVersion(tx, projectID, specName, "")
-	if err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-
-	swaggerSpec := &models.SwaggerSpec{
-		TeamID:      project.TeamID,
-		ProjectID:   projectID,
-		Name:        specName,
-		Version:     specVersion,
-		Source:      models.SpecSourcePostman,
-		SpecContent: collectionJSON,
-	}
-	if err := tx.Create(swaggerSpec).Error; err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-
-	if err := tx.Where("project_id = ?", projectID).Delete(&models.APIEndpoint{}).Error; err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-	if err := tx.Where("source_project_id = ? AND source = ?", projectID, "postman").Delete(&models.Dependency{}).Error; err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-
-	apis := make([]models.APIEndpoint, 0)
-	var createErr error
-	walkPostmanItems(collection.Item, "", func(item postmanItem, req postmanRequest, tag string) {
-		if createErr != nil {
-			return
-		}
-		path := postmanPath(req.URL)
-		method := strings.ToUpper(strings.TrimSpace(req.Method))
-		if path == "" || method == "" {
-			return
-		}
-		endpoint := models.APIEndpoint{
-			TeamID:          project.TeamID,
-			ProjectID:       projectID,
-			SpecID:          swaggerSpec.ID,
-			Path:            path,
-			Method:          method,
-			Tag:             tag,
-			Summary:         item.Name,
-			Description:     req.Description.Raw,
-			ParametersJSON:  mustJSON(req.URL),
-			RequestBodyJSON: mustJSON(req.Body),
-			ResponsesJSON:   "",
-			SecurityJSON:    mustJSON(req.Header),
-			Deprecated:      false,
-			Version:         specVersion,
-		}
-		if err := tx.Create(&endpoint).Error; err != nil {
-			createErr = err
-			return
-		}
-		apis = append(apis, endpoint)
-	})
-	if createErr != nil {
-		tx.Rollback()
-		return nil, createErr
-	}
-
-	if err := tx.Model(&swaggerSpec).Update("api_count", len(apis)).Error; err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-
-	if err := tx.Model(&models.Project{}).Where("id = ?", projectID).Updates(map[string]interface{}{
-		"open_api_spec":    collectionJSON,
-		"open_api_version": collection.Info.Name,
-	}).Error; err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-
-	if err := tx.Commit().Error; err != nil {
-		return nil, err
-	}
-
-	return &ImportOpenAPIResult{
-		ProjectID:   projectID,
-		SpecID:      swaggerSpec.ID,
-		SpecName:    swaggerSpec.Name,
-		SpecVersion: specVersion,
-		APICount:    len(apis),
-		RefCount:    0,
-		DepCount:    0,
-		APIs:        apis,
-	}, nil
-}
-
-func ListAPIs(db *gorm.DB, projectID, query string, offset, limit int) ([]models.APIEndpoint, int64, error) {
-	var apis []models.APIEndpoint
-	var total int64
-	q := db.Model(&models.APIEndpoint{})
-	if projectID != "" {
-		q = q.Where("project_id = ?", projectID)
-	}
-	if query != "" {
-		like := "%" + query + "%"
-		q = q.Where("path LIKE ? OR summary LIKE ? OR tag LIKE ?", like, like, like)
-	}
-	q.Count(&total)
-	if err := q.Order("path, method").Offset(offset).Limit(limit).Find(&apis).Error; err != nil {
-		return nil, 0, err
-	}
-	return apis, total, nil
-}
-
-func GetProjectAPIs(db *gorm.DB, projectID string) ([]models.APIEndpoint, error) {
-	var apis []models.APIEndpoint
-	err := db.Where("project_id = ?", projectID).Order("path, method").Find(&apis).Error
-	return apis, err
-}
-
-func GetTeamProjectAPIs(db *gorm.DB, teamID, projectID string) ([]models.APIEndpoint, error) {
-	var apis []models.APIEndpoint
-	err := db.Where("team_id = ? AND project_id = ?", teamID, projectID).Order("path, method").Find(&apis).Error
-	return apis, err
-}
-
-// specNameFromOpenAPI 从 OpenAPI 文档的 info.title 提取 spec 名称。
-// 找不到时返回空字符串，调用方需自行决定回退值。
-func specNameFromOpenAPI(doc map[string]interface{}) string {
-	info, ok := doc["info"].(map[string]interface{})
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(stringValue(info["title"]))
-}
-
-// nextSpecVersion 决定新建 SwaggerSpec 应当使用的版本号。
-//
-// 规则：
-//  1. 调用方显式传入 hint（非空）且为合法 semver → 直接使用
-//  2. 否则查询该项目同名 spec 的最新版本，自动递增 patch 段
-//  3. 首次导入默认 v1.0.0
-func nextSpecVersion(tx *gorm.DB, projectID, name, hint string) (string, error) {
-	if hint = strings.TrimSpace(hint); hint != "" {
-		return hint, nil
-	}
-
-	var last models.SwaggerSpec
-	err := tx.Where("project_id = ? AND name = ?", projectID, name).
-		Order("created_at DESC").
-		First(&last).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
-		return "", err
-	}
-	if err == gorm.ErrRecordNotFound {
-		return "1.0.0", nil
-	}
-	return bumpPatchVersion(last.Version, "1.0.0")
-}
-
-// bumpPatchVersion 把 v1.2.3 → v1.2.4；如果解析失败或为空则 fallback 到 seed。
-func bumpPatchVersion(current, seed string) (string, error) {
-	cur := strings.TrimSpace(current)
-	if cur == "" {
-		return seed, nil
-	}
-	parts := strings.Split(cur, ".")
-	if len(parts) != 3 {
-		return seed, nil
-	}
-	var major, minor, patch int
-	if _, err := fmt.Sscanf(parts[0], "%d", &major); err != nil {
-		return seed, nil
-	}
-	if _, err := fmt.Sscanf(parts[1], "%d", &minor); err != nil {
-		return seed, nil
-	}
-	if _, err := fmt.Sscanf(parts[2], "%d", &patch); err != nil {
-		return seed, nil
-	}
-	patch++
-	return fmt.Sprintf("%d.%d.%d", major, minor, patch), nil
-}
-
-func firstTag(v interface{}) string {
-	arr, ok := v.([]interface{})
-	if !ok || len(arr) == 0 {
-		return ""
-	}
-	return stringValue(arr[0])
-}
+// ============================================================================
+// 工具方法（OpenAPI 解析共用）
+// ============================================================================
 
 func stringValue(v interface{}) string {
 	if s, ok := v.(string); ok {
@@ -507,80 +399,50 @@ func refEntityName(ref string) string {
 	return name
 }
 
-func walkPostmanItems(items []postmanItem, parent string, visit func(postmanItem, postmanRequest, string)) {
-	for _, item := range items {
-		tag := itemTag(parent, item.Name)
-		if item.Request != nil {
-			visit(postmanItem{Name: item.Name}, *item.Request, parent)
-		}
-		if len(item.Item) > 0 {
-			walkPostmanItems(item.Item, tag, visit)
-		}
-	}
-}
-
-func itemTag(parent, name string) string {
-	if parent != "" {
-		return parent
-	}
-	return name
-}
-
-func postmanPath(url postmanURL) string {
-	if url.Raw != "" {
-		raw := strings.TrimSpace(url.Raw)
-		if idx := strings.Index(raw, "://"); idx >= 0 {
-			if slash := strings.Index(raw[idx+3:], "/"); slash >= 0 {
-				raw = raw[idx+3+slash:]
-			}
-		}
-		if q := strings.Index(raw, "?"); q >= 0 {
-			raw = raw[:q]
-		}
-		if raw != "" && !strings.HasPrefix(raw, "/") {
-			raw = "/" + raw
-		}
-		return raw
-	}
-	parts := make([]string, 0, len(url.Path))
-	for _, part := range url.Path {
-		value := stringValue(part)
-		if value != "" {
-			parts = append(parts, value)
-		}
-	}
-	if len(parts) == 0 {
+func specNameFromOpenAPI(doc map[string]interface{}) string {
+	info, ok := doc["info"].(map[string]interface{})
+	if !ok {
 		return ""
 	}
-	return "/" + strings.Join(parts, "/")
+	return strings.TrimSpace(stringValue(info["title"]))
 }
 
-func (u *postmanURL) UnmarshalJSON(data []byte) error {
-	var raw string
-	if err := json.Unmarshal(data, &raw); err == nil {
-		u.Raw = raw
-		return nil
+func nextSpecVersion(tx *gorm.DB, contractID, name, hint string) (string, error) {
+	if hint = strings.TrimSpace(hint); hint != "" {
+		return hint, nil
 	}
-	type alias postmanURL
-	var next alias
-	if err := json.Unmarshal(data, &next); err != nil {
-		return err
+	var last models.SwaggerSpec
+	err := tx.Where("contract_id = ? AND name = ?", contractID, name).
+		Order("created_at DESC").
+		First(&last).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return "", err
 	}
-	*u = postmanURL(next)
-	return nil
+	if err == gorm.ErrRecordNotFound {
+		return "1.0.0", nil
+	}
+	return bumpPatchVersion(last.Version, "1.0.0")
 }
 
-func (t *postmanTextOrRaw) UnmarshalJSON(data []byte) error {
-	var raw string
-	if err := json.Unmarshal(data, &raw); err == nil {
-		t.Raw = raw
-		return nil
+func bumpPatchVersion(current, seed string) (string, error) {
+	cur := strings.TrimSpace(current)
+	if cur == "" {
+		return seed, nil
 	}
-	type alias postmanTextOrRaw
-	var next alias
-	if err := json.Unmarshal(data, &next); err != nil {
-		return err
+	parts := strings.Split(cur, ".")
+	if len(parts) != 3 {
+		return seed, nil
 	}
-	*t = postmanTextOrRaw(next)
-	return nil
+	var major, minor, patch int
+	if _, err := fmt.Sscanf(parts[0], "%d", &major); err != nil {
+		return seed, nil
+	}
+	if _, err := fmt.Sscanf(parts[1], "%d", &minor); err != nil {
+		return seed, nil
+	}
+	if _, err := fmt.Sscanf(parts[2], "%d", &patch); err != nil {
+		return seed, nil
+	}
+	patch++
+	return fmt.Sprintf("%d.%d.%d", major, minor, patch), nil
 }

@@ -1,59 +1,43 @@
-import apiClient from './client';
+// Synkord MCP-specific operations
+// 详见 docs/requirements.md §四.7
+import apiClient from './client'
+import type { McpStatus } from '../types/contract'
 
-export interface MCPServiceStatus {
-  state: string;
-  ready: boolean;
-  connected: boolean;
-  reason: string;
-  last_connected_at?: string;
+export interface IdeConfig {
+  stdio: { command: string; args: string[] }
+  http?: { url: string; token: string }
 }
 
-export interface ProjectMCPOverview {
-  team_id: string;
-  project_id: string;
-  project_name?: string;
-  status: MCPServiceStatus;
-  tools: string[];
-  local_hint_url: string;
+export interface AccessLogEntry {
+  id: string
+  contract_id?: string
+  tool_name: string
+  client: string
+  args?: Record<string, unknown>
+  status: number
+  duration_ms: number
+  timestamp: string
 }
 
-export interface MCPAuditLog {
-  id: string;
-  team_id: string;
-  project_id: string;
-  user_id: string;
-  tool_name: string;
-  caller: string;
-  params_summary: string;
-  result_status: string;
-  error_message?: string;
-  created_at: string;
+/**
+ * 获取 IDE 配置（用于在 Synkord 页面生成配置片段给用户复制）
+ * 状态接口已在 api/contracts.ts 中：getMcpStatus / startMcp / stopMcp / restartMcp
+ */
+export async function getIdeConfig(): Promise<IdeConfig> {
+  const resp = await apiClient.get('/mcp/ide-config')
+  return resp.data
 }
 
-export async function getProjectMCPOverview(teamId: string, projectId: string): Promise<ProjectMCPOverview> {
-  const resp = await apiClient.get(`/teams/${teamId}/projects/${projectId}/mcp`);
-  return resp.data;
+export interface ListAccessLogOpts {
+  limit?: number
+  offset?: number
 }
 
-export async function listProjectMCPAuditLogs(
-  teamId: string,
-  projectId: string,
-): Promise<{ items: MCPAuditLog[]; total: number }> {
-  const resp = await apiClient.get(`/teams/${teamId}/projects/${projectId}/mcp/audit`);
-  return resp.data;
+export async function listAccessLog(
+  opts: ListAccessLogOpts = {},
+): Promise<{ items: AccessLogEntry[]; total: number }> {
+  const resp = await apiClient.get('/mcp/access-log', { params: opts })
+  return resp.data
 }
 
-export interface MCPOnboarding {
-  description: string;
-  modes?: {
-    stdio?: { description: string; example_command: string };
-    http?: { description: string; example_command: string };
-  };
-  templates: Record<string, { path: string; value: string }>;
-  notes: string[];
-}
-
-export async function getProjectMCPOnboarding(teamId: string, projectId: string): Promise<MCPOnboarding> {
-  const resp = await apiClient.get(`/teams/${teamId}/projects/${projectId}/mcp/onboarding`);
-  return resp.data;
-}
+export type { McpStatus }

@@ -328,12 +328,446 @@ select {
   margin-left: 4px;
 }
 
+/* ============================================================================
+   评审 R-3 / 3.2：最近调用 sparkline 区
+   ============================================================================ */
+.sparkline-wrap {
+  padding: 4px 0 8px;
+  border-bottom: 1px dashed var(--color-border);
+  margin-bottom: 8px;
+}
+
+/* ============================================================================
+   评审 2.3 / 3.2：接口数 / 数据模型 / 成员"可点击钻取"卡片样式
+   ============================================================================ */
+.drill-stat-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s;
+  color: var(--color-text-primary);
+  font: inherit;
+}
+
+.drill-stat-link:hover {
+  border-color: #93c5fd;
+  background: #f5f9ff;
+  box-shadow: 0 4px 12px rgba(22, 119, 255, 0.08);
+  transform: translateY(-1px);
+}
+
+.drill-stat-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.drill-stat-label {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.drill-stat-arrow {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  margin-left: 4px;
+}
+
+/* ============================================================================
+   评审 R-9 / 1.5：IDE 接入步骤提示卡
+   ============================================================================ */
+.ide-hint-panel {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #f8fbff, #fafcff);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.ide-hint-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  color: var(--color-text-secondary);
+}
+
+.ide-hint-label {
+  flex-shrink: 0;
+  width: 96px;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+.ide-hint-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  color: #1d4ed8;
+  background: #eef4ff;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+/* ============================================================================
+   评审 3.5：5 分钟接通步骤视觉强化
+   ============================================================================ */
+.quick-start-card .ant-steps-item-icon {
+  background: #f8fafc;
+  border-color: var(--color-border);
+}
+.quick-start-card .ant-steps-item-finish .ant-steps-item-icon {
+  background: #1677ff;
+  border-color: #1677ff;
+}
+.quick-start-card .ant-steps-item-finish .ant-steps-item-icon > .ant-steps-icon {
+  color: #fff;
+}
+.quick-start-card .ant-steps-item-title {
+  font-weight: 600;
+}
+.quick-start-card .ant-steps-item-description {
+  font-size: 12px;
+}
+
+/* ============================================================================
+   评审 1.3 / 3.6：契约集列表行可点击
+   ============================================================================ */
+.contract-list-card .ant-table-row {
+  transition: background 0.12s;
+}
+.contract-list-card .ant-table-row:hover > td {
+  background: #f5f9ff !important;
+}
+
+/* ============================================================================
+   评审 R-7：健康度徽标视觉
+   ============================================================================ */
+.health-badge-pulse {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 4px;
+  animation: healthPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes healthPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
 .quick-start-card .ant-steps-item-title {
   font-size: 13px;
 }
 
 .mcp-actions-card .ant-btn {
   min-width: 80px;
+}
+
+/* ============================================================================
+   合并后的"活跃契约集主卡" — 把原 3 张卡压缩为 1 张
+   ============================================================================ */
+.contract-master-card .ant-card-body {
+  padding: 18px 20px 16px;
+}
+
+.contract-master-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* —— 用户反馈：点击契约名 → 跳转到对应契约 —— */
+.contract-master-name-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  margin: -4px -8px; /* 抵消 padding，让视觉对齐原位置 */
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.12s, transform 0.12s;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.contract-master-name-link:hover {
+  background: #eef4ff;
+  transform: translateX(2px);
+}
+
+.contract-master-name-link:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.contract-master-name {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-primary);
+  line-height: 1.3;
+  word-break: break-all;
+  /* 让名称看起来"可点击"：下划线在 hover 时再显示 */
+  text-decoration: none;
+  background-image: linear-gradient(currentColor, currentColor);
+  background-size: 0 1px;
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  transition: background-size 0.18s ease;
+}
+
+.contract-master-name-link:hover .contract-master-name {
+  background-size: 100% 1px;
+}
+
+.contract-master-name-arrow {
+  font-size: 14px;
+  color: var(--color-text-tertiary);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity 0.12s, transform 0.12s, color 0.12s;
+  flex-shrink: 0;
+}
+
+.contract-master-name-link:hover .contract-master-name-arrow {
+  opacity: 1;
+  transform: translateX(0);
+  color: var(--color-primary);
+}
+
+.contract-master-meta {
+  display: none; /* 用户反馈"运行时指标不需要折叠了"，合并到新 info 区域后整行不再用 */
+}
+
+/* —— 用户反馈：运行时指标和契约数据整合一起，不再折叠 → 两栏定义列表 —— */
+.contract-master-info {
+  margin-top: 14px;
+  padding: 14px 18px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: #fbfcff;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px 36px;
+}
+
+.contract-master-info-col {
+  min-width: 0;
+}
+
+.contract-master-info-title {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-tertiary);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.contract-master-info-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  row-gap: 8px;
+  column-gap: 14px;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.contract-master-info-list dt {
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  text-align: right;
+  padding-top: 1px;
+}
+
+.contract-master-info-list dd {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-weight: 500;
+  word-break: break-word;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.contract-master-info-list dd code.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #eef4ff;
+  color: #1d4ed8;
+}
+
+.contract-master-info-list dd .dim {
+  opacity: 0.55;
+  font-weight: 400;
+}
+
+@media (max-width: 720px) {
+  .contract-master-info {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+
+.contract-master-metrics,
+.contract-master-metrics-grid {
+  /* 用户反馈：运行时指标不再折叠，已合并到 contract-master-info 区域。
+     这些旧类保留为空选择器以避免未追踪样式失效。 */
+}
+.mcp-action-bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  gap: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+}
+
+/* —— 左：状态胶囊 —— */
+.mcp-action-bar-status {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.mcp-action-bar-status-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.mcp-action-bar-status-dot.state-running {
+  background: #ecfdf5;
+  color: #047857;
+}
+.mcp-action-bar-status-dot.state-failed {
+  background: #fef2f2;
+  color: #ef4444;
+}
+.mcp-action-bar-status-dot.state-stopped,
+.mcp-action-bar-status-dot.state-idle,
+.mcp-action-bar-status-dot.state-starting,
+.mcp-action-bar-status-dot.state-restarting {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.mcp-action-bar-status-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.35;
+}
+
+.mcp-action-bar-status-primary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mcp-action-bar-status-secondary {
+  font-size: 11.5px;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* —— 中：垂直分隔条 —— */
+.mcp-action-bar-divider {
+  width: 1px;
+  margin: 4px 2px;
+  background: var(--color-border);
+  flex-shrink: 0;
+}
+
+/* —— 右：统一按钮组（info + control） —— */
+.mcp-action-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.mcp-action-bar-actions .mcp-action-btn {
+  height: 36px;
+  min-width: 80px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 8px;
+}
+
+/* 信息类操作（测试连接 / 刷新）—— 弱描边 */
+.mcp-action-btn.info {
+  background: #fff;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+}
+.mcp-action-btn.info:hover:not(:disabled) {
+  border-color: #94a3b8;
+  background: #f8fafc;
+  color: var(--color-text-primary);
+}
+
+/* 控制类危险：停止 */
+.mcp-action-btn.outline.danger {
+  border-color: #fecaca;
+  color: #dc2626;
+}
+.mcp-action-btn.outline.danger:hover:not(:disabled) {
+  border-color: #fca5a5;
+  background: #fff1f2;
+}
+
+@media (max-width: 880px) {
+  .mcp-action-bar {
+    flex-wrap: wrap;
+  }
+  .mcp-action-bar-status {
+    width: 100%;
+  }
 }
 
 /* ============================================================================

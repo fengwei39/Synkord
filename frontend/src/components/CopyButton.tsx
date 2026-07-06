@@ -14,6 +14,8 @@ interface CopyButtonProps extends Omit<ButtonProps, 'onClick' | 'icon'> {
   label?: string
   /** 是否显示为图标按钮 */
   iconOnly?: boolean
+  /** 评审 🟡：复制成功后的回调，便于上层显示 toast */
+  onCopied?: () => void
 }
 
 export function CopyButton({
@@ -21,6 +23,7 @@ export function CopyButton({
   successText = '已复制',
   label = '复制',
   iconOnly = false,
+  onCopied,
   ...rest
 }: CopyButtonProps) {
   const [copied, setCopied] = useState(false)
@@ -31,12 +34,14 @@ export function CopyButton({
     try {
       await navigator.clipboard.writeText(text)
       setCopied(true)
+      // 评审 🟡：让外层拿到成功事件，便于统一 toast
+      onCopied?.()
       if (timerRef.current) clearTimeout(timerRef.current)
       timerRef.current = setTimeout(() => setCopied(false), 1500)
     } catch {
       // 静默失败（权限缺失等）
     }
-  }, [text])
+  }, [text, onCopied])
 
   const buttonText = copied ? successText : label
   const icon = copied ? <CheckOutlined /> : <CopyOutlined />

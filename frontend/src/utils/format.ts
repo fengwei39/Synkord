@@ -17,6 +17,30 @@ export function formatRelative(iso: string | null | undefined): string {
   return `${Math.floor(months / 12)} 年前`
 }
 
+/**
+ * 把运行时长（秒）格式化为可读字符串
+ * 用在 MCP 主页 sticky 操作条的"已运行时长"展示
+ * < 60s → "Ns"；< 1h → "Nm Ns"；< 1d → "Nh Nm"；否则 "Nd Nh"
+ */
+export function formatUptime(seconds: number | null | undefined): string {
+  if (!seconds || seconds < 0) return '-'
+  const s = Math.floor(seconds)
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) {
+    const rs = s % 60
+    return rs ? `${m}m ${rs}s` : `${m}m`
+  }
+  const h = Math.floor(m / 60)
+  if (h < 24) {
+    const rm = m % 60
+    return rm ? `${h}h ${rm}m` : `${h}h`
+  }
+  const d = Math.floor(h / 24)
+  const rh = h % 24
+  return rh ? `${d}d ${rh}h` : `${d}d`
+}
+
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return '-'
   try {

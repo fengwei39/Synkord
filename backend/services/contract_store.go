@@ -249,6 +249,15 @@ func DeleteContract(db *gorm.DB, contractID, userID string) error {
 		tx.Rollback()
 		return err
 	}
+	if err := tx.Where("contract_id = ?", contractID).Delete(&models.DataModelVersion{}).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	// 清理活跃契约集指针（避免孤儿引用已删除 contract_id）
+	if err := tx.Where("contract_id = ?", contractID).Delete(&models.ActiveContract{}).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
 	if err := tx.Delete(&models.ContractSet{}, "id = ?", contractID).Error; err != nil {
 		tx.Rollback()
 		return err

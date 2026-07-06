@@ -42,6 +42,7 @@ func RegisterContractRoutes(r *gin.RouterGroup) {
 		c.PATCH("/:id/entities/:entityId", updateContractEntity)
 		c.DELETE("/:id/entities/:entityId", deleteContractEntity)
 		c.GET("/:id/entities/:entityId/dependencies", getContractEntityDependencies)
+		c.GET("/:id/entities/:entityId/versions", listContractEntityVersions)
 
 		// 导入
 		c.POST("/:id/import/parse", parseImport)

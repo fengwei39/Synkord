@@ -1,125 +1,171 @@
+// Synkord mcp 单元测试（v1.2 重写：基于 ContractSet/ContractMember）
 package services
 
 import (
 	"testing"
 
+	"github.com/glebarez/sqlite"
 	"github.com/synkord/core/models"
 	"gorm.io/gorm"
 )
 
-func TestExecuteMCPQueryIsUserAndProjectScoped(t *testing.T) {
-	db := testDB(t)
-	user, team, project := createMCPFixture(t, db)
+func testDBMCPRoot(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(
+		&models.User{},
+		&models.ContractSet{},
+		&models.ContractMember{},
+		&models.SwaggerSpec{},
+		&models.APIEndpoint{},
+		&models.DataModel{},
+		&models.DataModelVersion{},
+		&models.Dependency{},
+		&models.MCPAuditLog{},
+		&models.ActiveContract{},
+	); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	return db
+}
 
-	// 创建数据模型
-	projectID := project.ID
-	if _, err := CreateProjectEntity(db, team.ID, projectID, "UserDTO", "", `{"type":"object"}`, &user.ID); err != nil {
-		t.Fatalf("create entity: %v", err)
+// createMCPFixture 创建一个最小可用的 (user, contract) 套件
+func createMCPFixture(t *testing.T, db *gorm.DB) (*models.User, *models.ContractSet) {
+	t.Helper()
+	username := "owner_" + sanitizeName(t.Name())
+	user := &models.User{Username: username, HashedPassword: "x", Role: models.RoleEditor, IsActive: true}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
 	}
+	c, err := CreateContract(db, user.ID, "mcp-test", "backend", "")
+	if err != nil {
+		t.Fatalf("create contract: %v", err)
+	}
+	return user, c
+}
 
-	// 用户身份调用工具
-	result, status, errorMsg := ExecuteMCPQueryWithUser(db, team.ID, project.ID, user.ID, "get_project_entities", nil)
-	if status != "success" {
-		t.Fatalf("status = %s, want success, error: %s", status, errorMsg)
+// sanitizeName 把测试名中非 ASCII 字符替换为下划线，避免 SQLite UNIQUE 冲突
+func sanitizeName(name string) string {
+	out := make([]byte, 0, len(name))
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+			out = append(out, c)
+		default:
+			out = append(out, '_')
+		}
 	}
-	entityResult, ok := result.(map[string]interface{})
-	if !ok {
-		t.Fatalf("expected MCP query result map, got %+v", result)
-	}
-	items, ok := entityResult["items"].([]models.DataModel)
-	if !ok || len(items) != 1 {
-		t.Fatalf("expected one project entity, got %+v", result)
-	}
+	return string(out)
+}
 
-	// 测试越权工具
-	if _, status, _ := ExecuteMCPQueryWithUser(db, team.ID, project.ID, user.ID, "get_project_apis", nil); status != "success" {
-		t.Fatalf("allowed tool status = %s, want success", status)
+func TestMCPRegistryHasBuiltinTools(t *testing.T) {
+	tools := DefaultMCPToolRegistry.List()
+	expected := map[string]bool{
+		"get_contract_apis":              true,
+		"get_contract_entities":          true,
+		"get_api_detail":                 true,
+		"get_entity_detail":              true,
+		"get_api_dependencies":           true,
+		"get_entity_dependencies":        true,
+		"validate_code_against_contract": true,
+		"list_contracts":                 true,
+		"find_contract":                  true,
 	}
-
-	// 测试未知工具
-	if _, status, _ := ExecuteMCPQueryWithUser(db, team.ID, project.ID, user.ID, "unknown_tool", nil); status != "error" {
-		t.Fatalf("unknown tool status = %s, want error", status)
+	if len(tools) < len(expected) {
+		t.Fatalf("registry has %d tools, want >=%d", len(tools), len(expected))
+	}
+	for name := range expected {
+		found := false
+		for _, tn := range tools {
+			if tn == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("missing builtin tool: %s", name)
+		}
 	}
 }
 
-func TestMCPAuditLogRecordsUser(t *testing.T) {
-	db := testDB(t)
-	user, team, project := createMCPFixture(t, db)
+func TestMCPAuditLogLifecycle(t *testing.T) {
+	db := testDBMCPRoot(t)
+	user, contract := createMCPFixture(t, db)
 
-	// 创建审计日志
-	_, err := CreateMCPAuditLog(db, MCPAuditInput{
-		TeamID:        team.ID,
-		ProjectID:     project.ID,
+	log, err := CreateMCPAuditLog(db, MCPAuditInput{
+		ContractID:    contract.ID,
 		UserID:        user.ID,
-		ToolName:      "get_project_entities",
+		ToolName:      "get_contract_apis",
 		Caller:        "local-mcp",
 		ParamsSummary: "{}",
 		ResultStatus:  "success",
+		Status:        200,
+		DurationMs:    12,
 	})
 	if err != nil {
 		t.Fatalf("create audit: %v", err)
 	}
+	if log.ID == "" {
+		t.Fatal("audit ID empty")
+	}
 
-	// 按用户查询
-	items, total, err := ListMCPAuditLogs(db, team.ID, project.ID, user.ID, 0, 10)
+	items, total, err := ListMCPAuditLogs(db, 0, 10)
 	if err != nil {
-		t.Fatalf("list audit: %v", err)
+		t.Fatalf("list: %v", err)
 	}
 	if total != 1 || len(items) != 1 {
-		t.Fatalf("unexpected audit items: total=%d items=%+v", total, items)
+		t.Fatalf("got total=%d items=%d, want 1/1", total, len(items))
 	}
-	if items[0].UserID != user.ID {
-		t.Fatalf("audit user_id = %s, want %s", items[0].UserID, user.ID)
-	}
-	if items[0].ProjectID != project.ID {
-		t.Fatalf("audit project_id = %s, want %s", items[0].ProjectID, project.ID)
-	}
-
-	// 不指定用户查询
-	allItems, allTotal, err := ListMCPAuditLogs(db, team.ID, project.ID, "", 0, 10)
-	if err != nil {
-		t.Fatalf("list all audit: %v", err)
-	}
-	if allTotal != 1 || len(allItems) != 1 {
-		t.Fatalf("unexpected all audit items: total=%d", allTotal)
+	if items[0].UserID != user.ID || items[0].ToolName != "get_contract_apis" {
+		t.Fatalf("audit row mismatch: %+v", items[0])
 	}
 }
 
-func TestGetProjectMCPOverview(t *testing.T) {
-	db := testDB(t)
-	_, team, project := createMCPFixture(t, db)
-
-	overview, err := GetProjectMCPOverview(db, team.ID, project.ID)
-	if err != nil {
-		t.Fatalf("get overview: %v", err)
-	}
-	if overview.TeamID != team.ID || overview.ProjectID != project.ID {
-		t.Fatalf("overview team/project mismatch")
-	}
-	if !overview.Status.Ready {
-		t.Fatalf("status should be ready")
-	}
-	if len(overview.Tools) == 0 {
-		t.Fatalf("tools should not be empty")
-	}
-	if overview.LocalHintURL == "" {
-		t.Fatalf("local hint url should not be empty")
+func TestMCPToolExecuteUnknown(t *testing.T) {
+	db := testDBMCPRoot(t)
+	_, contract := createMCPFixture(t, db)
+	_, err := DefaultMCPToolRegistry.Execute(db, "this_tool_does_not_exist", contract.ID, "u", nil)
+	if err == nil {
+		t.Fatal("expected unknown tool error")
 	}
 }
 
-func createMCPFixture(t *testing.T, db *gorm.DB) (*models.User, *TeamWithRole, *models.Project) {
-	t.Helper()
-	user := &models.User{Username: "mcp-owner-" + t.Name(), HashedPassword: "hash", Role: models.RoleViewer, IsActive: true}
-	if err := db.Create(user).Error; err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-	team, err := CreateTeam(db, user.ID, "MCP Team "+t.Name(), "")
+func TestActiveContractSetAndClear(t *testing.T) {
+	db := testDBMCPRoot(t)
+	user, contract := createMCPFixture(t, db)
+
+	// 初始为 nil
+	ac, err := GetActiveContract(db)
 	if err != nil {
-		t.Fatalf("create team: %v", err)
+		t.Fatalf("get initial: %v", err)
 	}
-	project := &models.Project{TeamID: team.ID, Name: "svc-" + t.Name(), ProjectType: models.ProjectBackend}
-	if err := db.Create(project).Error; err != nil {
-		t.Fatalf("create project: %v", err)
+	if ac != nil {
+		t.Fatalf("expected nil initial, got %+v", ac)
 	}
-	return user, team, project
+
+	// 设置
+	if _, err := SetActiveContract(db, contract.ID, user.ID); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+
+	ac, err = GetActiveContract(db)
+	if err != nil {
+		t.Fatalf("get after set: %v", err)
+	}
+	if ac == nil || ac.ContractID != contract.ID {
+		t.Fatalf("expected contract %s, got %+v", contract.ID, ac)
+	}
+
+	// 清空
+	if err := ClearActiveContract(db); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	ac, _ = GetActiveContract(db)
+	if ac != nil {
+		t.Fatalf("expected nil after clear, got %+v", ac)
+	}
 }

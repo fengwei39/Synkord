@@ -11,10 +11,21 @@ const apiClient = axios.create({
 })
 
 // Dynamic base URL from Electron (if available)
+// v1.2 修复：Electron 返回的 baseURL 必须以 '/api' 结尾，否则请求会缺前缀导致 404
+//   - 校验：若 IPC 返回的 baseURL 不带 '/api' 后缀，自动补上
+//   - 优先级：localStorage 中已有的值仍优先（用户手动改过），但若不带 /api 也纠正
+function ensureApiSuffix(url: string): string {
+  return url.replace(/\/+$/, '') + (url.endsWith('/api') ? '' : '/api')
+}
 if (window.synkord?.getAPIBase) {
   window.synkord.getAPIBase().then((baseURL) => {
-    if (!localStorage.getItem('synkord_api_base') && baseURL) {
-      apiClient.defaults.baseURL = baseURL
+    if (!baseURL) return
+    const normalized = ensureApiSuffix(baseURL)
+    const stored = localStorage.getItem('synkord_api_base')
+    if (!stored || stored !== normalized) {
+      apiClient.defaults.baseURL = normalized
+      // 同步回写，便于下次启动 / 浏览器 DevTools 调试
+      localStorage.setItem('synkord_api_base', normalized)
     }
   })
 }

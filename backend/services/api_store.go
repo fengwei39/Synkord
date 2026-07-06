@@ -123,10 +123,37 @@ func CreateContractAPIFromInput(db *gorm.DB, contractID string, input any) (*mod
 }
 
 // UpdateContractAPI 更新接口
+// v1.2 修订：仅允许白名单字段，避免通过 patch 篡改 contract_id 等关键外键
 func UpdateContractAPI(db *gorm.DB, contractID, apiID string, patch map[string]interface{}) (*models.APIEndpoint, error) {
+	allowed := map[string]bool{
+		"path":             true,
+		"method":           true,
+		"summary":          true,
+		"description":      true,
+		"tags":             true,
+		"parameters_json":  true,
+		"request_body_json": true,
+		"responses_json":   true,
+		"security_json":    true,
+		"deprecated":       true,
+		"version":          true,
+	}
+	safe := map[string]interface{}{}
+	for k, v := range patch {
+		if allowed[k] {
+			safe[k] = v
+		}
+	}
+	if len(safe) == 0 {
+		// 无有效字段：返回当前对象（幂等）
+		return GetContractAPI(db, contractID, apiID)
+	}
+	if v, ok := safe["method"].(string); ok {
+		safe["method"] = strings.ToUpper(v)
+	}
 	if err := db.Model(&models.APIEndpoint{}).
 		Where("id = ? AND contract_id = ?", apiID, contractID).
-		Updates(patch).Error; err != nil {
+		Updates(safe).Error; err != nil {
 		return nil, err
 	}
 	return GetContractAPI(db, contractID, apiID)

@@ -1,18 +1,26 @@
 /**
  * mcp-tools/index.cjs
  *
- * 工具统一注册入口
- * 启动时调用一次，将 5 个内置工具注册到全局注册表
+ * 工具统一注册入口（v1.2：9 个工具，全部对齐后端 naming）
+ * 启动时调用一次，将所有内置工具注册到全局注册表
  */
 'use strict';
 
 const { globalRegistry } = require('../mcp-core/tool-registry.cjs');
 
-const { definition: getProjectEntitiesDef, handler: getProjectEntitiesHandler } = require('./get_project_entities.cjs');
-const { definition: getProjectApisDef, handler: getProjectApisHandler } = require('./get_project_apis.cjs');
-const { definition: getEntityDepsDef, handler: getEntityDepsHandler } = require('./get_entity_dependencies.cjs');
+// v1.2 命名：与后端 services/mcp.go 的 DefaultMCPToolRegistry 对齐
+const { definition: getContractApisDef, handler: getContractApisHandler } = require('./get_contract_apis.cjs');
+const { definition: getContractEntitiesDef, handler: getContractEntitiesHandler } = require('./get_contract_entities.cjs');
+const { definition: getApiDetailDef, handler: getApiDetailHandler } = require('./get_api_detail.cjs');
+const { definition: getEntityDetailDef, handler: getEntityDetailHandler } = require('./get_entity_detail.cjs');
 const { definition: getApiDepsDef, handler: getApiDepsHandler } = require('./get_api_dependencies.cjs');
-const { definition: validateEntityUsageDef, handler: validateEntityUsageHandler } = require('./validate_entity_usage.cjs');
+const { definition: getEntityDepsDef, handler: getEntityDepsHandler } = require('./get_entity_dependencies.cjs');
+const {
+  definition: validateCodeDef,
+  handler: validateCodeHandler,
+} = require('./validate_code_against_contract.cjs');
+const { definition: listContractsDef, handler: listContractsHandler } = require('./list_contracts.cjs');
+const { definition: findContractDef, handler: findContractHandler } = require('./find_contract.cjs');
 
 /**
  * 注册所有内置工具
@@ -20,11 +28,15 @@ const { definition: validateEntityUsageDef, handler: validateEntityUsageHandler 
  */
 function registerBuiltinTools() {
   const tools = [
-    [getProjectEntitiesDef, getProjectEntitiesHandler],
-    [getProjectApisDef, getProjectApisHandler],
-    [getEntityDepsDef, getEntityDepsHandler],
+    [getContractApisDef, getContractApisHandler],
+    [getContractEntitiesDef, getContractEntitiesHandler],
+    [getApiDetailDef, getApiDetailHandler],
+    [getEntityDetailDef, getEntityDetailHandler],
     [getApiDepsDef, getApiDepsHandler],
-    [validateEntityUsageDef, validateEntityUsageHandler],
+    [getEntityDepsDef, getEntityDepsHandler],
+    [validateCodeDef, validateCodeHandler],
+    [listContractsDef, listContractsHandler],
+    [findContractDef, findContractHandler],
   ];
 
   for (const [def, handler] of tools) {

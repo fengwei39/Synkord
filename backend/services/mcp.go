@@ -8,12 +8,71 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/synkord/core/database"
 	"github.com/synkord/core/models"
 	"gorm.io/gorm"
 )
+
+// ============================================================================
+// MCP 进程运行时（端口 + 状态）单例
+// 详见 docs/architecture.md §四
+// ============================================================================
+
+// getMCPPortFromEnv 解析 MCP 端口；与 Electron Connect 默认端口 37991 对齐
+func getMCPPortFromEnv() int {
+	if v := os.Getenv("SYNKORD_MCP_PORT"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil && p > 0 && p < 65536 {
+			return p
+		}
+	}
+	return 37991
+}
+
+// GetMCPPort 返回 MCP Connect 默认端口
+func GetMCPPort() int { return getMCPPortFromEnv() }
+
+// GetMCPRuntimeURL 返回当前 MCP HTTP 入口 URL（127.0.0.1）
+func GetMCPRuntimeURL() string {
+	return fmt.Sprintf("http://127.0.0.1:%d/mcp", getMCPPortFromEnv())
+}
+
+// MCPStateOrDefault 从 MCPStatus 单例表读 state；空时默认为 running
+// （Electron 模式下 MCP 一直常驻）
+func MCPStateOrDefault() string {
+	var s models.MCPStatus
+	if err := database.DB.First(&s).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "running"
+		}
+		return "running"
+	}
+	if s.State == "" {
+		return "running"
+	}
+	return s.State
+}
+
+// SetMCPState 设置 MCP 运行状态（持久化到 MCPStatus 单例表）
+func SetMCPState(state string) error {
+	var s models.MCPStatus
+	err := database.DB.First(&s).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return database.DB.Create(&models.MCPStatus{State: state}).Error
+	}
+	if err != nil {
+		return err
+	}
+	return database.DB.Model(&s).Updates(map[string]interface{}{
+		"state":   state,
+		"url":     GetMCPRuntimeURL(),
+		"port":    getMCPPortFromEnv(),
+	}).Error
+}
 
 // ============================================================================
 // 活跃契约集
@@ -349,6 +408,7 @@ type MCPAuditInput struct {
 	ToolName      string                 `json:"tool_name"`
 	Caller        string                 `json:"caller"`
 	Args          map[string]interface{} `json:"args"`
+	ParamsSummary string                 `json:"params_summary"`
 	ResultStatus  string                 `json:"result_status"`
 	Status        int                    `json:"status"`
 	DurationMs    int                    `json:"duration_ms"`

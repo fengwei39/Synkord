@@ -33,6 +33,7 @@ import { parseOpenAPI, shouldExcludeByDefault } from '../utils/openapi-parser'
 import { parsePostman } from '../utils/postman-parser'
 import type { ApiDefinition } from '../api/apis'
 import type { EntityDefinition } from '../api/entities'
+import { parseSchemaFields } from '../utils/jsonSchema'
 
 const { Title, Paragraph, Text } = Typography
 
@@ -42,8 +43,15 @@ type Step = 'select' | 'input' | 'parsing' | 'preview' | 'done'
 
 interface ParseResult {
   apis: Array<Omit<ApiDefinition, 'id' | 'contract_id' | 'created_at' | 'updated_at'>>
-  entities: Array<Omit<EntityDefinition, 'id' | 'contract_id' | 'created_at' | 'updated_at'>>
+  entities: Array<Pick<EntityDefinition, 'name' | 'description' | 'schema_content'>>
   warnings: string[]
+}
+
+// describeEntityFieldCount 计算预览中实体字段数量（前端解析）
+function describeEntityFieldCount(entity: { schema_content?: string }): string {
+  if (!entity.schema_content) return '? 字段'
+  const n = parseSchemaFields(entity.schema_content).length
+  return `${n} 字段`
 }
 
 const methodColor = (m: string): string => {
@@ -114,9 +122,44 @@ export default function ContractImport() {
         setStep('input')
       }
     } else if (step === 'preview') {
-      // TODO Phase 5: 调后端 commit API
-      message.info('提交导入功能待 Phase 5 后端联调')
-      setStep('done')
+      if (!contractId) return
+      if (!parseResult) return
+      setCommitting(true)
+      try {
+        const apisToImport = parseResult.apis
+          .filter((a) => selectedApis.has(apiKey(a as ApiDefinition)))
+        const entitiesToImport = parseResult.entities
+          .filter((e) => selectedEntities.has(e.name))
+        const resp = await fetch(
+          `${(localStorage.getItem('synkord_api_base') || '/api').replace(/\/$/, '')}/contracts/${contractId}/import/commit`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${localStorage.getItem('synkord_token') || ''}`,
+            },
+            body: JSON.stringify({
+              apis: apisToImport,
+              entities: entitiesToImport,
+            }),
+          },
+        )
+        if (!resp.ok) {
+          let detail = `HTTP ${resp.status}`
+          try {
+            const data = await resp.json()
+            detail = data?.detail || detail
+          } catch {}
+          throw new Error(detail)
+        }
+        await resp.json()
+        message.success('导入完成')
+        setStep('done')
+      } catch (e: any) {
+        message.error(e?.message || '提交导入失败')
+      } finally {
+        setCommitting(false)
+      }
     }
   }
 
@@ -410,7 +453,7 @@ export default function ContractImport() {
                     <Space>
                       <Text strong>{entity.name}</Text>
                       <Text type="secondary" style={{ fontSize: 12 }}>
-                        ({entity.fields.length} 字段)
+                        ({describeEntityFieldCount(entity)})
                       </Text>
                     </Space>
                   </Checkbox>

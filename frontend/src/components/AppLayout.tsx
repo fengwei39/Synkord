@@ -8,17 +8,12 @@
 
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Avatar, Tooltip } from 'antd'
-import {
-  BorderOutlined,
-  CloseOutlined,
-  MinusOutlined,
-  PushpinOutlined,
-  SettingOutlined,
-} from '@ant-design/icons'
+import { SettingOutlined } from '@ant-design/icons'
 import { useAuth } from '../api/auth'
 import { useContract } from '../contexts/ContractContext'
 import { ContractSwitcher } from './ContractSwitcher'
 import { McpStatusDot } from './McpStatusDot'
+import WindowControlBar from './WindowControlBar'
 
 export default function AppLayout() {
   const navigate = useNavigate()
@@ -33,13 +28,6 @@ export default function AppLayout() {
   const handleLogout = () => {
     logout()
     navigate('/login', { replace: true })
-  }
-
-  const handleWindow = (action: 'minimize' | 'maximize' | 'close') => {
-    if (!window.synkord) return
-    if (action === 'minimize') window.synkord.windowMinimize()
-    else if (action === 'maximize') window.synkord.windowMaximize()
-    else if (action === 'close') window.synkord.windowClose()
   }
 
   const handleLogoClick = () => {
@@ -123,40 +111,7 @@ export default function AppLayout() {
           </div>
 
           {/* 窗口控制 */}
-          <div className="window-controls">
-            <Tooltip title="置顶">
-              <button type="button" className="window-button">
-                <PushpinOutlined />
-              </button>
-            </Tooltip>
-            <Tooltip title="最小化">
-              <button
-                type="button"
-                className="window-button"
-                onClick={() => handleWindow('minimize')}
-              >
-                <MinusOutlined />
-              </button>
-            </Tooltip>
-            <Tooltip title="最大化">
-              <button
-                type="button"
-                className="window-button"
-                onClick={() => handleWindow('maximize')}
-              >
-                <BorderOutlined />
-              </button>
-            </Tooltip>
-            <Tooltip title="关闭">
-              <button
-                type="button"
-                className="window-button close"
-                onClick={() => handleWindow('close')}
-              >
-                <CloseOutlined />
-              </button>
-            </Tooltip>
-          </div>
+          <WindowControlBar />
         </div>
       </header>
 

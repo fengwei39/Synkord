@@ -17,7 +17,30 @@
  */
 'use strict';
 
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+// ============================================================================
+// v1.2 修订：require('electron') 在 pnpm 安装模式下可能返回字符串路径
+// （electron 包 index.js 正常是导出 binary 路径；Electron 主进程的 C++
+//  binding 会把它替换为 native module）。在 pnpm nested layout 下 binding
+// 偶尔 lookup 失败，导致 app/BrowserWindow 等为 undefined。
+// 这里做一次 sanity check 并给出明确提示，避免白屏。
+// ============================================================================
+const electron = require('electron')
+const { app, BrowserWindow, ipcMain, shell } = electron
+if (typeof electron !== 'object' || !app || typeof app.whenReady !== 'function') {
+  console.error('')
+  console.error('[synkord] FATAL: require("electron") did not return the native module.')
+  console.error('              got:', typeof electron, electron)
+  console.error('')
+  console.error('  This is a known pnpm + electron nesting issue.')
+  console.error('  Fix:')
+  console.error('    1. cd frontend')
+  console.error('    2. rm -rf node_modules pnpm-lock.yaml')
+  console.error('    3. pnpm install            (frontend/.npmrc has shamefully-hoist=true)')
+  console.error('    4. verify node_modules/electron/dist/electron.exe exists directly')
+  console.error('')
+  process.exit(2)
+}
+
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -271,7 +294,15 @@ function mcpStatus() {
 }
 
 function getAPIBase() {
-  return BACKEND_URL
+  // v1.2 修复：renderer axios 期待 baseURL 以 '/api' 结尾
+  // 直接后端 + AuthGateway 两条路径都要保证后缀
+  const base = mcpState.gateway_port
+    ? `http://127.0.0.1:${mcpState.gateway_port}`
+    : BACKEND_URL
+  const out = base.replace(/\/+$/, '') + '/api'
+  // 调试：每次 IPC 调用都打一次，便于排查 baseURL 错误
+  console.log(`[main] getAPIBase() → ${out}  (gateway_port=${mcpState.gateway_port}, BACKEND_URL=${BACKEND_URL})`)
+  return out
 }
 
 function getIdeConfig() {
@@ -305,7 +336,7 @@ function onUnauthorized() {
 // ============================================================================
 
 function registerIpc() {
-  // 基础
+  // 基础：渲染端拿 API base；handler 内部走 getAPIBase()（保证带 /api 后缀）
   ipcMain.handle('mcp:get-api-base', () => getAPIBase())
 
   // MCP 进程控制
@@ -395,6 +426,13 @@ async function createWindow() {
     show: false,
     backgroundColor: '#f5f6fa',
     title: 'Synkord',
+    // v1.2 修订：去掉系统顶栏，由前端 AppLayout 的 Header 充当拖拽区
+    //  - frame: false  完全无边框（mac/win/linux 一致）
+    //  - titleBarStyle  macOS 专属；win/linux 已无顶栏
+    //  - backgroundMaterial  win11 亚克力效果（可省略）
+    frame: false,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -412,7 +450,7 @@ async function createWindow() {
   // 加载前端
   if (isDev) {
     try {
-      await waitForPort(devURL, 5000)
+      await waitForPort(devURL, 30000)  // dev 启动宽限 30s
       console.log(`[main] loading dev URL: ${devURL}`)
       mainWindow.loadURL(devURL)
       mainWindow.webContents.openDevTools({ mode: 'detach' })

@@ -202,7 +202,22 @@ func getContractDependencyGraph(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"nodes": nodes, "edges": edges})
 }
 
-// extractRefsFromAPI 从 API 的 JSON 字段提取 $ref 引用的实体名
+// listContractEntityVersions 列出数据模型的版本快照
+func listContractEntityVersions(c *gin.Context) {
+	contractID := c.Param("id")
+	entityID := c.Param("entityId")
+	userID := c.GetString("user_id")
+	if _, _, err := services.GetContractForUser(database.DB, contractID, userID); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"detail": "Contract not found"})
+		return
+	}
+	versions, err := services.GetEntityVersions(database.DB, entityID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": versions, "total": len(versions)})
+}
 func extractRefsFromAPI(api *models.APIEndpoint) []string {
 	refs := make(map[string]bool)
 	jsonStr := api.ParametersJSON + api.RequestBodyJSON + api.ResponsesJSON

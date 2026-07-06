@@ -2,10 +2,12 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:8000 http://localhost:8000 http://127.0.0.1:3000 http://localhost:3000 ws://127.0.0.1:3000 ws://localhost:3000;"
-    />
+    <!--
+      CSP 策略由 vite.config 的 transformIndexHtml 钩子按 dev/prod 模式注入：
+        - dev:  允许 'unsafe-inline' / 'unsafe-eval' 给 Vite HMR + react-refresh
+        - prod: 严格 CSP（Electron 打包后 file:// 加载使用）
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: http://127.0.0.1:3000 http://localhost:3000; connect-src 'self' http://127.0.0.1:8000 http://localhost:8000 http://127.0.0.1:3000 http://localhost:3000 ws://127.0.0.1:3000 ws://localhost:3000;" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Synkord — 让 AI 在 IDE 里真正理解你的 API 与数据模型" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />

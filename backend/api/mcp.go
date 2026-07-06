@@ -32,20 +32,44 @@ func RegisterMCPRoutes(r *gin.RouterGroup) {
 	}
 }
 
-// MCP 状态 - MVP: 返回固定 running（MCP 由 Electron 进程管理）
+// getMCPStatus 返回 MCP 运行状态
+// v1.2 修订：端口从环境变量 SYNKORD_MCP_PORT 读，默认 37991（与 Electron Connect 对齐）
+// 状态字段由 MCPStatus 单例表承载（保留向后兼容 running 默认值）
 func getMCPStatus(c *gin.Context) {
+	url := services.GetMCPRuntimeURL()
 	c.JSON(http.StatusOK, gin.H{
-		"state":     "running",
-		"pid":       nil,
-		"port":      nil,
-		"url":       "http://127.0.0.1:47211/mcp",
+		"state":      services.MCPStateOrDefault(),
+		"pid":        nil,
+		"port":       services.GetMCPPort(),
+		"url":        url,
 		"started_at": time.Now().Format(time.RFC3339),
 	})
 }
 
-func startMCP(c *gin.Context)    { c.JSON(http.StatusOK, gin.H{"state": "running"}) }
-func stopMCP(c *gin.Context)     { c.JSON(http.StatusOK, gin.H{"state": "stopped"}) }
-func restartMCP(c *gin.Context)  { c.JSON(http.StatusOK, gin.H{"state": "running"}) }
+// startMCP/stopMCP/restartMCP v1.2 修订：
+// MCP 进程由 Electron 主进程管理；后端仅保存状态到 MCPStatus 单例表，
+// 实时控制走 IPC。当前端在浏览器模式下访问，这些端点仅作状态同步。
+func startMCP(c *gin.Context) {
+	if err := services.SetMCPState("running"); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"state": "running"})
+}
+func stopMCP(c *gin.Context) {
+	if err := services.SetMCPState("stopped"); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"state": "stopped"})
+}
+func restartMCP(c *gin.Context) {
+	if err := services.SetMCPState("running"); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"state": "running"})
+}
 
 func getActiveContract(c *gin.Context) {
 	ac, err := services.GetActiveContract(database.DB)
@@ -87,6 +111,8 @@ func setActiveContract(c *gin.Context) {
 }
 
 // getIDEConfig 返回给 IDE 的连接配置
+// v1.2 修订：HTTP URL 从环境变量推导（默认 37991，与 Electron Connect 对齐），
+// STDIO 由本地命令 `synkord-mcp stdio` 触发。
 func getIDEConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"stdio": gin.H{
@@ -94,7 +120,7 @@ func getIDEConfig(c *gin.Context) {
 			"args":    []string{"stdio"},
 		},
 		"http": gin.H{
-			"url":   "http://127.0.0.1:47211/mcp",
+			"url":   services.GetMCPRuntimeURL(),
 			"token": "synk_local_placeholder",
 		},
 	})

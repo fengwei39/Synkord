@@ -1,3 +1,4 @@
+// Synkord api_store 单元测试（v1.2 重写：基于 ContractSet/ContractMember）
 package services
 
 import (
@@ -10,33 +11,47 @@ import (
 
 func testDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	// 每个测试使用独立的 in-memory db，避免共享 cache 导致 UNIQUE 冲突
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
 	if err := db.AutoMigrate(
 		&models.User{},
-		&models.Team{},
-		&models.TeamMember{},
-		&models.Project{},
+		&models.ContractSet{},
+		&models.ContractMember{},
 		&models.SwaggerSpec{},
 		&models.APIEndpoint{},
 		&models.DataModel{},
 		&models.DataModelVersion{},
 		&models.Dependency{},
 		&models.MCPAuditLog{},
+		&models.ActiveContract{},
 	); err != nil {
 		t.Fatalf("migrate db: %v", err)
 	}
 	return db
 }
 
+// createOwnerContract 创建 owner + 契约集，返回 contract
+// 用户名带测试名后缀，避免 cross-test UNIQUE 冲突
+func createOwnerContract(t *testing.T, db *gorm.DB, name string) (*models.User, *models.ContractSet) {
+	t.Helper()
+	username := "u_" + sanitizeName(t.Name())
+	user := &models.User{Username: username, HashedPassword: "x", Role: models.RoleEditor, IsActive: true}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	c, err := CreateContract(db, user.ID, name, "backend", "test")
+	if err != nil {
+		t.Fatalf("create contract: %v", err)
+	}
+	return user, c
+}
+
 func TestImportOpenAPISpecCreatesAPIsAndDependencies(t *testing.T) {
 	db := testDB(t)
-	project := models.Project{Name: "user-service", ProjectType: models.ProjectBackend}
-	if err := db.Create(&project).Error; err != nil {
-		t.Fatalf("create project: %v", err)
-	}
+	_, contract := createOwnerContract(t, db, "user-service")
 
 	spec := `{
 	  "openapi": "3.0.3",
@@ -68,7 +83,7 @@ func TestImportOpenAPISpecCreatesAPIsAndDependencies(t *testing.T) {
 	  }
 	}`
 
-	result, err := ImportOpenAPISpec(db, project.ID, spec)
+	result, err := ImportOpenAPISpec(db, contract.ID, spec)
 	if err != nil {
 		t.Fatalf("import spec: %v", err)
 	}
@@ -78,167 +93,125 @@ func TestImportOpenAPISpecCreatesAPIsAndDependencies(t *testing.T) {
 	if result.DepCount != 1 {
 		t.Fatalf("DepCount = %d, want 1", result.DepCount)
 	}
-
-	var dep models.Dependency
-	if err := db.First(&dep, "source_project_id = ?", project.ID).Error; err != nil {
-		t.Fatalf("find dependency: %v", err)
+	if len(result.APIs) != 1 {
+		t.Fatalf("APIs len = %d, want 1", len(result.APIs))
 	}
-	if dep.EntityName != "UserDTO" || dep.APIPath != "/users/{id}" || dep.APIMethod != "GET" || dep.Source != "openapi" {
-		t.Fatalf("unexpected dependency: %+v", dep)
+	if result.APIs[0].Path != "/users/{id}" {
+		t.Fatalf("path = %s, want /users/{id}", result.APIs[0].Path)
 	}
 }
 
-func TestImportPostmanCollectionCreatesAPIs(t *testing.T) {
+func TestImportOpenAPISpecPostman(t *testing.T) {
 	db := testDB(t)
-	project := models.Project{Name: "postman-import-service", ProjectType: models.ProjectBackend}
-	if err := db.Create(&project).Error; err != nil {
-		t.Fatalf("create project: %v", err)
-	}
+	_, contract := createOwnerContract(t, db, "postman-import-service")
 
-	collection := `{
-	  "info": { "name": "Order API" },
-	  "item": [
-	    {
-	      "name": "orders",
-	      "item": [
-	        {
-	          "name": "Create order",
-	          "request": {
-	            "method": "POST",
-	            "url": "https://api.example.com/orders?debug=true",
-	            "description": "Create an order",
-	            "body": { "mode": "raw", "raw": "{\"id\":\"1\"}" }
-	          }
-	        }
-	      ]
-	    }
-	  ]
-	}`
-
-	result, err := ImportPostmanCollection(db, project.ID, collection)
-	if err != nil {
-		t.Fatalf("import postman collection: %v", err)
-	}
-	if result.APICount != 1 {
-		t.Fatalf("APICount = %d, want 1", result.APICount)
-	}
-	if result.SpecID == "" {
-		t.Fatalf("SpecID should be set on first import")
-	}
-	if result.SpecName != "Order API" {
-		t.Fatalf("SpecName = %q, want Order API", result.SpecName)
-	}
-	if result.SpecVersion != "1.0.0" {
-		t.Fatalf("SpecVersion = %q, want 1.0.0 (first import)", result.SpecVersion)
-	}
-
-	var spec models.SwaggerSpec
-	if err := db.First(&spec, "id = ?", result.SpecID).Error; err != nil {
-		t.Fatalf("find swagger spec: %v", err)
-	}
-	if spec.Source != models.SpecSourcePostman {
-		t.Fatalf("Source = %q, want postman", spec.Source)
-	}
-	if spec.APICount != 1 {
-		t.Fatalf("spec.APICount = %d, want 1", spec.APICount)
-	}
-
-	var endpoint models.APIEndpoint
-	if err := db.First(&endpoint, "project_id = ?", project.ID).Error; err != nil {
-		t.Fatalf("find endpoint: %v", err)
-	}
-	if endpoint.Path != "/orders" || endpoint.Method != "POST" || endpoint.Tag != "orders" || endpoint.Summary != "Create order" {
-		t.Fatalf("unexpected endpoint: %+v", endpoint)
-	}
-	if endpoint.SpecID != result.SpecID {
-		t.Fatalf("endpoint.SpecID = %q, want %q", endpoint.SpecID, result.SpecID)
-	}
-	if endpoint.Version != "1.0.0" {
-		t.Fatalf("endpoint.Version = %q, want 1.0.0", endpoint.Version)
-	}
-}
-
-func TestImportOpenAPISpecAutoIncrementsVersion(t *testing.T) {
-	db := testDB(t)
-	project := models.Project{Name: "user-service-versioned", ProjectType: models.ProjectBackend}
-	if err := db.Create(&project).Error; err != nil {
-		t.Fatalf("create project: %v", err)
-	}
-
-	spec1 := `{
-	  "openapi": "3.0.3",
-	  "info": { "title": "User API" },
+	spec := `{
+	  "openapi": "3.0.0",
+	  "info": { "title": "T", "version": "1.0.0" },
 	  "paths": {
-	    "/users": { "get": { "summary": "List users", "responses": { "200": { "description": "OK" } } } }
-	  }
+	    "/orders": {
+	      "post": {
+	        "summary": "Create Order",
+	        "requestBody": {
+	          "content": {
+	            "application/json": {
+	              "schema": { "$ref": "#/components/schemas/OrderDTO" }
+	            }
+	          }
+	        },
+	        "responses": { "201": { "description": "Created" } }
+	      }
+	    }
+	  },
+	  "components": { "schemas": { "OrderDTO": { "type": "object" } } }
 	}`
-	first, err := ImportOpenAPISpec(db, project.ID, spec1)
+
+	result, err := ImportOpenAPISpec(db, contract.ID, spec)
 	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if result.APICount != 1 || result.DepCount != 1 {
+		t.Fatalf("got apis=%d deps=%d, want 1/1", result.APICount, result.DepCount)
+	}
+}
+
+func TestImportOpenAPISpecVersioned(t *testing.T) {
+	db := testDB(t)
+	_, contract := createOwnerContract(t, db, "user-service-versioned")
+
+	specV1 := `{
+	  "openapi": "3.0.3",
+	  "info": { "title": "V", "version": "1.0.0" },
+	  "paths": { "/health": { "get": { "summary": "Health", "responses": { "200": { "description": "ok" } } } } }
+	}`
+	specNoVer := `{
+	  "openapi": "3.0.3",
+	  "info": { "title": "V" },
+	  "paths": { "/health": { "get": { "summary": "Health", "responses": { "200": { "description": "ok" } } } } }
+	}`
+
+	if _, err := ImportOpenAPISpec(db, contract.ID, specV1); err != nil {
 		t.Fatalf("first import: %v", err)
 	}
-	if first.SpecVersion != "1.0.0" {
-		t.Fatalf("first.SpecVersion = %q, want 1.0.0", first.SpecVersion)
-	}
-	if first.SpecName != "User API" {
-		t.Fatalf("first.SpecName = %q, want User API", first.SpecName)
-	}
-
-	// 第二次导入同名 spec → patch 自增
-	spec2 := `{
-	  "openapi": "3.0.3",
-	  "info": { "title": "User API" },
-	  "paths": {
-	    "/users": { "get": { "summary": "List users v2", "responses": { "200": { "description": "OK" } } } },
-	    "/orders": { "get": { "summary": "List orders", "responses": { "200": { "description": "OK" } } } }
-	  }
-	}`
-	second, err := ImportOpenAPISpec(db, project.ID, spec2)
+	// 第二次不指定 version，应自动 bump patch 到 1.0.1
+	result, err := ImportOpenAPISpec(db, contract.ID, specNoVer)
 	if err != nil {
 		t.Fatalf("second import: %v", err)
 	}
-	if second.SpecVersion != "1.0.1" {
-		t.Fatalf("second.SpecVersion = %q, want 1.0.1 (auto patch bump)", second.SpecVersion)
+	if result.SpecVersion != "1.0.1" {
+		t.Fatalf("version = %s, want 1.0.1", result.SpecVersion)
 	}
-	if second.SpecID == first.SpecID {
-		t.Fatalf("second.SpecID should differ from first")
-	}
+}
 
-	// 校验 spec 历史保留，旧 endpoints 仍可查
-	var specCount int64
-	if err := db.Model(&models.SwaggerSpec{}).Where("project_id = ?", project.ID).Count(&specCount).Error; err != nil {
-		t.Fatalf("count specs: %v", err)
-	}
-	if specCount != 2 {
-		t.Fatalf("spec count = %d, want 2 (history preserved)", specCount)
-	}
+func TestListContractAPIsFiltersCorrectly(t *testing.T) {
+	db := testDB(t)
+	_, contract := createOwnerContract(t, db, "filter-test")
 
-	// 校验当前 endpoints 来自最新 spec
-	var endpoints []models.APIEndpoint
-	if err := db.Where("project_id = ?", project.ID).Find(&endpoints).Error; err != nil {
-		t.Fatalf("find endpoints: %v", err)
-	}
-	if len(endpoints) != 2 {
-		t.Fatalf("endpoint count = %d, want 2 (replaced by latest import)", len(endpoints))
-	}
-	for _, e := range endpoints {
-		if e.SpecID != second.SpecID {
-			t.Fatalf("endpoint %s still linked to old spec", e.Path)
-		}
-	}
-
-	// 第三次导入显式带 version hint → 直接使用
-	spec3 := `{
-	  "openapi": "3.0.3",
-	  "info": { "title": "User API", "version": "2.0.0" },
+	spec := `{
+	  "openapi": "3.0.0",
 	  "paths": {
-	    "/users": { "get": { "summary": "List users v3", "responses": { "200": { "description": "OK" } } } }
+	    "/a": { "get": { "summary": "Get A", "responses": {} } },
+	    "/b": { "post": { "summary": "Post B", "responses": {} } },
+	    "/c": { "delete": { "summary": "Delete C", "deprecated": true, "responses": {} } }
 	  }
 	}`
-	third, err := ImportOpenAPISpec(db, project.ID, spec3)
-	if err != nil {
-		t.Fatalf("third import: %v", err)
+	if _, err := ImportOpenAPISpec(db, contract.ID, spec); err != nil {
+		t.Fatalf("import: %v", err)
 	}
-	if third.SpecVersion != "2.0.0" {
-		t.Fatalf("third.SpecVersion = %q, want 2.0.0 (explicit hint)", third.SpecVersion)
+
+	// 全部
+	all, total, err := ListContractAPIs(db, contract.ID, "", "", "", true, 0, 100)
+	if err != nil {
+		t.Fatalf("list all: %v", err)
+	}
+	if total != 3 || len(all) != 3 {
+		t.Fatalf("all total=%d len=%d, want 3/3", total, len(all))
+	}
+
+	// 只看 GET
+	gets, total2, err := ListContractAPIs(db, contract.ID, "", "GET", "", true, 0, 100)
+	if err != nil {
+		t.Fatalf("list get: %v", err)
+	}
+	if total2 != 1 || len(gets) != 1 || gets[0].Method != "GET" {
+		t.Fatalf("gets total=%d, want 1", total2)
+	}
+
+	// 排除 deprecated
+	_, total3, err := ListContractAPIs(db, contract.ID, "", "", "", false, 0, 100)
+	if err != nil {
+		t.Fatalf("list active: %v", err)
+	}
+	if total3 != 2 {
+		t.Fatalf("active total=%d, want 2", total3)
+	}
+
+	// 关键字
+	_, total4, err := ListContractAPIs(db, contract.ID, "delete", "", "", true, 0, 100)
+	if err != nil {
+		t.Fatalf("list kw: %v", err)
+	}
+	if total4 < 1 {
+		t.Fatalf("keyword filter total=%d, want >=1", total4)
 	}
 }

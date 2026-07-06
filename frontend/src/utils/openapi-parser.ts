@@ -10,7 +10,7 @@ import type { EntityDefinition } from '../api/entities'
 
 interface ParseResult {
   apis: Array<Omit<ApiDefinition, 'id' | 'contract_id' | 'created_at' | 'updated_at'>>
-  entities: Array<Omit<EntityDefinition, 'id' | 'contract_id' | 'created_at' | 'updated_at'>>
+  entities: Array<Pick<EntityDefinition, 'name' | 'description' | 'schema_content'>>
   warnings: string[]
 }
 
@@ -141,37 +141,18 @@ function parseApi(
 function parseEntity(
   name: string,
   schema: any,
-  allSchemas: any,
+  _allSchemas: any,
 ): Omit<EntityDefinition, 'id' | 'contract_id' | 'created_at' | 'updated_at'> | null {
   if (!schema || typeof schema !== 'object') return null
 
-  const fields: any[] = []
-  const properties = schema.properties || {}
-
-  for (const [fieldName, fieldSchema] of Object.entries(properties)) {
-    if (!fieldSchema || typeof fieldSchema !== 'object') continue
-    const fs = fieldSchema as any
-
-    fields.push({
-      name: fieldName,
-      type: fs.type || (fs.$ref ? '$ref' : 'object'),
-      required: Array.isArray(schema.required) ? schema.required.includes(fieldName) : false,
-      description: fs.description,
-      ref_entity_id: fs.$ref
-        ? extractRefName(fs.$ref)
-        : fs.items?.$ref
-          ? extractRefName(fs.items.$ref)
-          : undefined,
-      is_array: fs.type === 'array',
-      nullable: fs.nullable,
-    })
-  }
-
+  // v1.2：直接保存原始 JSON Schema 字符串，不再前端推断 fields
   return {
     name,
     description: schema.description,
-    fields,
-  }
+    schema_content: JSON.stringify(schema, null, 2),
+    current_version: '1.0.0',
+    version_count: 1,
+  } as any
 }
 
 function extractRefName(ref: string): string | undefined {

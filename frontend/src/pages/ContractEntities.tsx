@@ -1,35 +1,46 @@
 // Synkord ContractEntities
-// 契约集数据模型列表
+// 契约集数据模型列表 + 编辑抽屉（JSON Schema 字符串）
 // 详见 docs/ui-spec.md §五
-
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   App as AntApp,
   Alert,
   Button,
+  Drawer,
   Empty,
+  Form,
   Input,
   Popconfirm,
   Skeleton,
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd'
 import {
   ArrowLeftOutlined,
   DeleteOutlined,
   EditOutlined,
+  EyeOutlined,
   PlusOutlined,
   SearchOutlined,
 } from '@ant-design/icons'
-import { listEntities, deleteEntity } from '../api/entities'
+import { listEntities, createEntity, updateEntity, deleteEntity } from '../api/entities'
 import type { EntityDefinition } from '../api/entities'
 import { useContract } from '../contexts/ContractContext'
 import { formatRelative } from '../utils/format'
+import { emptySchemaContent, parseSchemaFields } from '../utils/jsonSchema'
 
 const { Title, Text } = Typography
+
+interface EntityEditorValues {
+  name: string
+  description?: string
+  schema_content: string
+  change_summary?: string
+}
 
 export default function ContractEntities() {
   const { id: contractId } = useParams<{ id: string }>()
@@ -40,6 +51,11 @@ export default function ContractEntities() {
   const [entities, setEntities] = useState<EntityDefinition[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [keyword, setKeyword] = useState('')
+
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [editingEntity, setEditingEntity] = useState<EntityDefinition | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [schemaError, setSchemaError] = useState<string | null>(null)
 
   const myRole = activeContractSet?.my_role
   const canEdit = myRole === 'owner' || myRole === 'editor'
@@ -84,12 +100,82 @@ export default function ContractEntities() {
     }
   }
 
+  const openCreate = () => {
+    setEditingEntity(null)
+    setEditorOpen(true)
+  }
+  const openEdit = (entity: EntityDefinition) => {
+    setEditingEntity(entity)
+    setEditorOpen(true)
+  }
+  const closeEditor = () => {
+    setEditorOpen(false)
+    setEditingEntity(null)
+    setSchemaError(null)
+  }
+
+  const validateSchema = (raw: string): boolean => {
+    if (!raw.trim()) {
+      setSchemaError('请填写 schema_content')
+      return false
+    }
+    try {
+      const obj = JSON.parse(raw)
+      if (!obj || typeof obj !== 'object') {
+        setSchemaError('schema_content 必须是 JSON 对象')
+        return false
+      }
+      setSchemaError(null)
+      return true
+    } catch (e: any) {
+      setSchemaError(`JSON 解析失败：${e.message}`)
+      return false
+    }
+  }
+
+  const handleEditorSubmit = async (values: EntityEditorValues) => {
+    if (!contractId) return
+    if (!validateSchema(values.schema_content)) return
+    setSaving(true)
+    try {
+      if (editingEntity) {
+        await updateEntity(contractId, editingEntity.id, {
+          name: values.name,
+          description: values.description || '',
+          schema_content: values.schema_content,
+          change_summary: values.change_summary || 'Edit',
+        })
+        message.success('已保存（自动写入新版本快照）')
+      } else {
+        await createEntity(contractId, {
+          name: values.name,
+          description: values.description || '',
+          schema_content: values.schema_content,
+        })
+        message.success('已创建')
+      }
+      closeEditor()
+      await load()
+    } catch (e: any) {
+      message.error(e?.message || '保存失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const columns = [
     {
       title: '名称',
       dataIndex: 'name',
       key: 'name',
-      render: (name: string) => <Text strong>{name}</Text>,
+      render: (name: string, record: EntityDefinition) => (
+        <Space>
+          <Text strong>{name}</Text>
+          <Tooltip title={`v${record.current_version} · 共 ${record.version_count} 个版本`}>
+            <Tag color="blue">v{record.current_version}</Tag>
+          </Tooltip>
+        </Space>
+      ),
     },
     {
       title: '描述',
@@ -101,17 +187,18 @@ export default function ContractEntities() {
     {
       title: '字段数',
       key: 'fields',
-      width: 100,
-      render: (_: any, e: EntityDefinition) => (
-        <Tag>{e.fields.length}</Tag>
-      ),
+      width: 90,
+      render: (_: unknown, e: EntityDefinition) => {
+        const n = parseSchemaFields(e.schema_content).length
+        return <Tag>{n}</Tag>
+      },
     },
     {
-      title: '必填字段',
+      title: '必填',
       key: 'required',
-      width: 100,
-      render: (_: any, e: EntityDefinition) => {
-        const required = e.fields.filter((f) => f.required).length
+      width: 80,
+      render: (_: unknown, e: EntityDefinition) => {
+        const required = parseSchemaFields(e.schema_content).filter((f) => f.required).length
         return <Tag color="blue">{required}</Tag>
       },
     },
@@ -120,22 +207,27 @@ export default function ContractEntities() {
       dataIndex: 'updated_at',
       key: 'updated_at',
       width: 140,
-      render: (s: string) => formatRelative(s),
+      render: (s: string) => <Text type="secondary">{formatRelative(s)}</Text>,
     },
     {
       title: '操作',
       key: 'actions',
-      width: 180,
-      render: (_: any, entity: EntityDefinition) => (
+      width: 200,
+      render: (_: unknown, entity: EntityDefinition) => (
         <Space>
           <Button
             type="link"
             size="small"
-            icon={<EditOutlined />}
+            icon={<EyeOutlined />}
             onClick={() => navigate(`/contracts/${contractId}/models/${entity.id}`)}
           >
-            查看
+            详情
           </Button>
+          {canEdit && (
+            <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(entity)}>
+              编辑
+            </Button>
+          )}
           {canEdit && (
             <Popconfirm
               title="确认删除？"
@@ -178,7 +270,7 @@ export default function ContractEntities() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={3} style={{ margin: 0 }}>数据模型</Title>
         {canEdit && (
-          <Button type="primary" icon={<PlusOutlined />} disabled>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
             新增模型
           </Button>
         )}
@@ -207,6 +299,78 @@ export default function ContractEntities() {
           pagination={{ pageSize: 20, showSizeChanger: false }}
         />
       )}
+
+      <Drawer
+        title={editingEntity ? `编辑数据模型（v${editingEntity.current_version}）` : '新增数据模型'}
+        open={editorOpen}
+        onClose={closeEditor}
+        width={620}
+        destroyOnClose
+        extra={
+          <Space>
+            <Button onClick={closeEditor}>取消</Button>
+            <Button
+              type="primary"
+              loading={saving}
+              onClick={() => {
+                const form = document.querySelector<HTMLFormElement>('#entity-editor-form')
+                form?.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))
+              }}
+            >
+              保存
+            </Button>
+          </Space>
+        }
+      >
+        <Form
+          id="entity-editor-form"
+          layout="vertical"
+          initialValues={{
+            name: editingEntity?.name || '',
+            description: editingEntity?.description || '',
+            schema_content: editingEntity?.schema_content || emptySchemaContent(),
+            change_summary: '',
+          }}
+          onFinish={handleEditorSubmit}
+        >
+          <Form.Item
+            label="名称"
+            name="name"
+            rules={[{ required: true, message: '请输入实体名' }]}
+          >
+            <Input placeholder="Order" />
+          </Form.Item>
+          <Form.Item label="描述" name="description">
+            <Input placeholder="（可选）一句话说明" />
+          </Form.Item>
+          <Form.Item
+            label="schema_content（JSON Schema）"
+            name="schema_content"
+            rules={[{ required: true, message: '请填写 JSON Schema' }]}
+            extra={
+              schemaError ? (
+                <Text type="danger">{schemaError}</Text>
+              ) : (
+                <Text type="secondary">
+                  支持 type / properties / required / items / $ref / enum 等标准 JSON Schema 字段。
+                  保存时会自动写入版本快照。
+                </Text>
+              )
+            }
+          >
+            <Input.TextArea
+              rows={14}
+              style={{ fontFamily: 'monospace', fontSize: 12 }}
+              onChange={() => setSchemaError(null)}
+            />
+          </Form.Item>
+          {editingEntity && (
+            <Form.Item label="本次变更说明" name="change_summary">
+              <Input placeholder="如：新增字段 userId、改 enum 值" />
+            </Form.Item>
+          )}
+        </Form>
+      </Drawer>
     </div>
   )
 }

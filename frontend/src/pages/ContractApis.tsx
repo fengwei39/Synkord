@@ -1,15 +1,15 @@
 // Synkord ContractApis
-// 契约集接口列表
+// 契约集接口列表 + 编辑抽屉
 // 详见 docs/ui-spec.md §五
-
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   App as AntApp,
-  Alert,
   Button,
   Checkbox,
+  Drawer,
   Empty,
+  Form,
   Input,
   Popconfirm,
   Select,
@@ -26,7 +26,7 @@ import {
   PlusOutlined,
   SearchOutlined,
 } from '@ant-design/icons'
-import { listApis, deleteApi } from '../api/apis'
+import { listApis, createApi, deleteApi, updateApi } from '../api/apis'
 import type { ApiDefinition } from '../api/apis'
 import { useContract } from '../contexts/ContractContext'
 import { formatRelative, HTTP_METHOD_COLORS } from '../utils/format'
@@ -34,6 +34,14 @@ import { formatRelative, HTTP_METHOD_COLORS } from '../utils/format'
 const { Title, Text } = Typography
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] as const
+
+interface ApiEditorValues {
+  path: string
+  method: string
+  summary?: string
+  description?: string
+  tagsText?: string
+}
 
 export default function ContractApis() {
   const { id: contractId } = useParams<{ id: string }>()
@@ -46,6 +54,11 @@ export default function ContractApis() {
   const [keyword, setKeyword] = useState('')
   const [methodFilter, setMethodFilter] = useState<string | undefined>()
   const [includeDeprecated, setIncludeDeprecated] = useState(false)
+
+  // 编辑抽屉状态
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [editingApi, setEditingApi] = useState<ApiDefinition | null>(null)
+  const [saving, setSaving] = useState(false)
 
   const myRole = activeContractSet?.my_role
   const canEdit = myRole === 'owner' || myRole === 'editor'
@@ -97,79 +110,106 @@ export default function ContractApis() {
     }
   }
 
+  const openCreate = () => {
+    setEditingApi(null)
+    setEditorOpen(true)
+  }
+  const openEdit = (api: ApiDefinition) => {
+    setEditingApi(api)
+    setEditorOpen(true)
+  }
+  const closeEditor = () => {
+    setEditorOpen(false)
+    setEditingApi(null)
+  }
+
+  const handleEditorSubmit = async (values: ApiEditorValues) => {
+    if (!contractId) return
+    const tags = (values.tagsText || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    const payload = {
+      path: values.path,
+      method: values.method as ApiDefinition['method'],
+      summary: values.summary || '',
+      description: values.description || '',
+      tags,
+      parameters: editingApi?.parameters ?? [],
+      request_body: editingApi?.request_body,
+      responses: editingApi?.responses ?? { '200': { description: 'OK' } },
+      deprecated: editingApi?.deprecated ?? false,
+    }
+    setSaving(true)
+    try {
+      if (editingApi) {
+        await updateApi(contractId, editingApi.id, payload)
+        message.success('已保存')
+      } else {
+        await createApi(contractId, payload)
+        message.success('已创建')
+      }
+      closeEditor()
+      await load()
+    } catch (e: any) {
+      message.error(e?.message || '保存失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const columns = [
     {
       title: '方法',
       dataIndex: 'method',
       key: 'method',
       width: 80,
-      render: (m: string) => (
-        <Tag color={HTTP_METHOD_COLORS[m] || 'default'} style={{ width: 60, textAlign: 'center' }}>
-          {m}
-        </Tag>
-      ),
+      render: (m: string) => <Tag color={HTTP_METHOD_COLORS[m] || 'default'}>{m}</Tag>,
     },
     {
       title: '路径',
       dataIndex: 'path',
       key: 'path',
-      render: (path: string, api: ApiDefinition) => (
+      render: (_: string, record: ApiDefinition) => (
         <Space>
-          <Text code>{path}</Text>
-          {api.deprecated && <Tag color="default">已废弃</Tag>}
+          <Text strong style={{ fontFamily: 'monospace' }}>{record.path}</Text>
+          {record.deprecated && <Tag color="default" style={{ fontSize: 10 }}>已废弃</Tag>}
         </Space>
       ),
     },
     {
-      title: '描述',
+      title: '摘要',
       dataIndex: 'summary',
       key: 'summary',
       ellipsis: true,
     },
     {
-      title: '标签',
-      dataIndex: 'tags',
-      key: 'tags',
-      width: 180,
-      render: (tags: string[]) => (
-        <Space wrap size={[0, 4]}>
-          {tags?.map((t) => <Tag key={t}>{t}</Tag>)}
-        </Space>
-      ),
-    },
-    {
-      title: '更新',
+      title: '更新时间',
       dataIndex: 'updated_at',
       key: 'updated_at',
-      width: 140,
-      render: (s: string) => formatRelative(s),
+      width: 160,
+      render: (t: string) => <Text type="secondary">{formatRelative(t)}</Text>,
     },
     {
       title: '操作',
       key: 'actions',
-      width: 180,
-      render: (_: any, api: ApiDefinition) => (
+      width: 160,
+      render: (_: unknown, record: ApiDefinition) => (
         <Space>
-          <Button
-            type="link"
-            size="small"
-            icon={<EditOutlined />}
-            onClick={() => navigate(`/contracts/${contractId}/apis/${api.id}`)}
-          >
-            查看
-          </Button>
+          {canEdit && (
+            <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
+              编辑
+            </Button>
+          )}
           {canEdit && (
             <Popconfirm
-              title="确认删除？"
-              description={`将删除 ${api.method} ${api.path}`}
+              title="删除该接口？"
               okText="删除"
-              okButtonProps={{ danger: true }}
               cancelText="取消"
-              onConfirm={() => handleDelete(api)}
+              okButtonProps={{ danger: true }}
+              onConfirm={() => handleDelete(record)}
             >
-              <Button type="link" danger size="small" icon={<DeleteOutlined />}>
-                删除
-              </Button>
+              <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
             </Popconfirm>
           )}
         </Space>
@@ -177,16 +217,8 @@ export default function ContractApis() {
     },
   ]
 
-  if (!activeContractSet) {
-    return (
-      <div className="page-content">
-        <Alert type="warning" message="未找到契约集信息" />
-      </div>
-    )
-  }
-
   return (
-    <div className="page-content contract-apis">
+    <div className="page-content">
       <Space style={{ marginBottom: 16 }}>
         <Button
           icon={<ArrowLeftOutlined />}
@@ -200,7 +232,7 @@ export default function ContractApis() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={3} style={{ margin: 0 }}>接口管理</Title>
         {canEdit && (
-          <Button type="primary" icon={<PlusOutlined />} disabled>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
             新增接口
           </Button>
         )}
@@ -240,6 +272,61 @@ export default function ContractApis() {
           pagination={{ pageSize: 20, showSizeChanger: false }}
         />
       )}
+
+      <Drawer
+        title={editingApi ? '编辑接口' : '新增接口'}
+        open={editorOpen}
+        onClose={closeEditor}
+        width={520}
+        destroyOnClose
+        extra={
+          <Space>
+            <Button onClick={closeEditor}>取消</Button>
+            <Button type="primary" loading={saving} onClick={() => {
+              const form = document.querySelector<HTMLFormElement>('#api-editor-form')
+              form?.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))
+            }}>
+              保存
+            </Button>
+          </Space>
+        }
+      >
+        <Form
+          id="api-editor-form"
+          layout="vertical"
+          initialValues={{
+            method: editingApi?.method || 'GET',
+            path: editingApi?.path || '/api/',
+            summary: editingApi?.summary || '',
+            description: editingApi?.description || '',
+            tagsText: Array.isArray(editingApi?.tags) ? editingApi.tags.join(', ') : '',
+          }}
+          onFinish={handleEditorSubmit}
+        >
+          <Form.Item label="方法" name="method" rules={[{ required: true }]}>
+            <Select options={HTTP_METHODS.map((m) => ({ value: m, label: m }))} />
+          </Form.Item>
+          <Form.Item
+            label="路径"
+            name="path"
+            rules={[{ required: true, message: '请输入接口路径（以 / 开头）' }]}
+          >
+            <Input placeholder="/api/orders/{id}" />
+          </Form.Item>
+          <Form.Item label="摘要" name="summary">
+            <Input placeholder="一句话说明接口用途" />
+          </Form.Item>
+          <Form.Item label="详细说明" name="description">
+            <Input.TextArea rows={3} placeholder="（可选）" />
+          </Form.Item>
+          <Form.Item label="标签（逗号分隔）" name="tagsText">
+            <Input placeholder="如 orders, public" />
+          </Form.Item>
+          <Text type="secondary">
+            完整的请求体 / 响应 schema 请通过 OpenAPI 导入批量管理；当前表单保存后可在「导入」页面再次合并。
+          </Text>
+        </Form>
+      </Drawer>
     </div>
   )
 }

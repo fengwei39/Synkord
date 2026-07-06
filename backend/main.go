@@ -26,11 +26,30 @@ func main() {
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
+
+	// CORS: 由环境变量 SYNKORD_CORS_ORIGINS 驱动（默认仅允许本地 dev 来源）
+	// 当 SYNKORD_CORS_ORIGINS=* 时使用全局开放（仅调试时考虑）
+	corsOrigins := cfg.CORSOrigins
+	if len(corsOrigins) == 0 {
+		corsOrigins = []string{"http://127.0.0.1:3000", "http://localhost:3000"}
+	}
+	allowAll := false
+	for _, o := range corsOrigins {
+		if o == "*" {
+			allowAll = true
+			break
+		}
+	}
+	if allowAll {
+		log.Println("[WARN] CORS is set to * (AllowAllOrigins). Do not use in production.")
+	}
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"*"},
+		AllowOrigins:     corsOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
-		AllowCredentials: true,
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Mcp-Instance"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: !allowAll, // 与 * 互斥，避免违反规范
+		MaxAge:           12 * 3600,
 	}))
 	r.Use(middleware.AuthMiddleware(cfg))
 

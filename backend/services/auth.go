@@ -110,3 +110,19 @@ func UpdateUserRole(db *gorm.DB, userID string, role string) (*models.User, erro
 	}
 	return &user, nil
 }
+
+// ChangeOwnPassword 修改当前用户密码（需校验旧密码）
+func ChangeOwnPassword(db *gorm.DB, userID, oldPwd, newPwd string) error {
+	var user models.User
+	if err := db.First(&user, "id = ?", userID).Error; err != nil {
+		return errors.New("user not found")
+	}
+	if !CheckPassword(oldPwd, user.HashedPassword) {
+		return errors.New("old password is incorrect")
+	}
+	hash, err := HashPassword(newPwd)
+	if err != nil {
+		return err
+	}
+	return db.Model(&user).Update("hashed_password", hash).Error
+}

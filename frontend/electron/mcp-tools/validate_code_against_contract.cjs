@@ -1,5 +1,8 @@
 /**
- * mcp-tools/validate_entity_usage.cjs
+ * mcp-tools/validate_code_against_contract.cjs
+ *
+ * 工具：校验代码片段是否与契约集匹配
+ * 详见 docs/mcp-spec.md §二.7
  */
 'use strict';
 
@@ -8,51 +11,48 @@ const { codeError, CODES } = require('../mcp-core/errors.cjs');
 const MAX_SNIPPET_LEN = 100 * 1024;
 
 const definition = {
-  name: 'validate_entity_usage',
+  name: 'validate_code_against_contract',
   description:
-    '校验代码片段中数据模型（实体）的使用是否正确。' +
-    '传入 model_name（实体名）和 code_snippet（待校验代码）。',
+    '校验代码片段（HTTP 调用 + 字段引用）是否符合当前契约集。' +
+    '返回 valid + issues 列表，每条 issue 含 severity / line / field / message / suggestion。',
   inputSchema: {
     type: 'object',
     properties: {
-      model_name: {
-        type: 'string',
-        description: '数据模型名称。必填。',
-        minLength: 1,
-      },
       code_snippet: {
         type: 'string',
         description: '待校验的代码片段。必填。',
         minLength: 1,
       },
+      language: {
+        type: 'string',
+        enum: ['typescript', 'javascript', 'python', 'go', 'java', 'plain'],
+        description: '代码语言（用于优化正则匹配）。可省略，默认 plain。',
+      },
     },
-    required: ['model_name', 'code_snippet'],
+    required: ['code_snippet'],
     additionalProperties: false,
   },
 };
 
 async function handler(args, context) {
-  const modelName = (args.model_name || '').trim();
-  const codeSnippet = args.code_snippet || '';
+  const codeSnippet = (args.code_snippet || '').toString();
+  const language = (args.language || 'plain').toString();
 
-  if (!modelName) {
-    throw codeError(CODES.INVALID_ARGS, 'model_name is required');
-  }
-  if (!codeSnippet || codeSnippet.trim().length === 0) {
+  if (!codeSnippet.trim()) {
     throw codeError(CODES.INVALID_ARGS, 'code_snippet is required');
   }
   if (codeSnippet.length > MAX_SNIPPET_LEN) {
     throw codeError(
       CODES.INVALID_ARGS,
-      `code_snippet too large: ${codeSnippet.length} > ${MAX_SNIPPET_LEN}`
+      `code_snippet too large: ${codeSnippet.length} > ${MAX_SNIPPET_LEN}`,
     );
   }
 
   const resp = await context.callBackend({
-    tool: 'validate_entity_usage',
+    tool: 'validate_code_against_contract',
     args: {
-      model_name: modelName,
       code_snippet: codeSnippet,
+      language: language,
     },
   });
   const data = resp?.result || resp || {};
@@ -62,11 +62,10 @@ async function handler(args, context) {
       contract_id: context.context.contract_id,
       contract_name: context.context.contract_name,
     },
-    model_name: modelName,
     snippet_length: codeSnippet.length,
+    language,
     valid: data.valid === true,
-    entity: data.entity || null,
-    reason: data.reason || null,
+    issues: data.issues || [],
   }, null, 2);
 
   return {

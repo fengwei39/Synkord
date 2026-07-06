@@ -1,7 +1,13 @@
 {
   "name": "synkord-frontend",
+  "productName": "Synkord",
   "private": true,
   "version": "0.1.0",
+  "description": "Synkord — MCP 时代的 API 知识层",
+  "author": {
+    "name": "Synkord Team",
+    "email": "team@synkord.dev"
+  },
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -10,7 +16,12 @@
     "dev:electron": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "dist": "npm run build && electron-builder"
+    "dist": "npm run build && electron-builder",
+    "dist:dir": "npm run build && electron-builder --dir",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "smoketest": "node scripts/smoke-test.cjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.5",
@@ -30,5 +41,90 @@
     "electron-builder": "^26.15.3",
     "typescript": "^6.0.3",
     "vite": "^8.1.0"
+  },
+  "build": {
+    "appId": "dev.synkord.desktop",
+    "productName": "Synkord",
+    "copyright": "Copyright © 2026 Synkord",
+    "asar": true,
+    "asarUnpack": [
+      "electron/local-mcp-service.cjs",
+      "electron/mcp-core/**/*",
+      "electron/mcp-tools/**/*"
+    ],
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json",
+      "!node_modules/**/*",
+      "!src/**/*",
+      "!scripts/**/*",
+      "!**/*.test.cjs",
+      "!**/*.test.ts",
+      "!**/*.test.tsx"
+    ],
+    "extraMetadata": {
+      "main": "electron/main.cjs"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Synkord",
+      "shortcutDescription": "Synkord — MCP 时代的 API 知识层"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        },
+        {
+          "target": "deb",
+          "arch": ["x64"]
+        }
+      ],
+      "category": "Development",
+      "icon": "build/icon.png"
+    },
+    "fileAssociations": [],
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
+    ]
   }
 }

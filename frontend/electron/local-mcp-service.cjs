@@ -425,9 +425,9 @@ function buildStaticResources() {
       mimeType: 'application/json',
     },
     {
-      uri: 'synkord://active-project',
-      name: 'Active Project',
-      description: '当前激活项目的上下文信息（team_id / project_id / project_name）。',
+      uri: 'synkord://active-contract',
+      name: 'Active Contract',
+      description: '当前激活契约集信息（contract_id / contract_name / set_at / set_by）。',
       mimeType: 'application/json',
     },
     {
@@ -484,22 +484,22 @@ async function readResource(uri, loader) {
           protocol: { supported: SUPPORTED_PROTOCOL_VERSIONS, default: DEFAULT_PROTOCOL_VERSION },
           uptime_started_at: new Date(Date.now() - (process.uptime() * 1000)).toISOString(),
           tools_count: globalRegistry.size(),
-          has_active_project: Boolean(ctx && ctx.project_id),
-          has_auth: Boolean(auth && auth.user_id),
+          has_active_contract: Boolean(ctx && ctx.contract_id),
+          has_auth: Boolean(auth && (auth.user_id || auth.access_token)),
           pid: process.pid,
         }, null, 2),
       }],
     };
   }
 
-  if (uri === 'synkord://active-project') {
+  if (uri === 'synkord://active-contract') {
     return {
       contents: [{
         uri,
         mimeType: 'application/json',
         text: JSON.stringify({
           context: ctx || null,
-          has_context: Boolean(ctx && ctx.team_id && ctx.project_id),
+          has_context: Boolean(ctx && ctx.contract_id),
         }, null, 2),
       }],
     };

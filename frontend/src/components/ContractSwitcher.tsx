@@ -1,23 +1,21 @@
 // Synkord ContractSwitcher
 // 顶栏 + MCP 页面共用的契约集切换下拉
 // 详见 docs/ui-spec.md §三
+//
+// 实现要点：
+// - 使用原生 div + 手动控制 display，避免 antd Dropdown 在 Electron drag 区域失效
+// - 显式设置 -webkit-app-region: no-drag 使下拉在顶栏可点击
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  App as AntApp,
-  Button,
-  Dropdown,
-  Empty,
-  Input,
-  type InputRef,
-  Tag,
-} from 'antd'
+import { App as AntApp, Empty, Input, Tag } from 'antd'
 import {
   CheckOutlined,
+  CheckCircleFilled,
   CloseOutlined,
   DownOutlined,
   FolderOpenOutlined,
+  PlusOutlined,
   SearchOutlined,
 } from '@ant-design/icons'
 import { useContract } from '../contexts/ContractContext'
@@ -33,6 +31,12 @@ const projectTypeLabels: Record<string, string> = {
   app: 'App 移动端',
 }
 
+const projectTypeColors: Record<string, string> = {
+  backend: 'blue',
+  web: 'green',
+  app: 'purple',
+}
+
 export function ContractSwitcher({ variant }: ContractSwitcherProps) {
   const navigate = useNavigate()
   const { message } = AntApp.useApp()
@@ -40,12 +44,33 @@ export function ContractSwitcher({ variant }: ContractSwitcherProps) {
   const [open, setOpen] = useState(false)
   const [keyword, setKeyword] = useState('')
   const [loading, setLoading] = useState(false)
-  const inputRef = useRef<InputRef>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<any>(null)
+
+  // 点击外部关闭
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    const escHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    // 用 mousedown 早于 click 触发，避免被 antd 拦截
+    document.addEventListener('mousedown', handler)
+    document.addEventListener('keydown', escHandler)
+    return () => {
+      document.removeEventListener('mousedown', handler)
+      document.removeEventListener('keydown', escHandler)
+    }
+  }, [open])
 
   // 打开时自动 focus 搜索框
   useEffect(() => {
     if (open) {
-      setTimeout(() => inputRef.current?.focus(), 100)
+      setTimeout(() => inputRef.current?.focus?.(), 50)
     } else {
       setKeyword('')
     }
@@ -66,7 +91,8 @@ export function ContractSwitcher({ variant }: ContractSwitcherProps) {
     setLoading(true)
     try {
       await setActiveContract(contractId)
-      message.success(`已切换到${contracts.find((c) => c.id === contractId)?.name}，AI 下次查询将使用此契约集`)
+      const target = contracts.find((c) => c.id === contractId)
+      message.success(`已切换到「${target?.name || ''}」，AI 下次查询将使用此契约集`)
       setOpen(false)
       navigate(`/contracts/${contractId}`)
     } catch (e: any) {
@@ -76,93 +102,130 @@ export function ContractSwitcher({ variant }: ContractSwitcherProps) {
     }
   }
 
-  const dropdownContent = (
-    <div className="contract-switcher-dropdown">
-      <div className="switcher-header">
-        <span>切换契约集</span>
-        <Button
-          type="text"
-          size="small"
-          icon={<CloseOutlined />}
-          onClick={() => setOpen(false)}
-        />
-      </div>
-      <div className="switcher-search">
-        <Input
-          ref={inputRef}
-          prefix={<SearchOutlined />}
-          placeholder="搜索契约集名..."
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          allowClear
-        />
-      </div>
-      <div className="switcher-list">
-        {filtered.length === 0 ? (
-          <Empty
-            description={keyword ? '未找到契约集' : '还没有契约集'}
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-          >
-            <Button type="primary" onClick={() => navigate('/contracts/new')}>
-              {keyword ? '创建契约集' : '创建第一个契约集'}
-            </Button>
-          </Empty>
-        ) : (
-          filtered.slice(0, 8).map((c) => (
-            <div
-              key={c.id}
-              className={`switcher-item ${
-                c.id === activeContract?.contract_id ? 'current' : ''
-              }`}
-              onClick={() => handleSelect(c.id)}
-            >
-              <div className="item-name">
-                {c.id === activeContract?.contract_id && (
-                  <CheckOutlined className="item-check" />
-                )}
-                {c.name}
-              </div>
-              <div className="item-meta">
-                <Tag color="default">{projectTypeLabels[c.project_type] || c.project_type}</Tag>
-                {c.id === activeContract?.contract_id && (
-                  <Tag color="blue">当前</Tag>
-                )}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-      <div className="switcher-footer">
-        <Button
-          type="link"
-          icon={<FolderOpenOutlined />}
-          onClick={() => {
-            setOpen(false)
-            navigate('/contracts')
-          }}
-        >
-          管理所有契约集
-        </Button>
-      </div>
-    </div>
-  )
+  const activeIsCurrent = !!activeContract
 
   return (
-    <Dropdown
-      open={open}
-      onOpenChange={setOpen}
-      trigger={['click']}
-      placement="bottomRight"
-      dropdownRender={() => dropdownContent}
+    <div
+      ref={rootRef}
+      className={`contract-switcher contract-switcher-${variant} ${open ? 'open' : ''}`}
     >
-      <Button
-        type={variant === 'topbar' ? 'text' : 'default'}
-        loading={loading}
-        className={variant === 'topbar' ? 'contract-switcher-topbar' : 'contract-switcher-page'}
+      <button
+        type="button"
+        className="contract-switcher-trigger"
+        onClick={(e) => {
+          e.stopPropagation()
+          setOpen((v) => !v)
+        }}
       >
-        {activeContract ? activeContract.contract_name : '选择契约集'}
-        <DownOutlined />
-      </Button>
-    </Dropdown>
+        {variant === 'topbar' ? (
+          <>
+            <span className="trigger-label">契约集</span>
+            <span className={`trigger-value ${activeIsCurrent ? '' : 'empty'}`}>
+              {activeIsCurrent ? activeContract!.contract_name : '未选择'}
+            </span>
+            <DownOutlined className={`trigger-arrow ${open ? 'flip' : ''}`} />
+          </>
+        ) : (
+          <>
+            <span className="trigger-label">活跃契约集</span>
+            <span className={`trigger-value ${activeIsCurrent ? '' : 'empty'}`}>
+              {activeIsCurrent ? activeContract!.contract_name : '尚未选择'}
+            </span>
+            <DownOutlined className={`trigger-arrow ${open ? 'flip' : ''}`} />
+          </>
+        )}
+      </button>
+
+      {open && (
+        <div className="contract-switcher-dropdown" onClick={(e) => e.stopPropagation()}>
+          <div className="switcher-header">
+            <span className="switcher-title">切换契约集</span>
+            <button
+              type="button"
+              className="switcher-close"
+              onClick={() => setOpen(false)}
+              title="关闭"
+            >
+              <CloseOutlined />
+            </button>
+          </div>
+
+          <div className="switcher-search">
+            <Input
+              ref={inputRef}
+              prefix={<SearchOutlined className="search-icon" />}
+              placeholder="搜索契约集名..."
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              allowClear
+              autoFocus
+            />
+          </div>
+
+          <div className="switcher-list">
+            {filtered.length === 0 ? (
+              <div className="switcher-empty">
+                <Empty
+                  description={keyword ? '未找到匹配的契约集' : '还没有契约集'}
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                />
+                <button
+                  type="button"
+                  className="switcher-action-btn primary"
+                  onClick={() => {
+                    setOpen(false)
+                    navigate('/contracts/new')
+                  }}
+                >
+                  <PlusOutlined /> {keyword ? '创建契约集' : '创建第一个契约集'}
+                </button>
+              </div>
+            ) : (
+              filtered.slice(0, 8).map((c) => {
+                const isCurrent = c.id === activeContract?.contract_id
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className={`switcher-item ${isCurrent ? 'current' : ''}`}
+                    onClick={() => handleSelect(c.id)}
+                  >
+                    <div className="item-row">
+                      <div className="item-name">
+                        {isCurrent ? (
+                          <CheckCircleFilled className="item-check" />
+                        ) : (
+                          <span className="item-bullet" />
+                        )}
+                        <span className="item-name-text">{c.name}</span>
+                      </div>
+                      <div className="item-meta">
+                        <Tag color={projectTypeColors[c.project_type] || 'default'}>
+                          {projectTypeLabels[c.project_type] || c.project_type}
+                        </Tag>
+                        {isCurrent && <Tag color="blue">当前</Tag>}
+                      </div>
+                    </div>
+                  </button>
+                )
+              })
+            )}
+          </div>
+
+          <div className="switcher-footer">
+            <button
+              type="button"
+              className="switcher-footer-link"
+              onClick={() => {
+                setOpen(false)
+                navigate('/contracts')
+              }}
+            >
+              <FolderOpenOutlined /> 管理所有契约集
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

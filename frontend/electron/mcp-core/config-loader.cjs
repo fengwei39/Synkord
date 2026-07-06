@@ -2,11 +2,11 @@
  * mcp-core/config-loader.cjs
  *
  * 三级配置加载器：内存 > 文件 > 环境变量
- * 对应设计文档 §11 配置优先级
+ * 对应设计文档 §11 配置优先级（v1.2 重构：移除 Team，使用 ContractSet）
  *
  * 设计原则：
  *  - 内存（IPC 推送）最高优先级
- *  - 文件作为持久化层（active-context.json / user-auth.json）
+ *  - 文件作为持久化层（active-contract.json / credentials.json）
  *  - 环境变量仅作降级方案
  *  - JWT 不支持环境变量覆盖（避免环境注入攻击）
  */
@@ -39,8 +39,8 @@ class ConfigLoader {
   // ==========================================================================
 
   /**
-   * 设置内存激活项目（由 IPC 推送）
-   * @param {object|null} ctx
+   * 设置内存激活契约集（由 IPC 推送）
+   * @param {object|null} ctx { contract_id, contract_name, set_at, ... }
    */
   setMemoryContext(ctx) {
     this._memoryContext = ctx;
@@ -48,7 +48,7 @@ class ConfigLoader {
 
   /**
    * 设置内存用户凭证（由 IPC 推送）
-   * @param {object|null} auth
+   * @param {object|null} auth { access_token, refresh_token, expires_at, user }
    */
   setMemoryAuth(auth) {
     this._memoryAuth = auth;
@@ -82,9 +82,9 @@ class ConfigLoader {
   // ==========================================================================
 
   /**
-   * 解析最终激活项目
+   * 解析最终激活契约集
    * 优先级：内存 > 文件 > 环境变量
-   * @returns {object|null} { team_id, project_id, project_name, synkord_core_url, updated_at }
+   * @returns {object|null} { contract_id, contract_name, synkord_core_url, updated_at, set_by }
    */
   resolveContext() {
     return (
@@ -97,7 +97,7 @@ class ConfigLoader {
   /**
    * 解析最终用户凭证
    * 优先级：内存 > 文件（**不支持** 环境变量覆盖）
-   * @returns {object|null} { token, user_id, user_name, updated_at }
+   * @returns {object|null} { access_token, refresh_token, expires_at, user }
    */
   resolveAuth() {
     return this._memoryAuth || this._fileAuth;
@@ -133,13 +133,11 @@ class ConfigLoader {
   // ==========================================================================
 
   _envContext() {
-    const teamId = process.env.SYNKORD_TEAM_ID;
-    const projectId = process.env.SYNKORD_PROJECT_ID;
-    if (!teamId || !projectId) return null;
+    const contractId = process.env.SYNKORD_CONTRACT_ID;
+    if (!contractId) return null;
     return {
-      team_id: teamId,
-      project_id: projectId,
-      project_name: process.env.SYNKORD_PROJECT_NAME || '',
+      contract_id: contractId,
+      contract_name: process.env.SYNKORD_CONTRACT_NAME || '',
       synkord_core_url: process.env.SYNKORD_API_BASE || DEFAULT_API_BASE,
       updated_at: '1970-01-01T00:00:00Z', // 占位：环境变量无时间戳
       source: 'env',

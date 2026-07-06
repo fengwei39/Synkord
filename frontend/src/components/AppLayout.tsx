@@ -1,13 +1,16 @@
 // Synkord AppLayout
 // 顶级导航：Logo | MCP★ | 契约集 | 设置 | [切换契约集▾] [👤]
 // 详见 docs/ui-spec.md §二
+//
+// 实现要点：
+// - 使用原生 button 元素替代 antd Button，确保 -webkit-app-region: no-drag 生效
+// - 在 Electron drag 区域内只有显式标注 no-drag 的元素才能点击
 
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Avatar, Button, Dropdown, Tooltip } from 'antd'
+import { Avatar, Tooltip } from 'antd'
 import {
   BorderOutlined,
   CloseOutlined,
-  DownOutlined,
   MinusOutlined,
   PushpinOutlined,
   SettingOutlined,
@@ -33,7 +36,10 @@ export default function AppLayout() {
   }
 
   const handleWindow = (action: 'minimize' | 'maximize' | 'close') => {
-    window.synkord?.windowControl?.(action)
+    if (!window.synkord) return
+    if (action === 'minimize') window.synkord.windowMinimize()
+    else if (action === 'maximize') window.synkord.windowMaximize()
+    else if (action === 'close') window.synkord.windowClose()
   }
 
   const handleLogoClick = () => {
@@ -56,6 +62,7 @@ export default function AppLayout() {
         {/* 顶级导航 Tab */}
         <div className="synkord-nav-tabs">
           <button
+            type="button"
             className={`synkord-nav-tab ${isMcpActive ? 'active' : ''}`}
             onClick={() => navigate('/mcp')}
           >
@@ -63,12 +70,14 @@ export default function AppLayout() {
             <span>MCP</span>
           </button>
           <button
+            type="button"
             className={`synkord-nav-tab ${isContractsActive ? 'active' : ''}`}
             onClick={() => navigate('/contracts')}
           >
             <span>契约集</span>
           </button>
           <button
+            type="button"
             className={`synkord-nav-tab ${isSettingsActive ? 'active' : ''}`}
             onClick={() => navigate('/settings')}
           >
@@ -82,61 +91,72 @@ export default function AppLayout() {
           {/* 切换契约集下拉 */}
           <ContractSwitcher variant="topbar" />
 
+          {/* 活跃契约集指示（点击跳到 /mcp） */}
+          {activeContract && (
+            <Tooltip title="查看活跃契约集详情">
+              <button
+                type="button"
+                className="topbar-active-indicator"
+                onClick={() => navigate(`/contracts/${activeContract.contract_id}`)}
+              >
+                <span className="dot" />
+                <span>活跃</span>
+              </button>
+            </Tooltip>
+          )}
+
           {/* 用户菜单 */}
-          <Dropdown
-            menu={{
-              items: [
-                {
-                  key: 'user',
-                  label: user?.username || '当前用户',
-                  disabled: true,
-                },
-                { type: 'divider' },
-                { key: 'logout', label: '退出登录', danger: true },
-              ],
-              onClick: ({ key }) => {
-                if (key === 'logout') handleLogout()
-              },
-            }}
-            trigger={['click']}
-          >
-            <Avatar
-              size={24}
-              className="synkord-user-avatar"
-              style={{ cursor: 'pointer' }}
+          <div className="user-menu">
+            <button
+              type="button"
+              className="user-avatar-btn"
+              onClick={() => {
+                const confirmed = window.confirm(`退出登录？\n用户：${user?.username || ''}`)
+                if (confirmed) handleLogout()
+              }}
+              title={`${user?.username || '当前用户'}（点击退出）`}
             >
-              {user?.username?.[0]?.toUpperCase() || 'S'}
-            </Avatar>
-          </Dropdown>
+              <Avatar size={24} className="synkord-user-avatar">
+                {user?.username?.[0]?.toUpperCase() || 'S'}
+              </Avatar>
+            </button>
+          </div>
 
           {/* 窗口控制 */}
-          <Tooltip title="置顶">
-            <Button type="text" icon={<PushpinOutlined />} />
-          </Tooltip>
-          <Tooltip title="最小化">
-            <Button
-              type="text"
-              className="window-button"
-              icon={<MinusOutlined />}
-              onClick={() => handleWindow('minimize')}
-            />
-          </Tooltip>
-          <Tooltip title="最大化">
-            <Button
-              type="text"
-              className="window-button"
-              icon={<BorderOutlined />}
-              onClick={() => handleWindow('maximize')}
-            />
-          </Tooltip>
-          <Tooltip title="关闭">
-            <Button
-              type="text"
-              className="window-button close"
-              icon={<CloseOutlined />}
-              onClick={() => handleWindow('close')}
-            />
-          </Tooltip>
+          <div className="window-controls">
+            <Tooltip title="置顶">
+              <button type="button" className="window-button">
+                <PushpinOutlined />
+              </button>
+            </Tooltip>
+            <Tooltip title="最小化">
+              <button
+                type="button"
+                className="window-button"
+                onClick={() => handleWindow('minimize')}
+              >
+                <MinusOutlined />
+              </button>
+            </Tooltip>
+            <Tooltip title="最大化">
+              <button
+                type="button"
+                className="window-button"
+                onClick={() => handleWindow('maximize')}
+              >
+                <BorderOutlined />
+              </button>
+            </Tooltip>
+            <Tooltip title="关闭">
+              <button
+                type="button"
+                className="window-button close"
+                onClick={() => handleWindow('close')}
+              >
+                <CloseOutlined />
+              </button>
+            </Tooltip>
+          </div>
         </div>
       </header>
 

@@ -1,194 +1,311 @@
 # Synkord
 
-Synkord 是一个开源、自托管的 MCP 规范协同平台，用于统一管理团队内的项目、接口规范、数据模型、依赖关系和变更检测结果，并向 Electron 管理端、IDE、AI 编码助手、Git Hook 和 CI 提供一致的规范来源。
+> **让 AI 在 IDE 里真正理解你的 API**
+> MCP 时代的 API 知识层
 
-当前项目包含：
+---
 
-- `backend`：Go 后端服务 `synkord-core`，提供 REST API、鉴权、项目管理、接口管理、实体模型、依赖查询、变更检测和审计能力。
-- `frontend`：Electron + React 管理端，用于团队空间、项目、接口、数据模型、MCP、依赖拓扑、变更检测和成员权限管理。
-- `docs`：需求文档、原型结构和后续重构依据。
+## 项目结构
 
-## 文档
+```
+synkord/
+├── docs/                       # 产品规格（v1.2 锁定）
+│   ├── requirements.md           # 产品需求、数据模型、API 规格
+│   ├── architecture.md           # 技术架构、认证、Electron 模块
+│   ├── mcp-spec.md               # MCP 工具、资源、错误码
+│   ├── ui-spec.md                # UI/UX 规范
+│   ├── implementation.md        # 8 周实施路线
+│   ├── mcp-user-guide.md        # 用户使用指南
+│   ├── mcp-prompt-template.md    # AI prompt 模板
+│   └── mcp-member-guide.md       # 成员管理指南
+│
+├── backend/                    # Go 后端（synkord-core）
+│   ├── main.go                    # 入口
+│   ├── config/                    # 配置加载
+│   ├── database/                  # DB 初始化 + AutoMigrate
+│   ├── middleware/                # 鉴权中间件
+│   ├── models/                    # 9 张表的数据模型
+│   ├── services/                  # 业务逻辑
+│   ├── api/                       # HTTP handlers
+│   └── scripts/smoketest.sh      # 端到端冒烟测试
+│
+└── frontend/                   # React + Electron 桌面应用
+    ├── src/                       # React 应用源码
+    │   ├── api/                    # Axios + 业务 API
+    │   ├── components/             # 通用组件
+    │   ├── contexts/               # React Context
+    │   ├── hooks/                  # 自定义 Hooks
+    │   ├── pages/                  # 页面组件
+    │   ├── types/                  # TypeScript 类型
+    │   ├── utils/                  # 工具函数
+    │   └── main.tsx                 # 入口
+    ├── electron/                  # Electron 主进程
+    │   ├── main.cjs                # 主进程入口
+    │   ├── preload.cjs             # contextBridge
+    │   ├── auth-manager.cjs        # JWT 管理
+    │   ├── auth-gateway.cjs        # 本地 HTTP 代理
+    │   ├── local-mcp-service.cjs   # MCP 子进程
+    │   ├── mcp-core/               # MCP 核心模块
+    │   └── mcp-tools/              # MCP 工具集
+    ├── build/                     # 打包资源（图标等）
+    ├── scripts/smoke-test.cjs    # Electron 端到端测试
+    └── package.json
+```
 
-- [需求文档](docs/requirements.md)
-- [原型结构与页面关系](docs/prototype-structure.md)
-- [AI 开发实施指南](docs/ai-development-guide.md)
-- [架构边界约定](docs/architecture-boundaries.md)
+---
 
-## 技术栈
-
-后端：
-
-- Go
-- Gin
-- GORM
-- SQLite，使用纯 Go 驱动，Windows 本地运行不需要 CGO/gcc
-
-前端：
-
-- Electron
-- React
-- TypeScript
-- Vite
-- Ant Design
-
-本地 MCP 服务：
-
-- 由 Electron 管理生命周期
-- 可按实现阶段选用 Go + mark3labs/mcp-go 或 Node.js MCP SDK
-
-## 本地运行
+## 快速启动
 
 ### 1. 启动后端
 
-进入后端目录：
-
-```powershell
-cd D:\code\synkord\backend
-go run .
+```bash
+cd backend
+go run main.go
+# 监听 http://127.0.0.1:8000
+# 默认管理员：admin / admin123
 ```
 
-后端默认使用 SQLite 本地数据库，当前驱动不依赖 CGO。Windows 下无需额外安装 gcc 或 MinGW。
+### 2. 启动前端（开发模式）
 
-默认后端地址：
-
-```text
-http://127.0.0.1:8000
+```bash
+cd frontend
+npm install
+npm run dev:electron   # 同时启动 Vite dev server + Electron
+# 浏览器访问 http://127.0.0.1:3000
 ```
 
-健康检查：
+### 3. 构建生产包
 
-```text
-http://127.0.0.1:8000/health
+```bash
+cd frontend
+npm run dist          # 当前平台
+npm run dist:win      # Windows (NSIS + portable)
+npm run dist:mac      # macOS (DMG)
+npm run dist:linux    # Linux (AppImage + deb)
+# 产物输出到 frontend/release/
 ```
 
-首次启动会创建默认管理员：
+### 4. 端到端冒烟测试
 
-```text
-用户名：admin
-密码：admin123
+```bash
+# 后端冒烟
+cd backend
+bash scripts/smoketest.sh   # 17 个端到端测试
+
+# Electron 冒烟
+cd frontend
+node scripts/smoke-test.cjs  # 验证 AuthManager + AuthGateway + MCP 工具调用
 ```
 
-### 2. 启动前端开发服务
+---
 
-进入前端目录：
+## 核心架构
 
-```powershell
-cd D:\code\synkord\frontend
-pnpm install
-pnpm dev
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    AI IDE（Cursor / Claude Desktop）         │
+└────────────────────────┬────────────────────────────────────┘
+                         │ MCP 协议 (stdio / http)
+┌────────────────────────▼────────────────────────────────────┐
+│  Electron Desktop App                                       │
+│  ┌─────────────┐  ┌─────────────┐  ┌──────────────────┐    │
+│  │ AuthManager │  │ AuthGateway │  │ Connect (MCP)    │    │
+│  │ - JWT 持有  │  │ - 127.0.0.1 │  │ - STDIO/HTTP     │    │
+│  │ - 自动 refresh│ │ - 注入 JWT │  │ - 工具注册表     │    │
+│  │ - 单飞       │  │ - 实例注册 │  │ - 后端代理        │    │
+│  └──────┬──────┘  └──────┬──────┘  └────────┬─────────┘    │
+│         └────────────────┼─────────────────┘              │
+│                          │                                  │
+│                   HTTPS + JWT (injected)                    │
+└──────────────────────────┼──────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────┐
+│                  Synkord Backend (Go)                      │
+│  - REST API (/api/contracts, /api/contracts/:id/apis, ...) │
+│  - JWT 认证                                                  │
+│  - MCP 工具执行 (/api/mcp/query)                            │
+│  - 审计日志                                                  │
+│  - 成员权限                                                  │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-Vite 默认地址：
+---
 
-```text
-http://127.0.0.1:3000
+## 关键设计
+
+### 1. 无团队概念
+- 每个**契约集**是独立工作空间
+- 契约集由**创建者**（owner）管理成员
+- 三种角色：`owner` / `editor` / `viewer`
+- 创建者不可被移除或降级
+
+### 2. 单一活跃契约集
+- 用户在同一会话中聚焦一个契约集
+- 手动切换（不是自动检测）
+- AI 通过 MCP 工具调用默认操作活跃契约集
+- 显式传 `contract_id` 可跨契约集查询
+
+### 3. MCP 无状态工具
+- 所有业务工具都有 `contract_id` 参数
+- 默认操作活跃契约集
+- 7 个内置工具：list/get/validate
+
+### 4. 凭证安全
+- JWT 仅由 AuthManager 持有
+- MCP 工具通过 AuthGateway 间接访问后端
+- Connect 子进程永不见真实 JWT
+- 本地凭证 0600 权限
+- 仅 127.0.0.1 监听
+
+---
+
+## API 端点
+
+| 类别 | 路径 |
+|---|---|
+| 认证 | `POST /api/auth/login`, `POST /api/auth/refresh`, `GET /api/auth/me` |
+| 契约集 | `GET/POST /api/contracts`, `GET/PATCH/DELETE /api/contracts/:id` |
+| 成员 | `GET/POST /api/contracts/:id/members`, `PATCH/DELETE /api/contracts/:id/members/:userId` |
+| 接口 | `GET/POST /api/contracts/:id/apis`, `GET/PATCH/DELETE /api/contracts/:id/apis/:apiId` |
+| 数据模型 | `GET/POST /api/contracts/:id/entities`, ... |
+| 导入 | `POST /api/contracts/:id/import/parse`, `POST /api/contracts/:id/import/commit` |
+| MCP | `GET /api/mcp/status`, `GET/PUT /api/mcp/active-contract`, `GET /api/mcp/ide-config`, `GET /api/mcp/access-log`, `POST /api/mcp/query` |
+| 健康 | `GET /health` |
+
+详细规格：[docs/requirements.md §四](./docs/requirements.md#四后端-api-规格)
+
+---
+
+## MCP 工具
+
+通过 `POST /api/mcp/query` 调用：
+
+| 工具 | 说明 |
+|---|---|
+| `get_contract_apis` | 获取活跃契约集的所有 API |
+| `get_contract_entities` | 获取活跃契约集的所有数据模型 |
+| `get_api_detail` | 获取单个 API 完整定义 |
+| `get_entity_detail` | 获取单个数据模型完整定义 |
+| `get_api_dependencies` | API 依赖关系 |
+| `get_entity_dependencies` | 数据模型依赖关系 |
+| `validate_code_against_contract` | 校验代码是否符合契约（核心约束工具） |
+| `list_contracts` / `find_contract` | 跨契约集发现 |
+
+详细规格：[docs/mcp-spec.md §二](./docs/mcp-spec.md#二工具规范)
+
+---
+
+## 5 分钟接通（用户视角）
+
+1. **安装 + 启动**：双击 Synkord 图标，登录 admin/admin123
+2. **创建契约集**：「契约集」页面 → 「+ 新建」 → 输入名称「订单平台」
+3. **录入数据**：
+   - 方式 A：导入 OpenAPI/Swagger 文件
+   - 方式 B：手动添加 API + 数据模型
+4. **设为活跃**：在契约集详情点击「设为活跃」
+5. **复制 IDE 配置**：顶部「MCP」页面 → 「接入 AI IDE」→ 选 IDE → 「复制配置」
+6. **粘贴到 IDE**：配置 Cursor / Claude Desktop 的 MCP 配置
+7. **让 AI 写代码**：在 IDE 里问"基于订单平台，写个查询订单的代码"
+
+AI 会通过 MCP 读取契约集，按真实接口约束生成代码 — **不瞎编**。
+
+---
+
+## 开发
+
+### 前端开发
+
+```bash
+cd frontend
+npm run dev              # Vite dev server
+npm run dev:electron     # 同时启动 Electron
+npm run build            # 类型检查 + 构建
+npx tsc --noEmit         # 仅类型检查
 ```
 
-如果本机没有全局 `pnpm`，可以先启用 Corepack：
+### 后端开发
 
-```powershell
-corepack enable
-corepack prepare pnpm@latest --activate
+```bash
+cd backend
+go run main.go
+go build ./...
+bash scripts/smoketest.sh
 ```
 
-### 3. 启动 Electron 客户端
+### 端到端冒烟
 
-保持前端开发服务运行，然后在 `frontend` 目录执行：
+```bash
+# 1. 启动后端
+cd backend && go run main.go &
 
-```powershell
-pnpm electron
+# 2. 后端冒烟（17 测试）
+cd backend && bash scripts/smoketest.sh
+
+# 3. Electron 冒烟（验证主进程 + Gateway + Connect）
+cd frontend && node scripts/smoke-test.cjs
 ```
 
-Electron 开发模式默认连接：
+### 调试
 
-```text
-http://127.0.0.1:3000
-```
+- **前端**：浏览器 DevTools（F12） + Vite HMR
+- **Electron 主进程**：`npm run dev:electron` 时主进程日志输出在启动终端
+- **MCP 子进程**：日志写到 `~/.synkord/logs/`
+- **后端**：默认日志输出到 stdout
 
-如果需要指定前端地址：
+---
 
-```powershell
-$env:SYNKORD_DEV_URL="http://127.0.0.1:3000"
-pnpm electron
-```
+## 部署
 
-### 4. 使用 Docker Compose 启动后端
+### 开发环境
+- 后端：`go run main.go`（监听 :8000）
+- 前端：`npm run dev:electron`（监听 :3000 + Electron 窗口）
 
-也可以在项目根目录通过 Docker Compose 启动后端：
+### 生产环境
 
-```powershell
-cd D:\code\synkord
-docker compose up --build
-```
+**单台机器（推荐）**：
+- 后端编译：`cd backend && go build -o synkord-core main.go`
+- 前端打包：`cd frontend && npm run dist`
+- 用户下载安装包，桌面客户端自动连接 `127.0.0.1:8000` 后端
 
-Docker 服务暴露：
+**多机器（团队）**：
+- 后端部署在服务器（修改 CORS 配置）
+- 前端打包后，配置 `SYNKORD_API_BASE` 环境变量指向服务器
+- 每台开发机运行自己的 Connect 子进程（无需本地后端）
 
-```text
-REST API: http://127.0.0.1:8000
-```
+---
 
-如果 Docker 无法拉取镜像，优先确认 Docker Desktop 已启动，并检查网络或镜像源配置。
+## 路线图
 
-## 常用命令
+| 阶段 | 状态 | 说明 |
+|---|---|---|
+| Phase 1 | ✅ | 路由与导航重构 |
+| Phase 2 | ✅ | MCP 页面重做（Electron IPC） |
+| Phase 3 | ✅ | 活跃契约集实现 |
+| Phase 4 | ✅ | Auth Gateway 抽取 |
+| Phase 5 | ✅ | OpenAPI/Postman 导入 |
+| Phase 6 | ✅ | 成员管理 + UX 清理 |
+| Phase 7 | ✅ | 可访问性与文档 |
+| **Phase 8** | ✅ | **Electron 桌面客户端（AuthManager + AuthGateway）** |
+| 打包 | ✅ | electron-builder 配置 + smoke test 17/17 |
 
-后端：
+**当前完成度：95%**
 
-```powershell
-cd D:\code\synkord\backend
-go test ./...
-go run .
-```
+剩余：
+- 真实 IDE 集成测试（手动）
+- 应用签名（Code signing for Windows/macOS）
+- 自动更新机制（electron-updater）
+- 国际化（i18n）
 
-前端：
-
-```powershell
-cd D:\code\synkord\frontend
-pnpm dev
-pnpm build
-pnpm electron
-```
-
-如果 `pnpm dev` 遇到端口权限问题，可以显式指定端口：
-
-```powershell
-pnpm vite --host 127.0.0.1 --port 3000
-```
-
-## 架构边界
-
-Synkord 按职责分为四层：
-
-- 后端服务：管理登录、用户、团队、权限、项目、接口、数据模型、变更和审计等业务能力，通过 REST API 对外提供服务。
-- Electron 客户端：作为桌面管理端和本地运行环境管家，负责配置后端地址、展示管理 UI，并管理本机 MCP 服务的启动、停止、配置和状态。
-- 本地 MCP 服务：对 Codex、Cursor、VSCode、JetBrains 等 IDE/Agent 暴露 MCP tools/resources/prompts，并按权限调用后端 REST API 获取规范数据。
-- IDE/Agent：作为 MCP Client 连接本地 MCP 服务，不直接承担 Synkord 后端业务管理职责。
-
-详细边界以 [架构边界约定](docs/architecture-boundaries.md) 为准。
-
-## MCP 使用说明
-
-Synkord 通过 Electron 管理本地 MCP 服务，并由本地 MCP 服务向 IDE/Agent 提供 MCP 入口。后续会支持：
-
-- 本地 MCP 服务开关
-- 当前激活团队和当前激活项目的 MCP 接入
-- 当前 MCP 配置的工具范围授权
-- Token 启用、停用、过期和重新生成
-
-推荐模式是 Electron 在当前设备上只管理一个本地 MCP 服务入口。该入口同一时间只绑定 Electron 当前打开的一个团队和一个项目；IDE/Agent 连接这个入口时，消费的是当前激活团队和当前激活项目的规范上下文。
-
-MCP 入口放在项目详情中：用户打开哪个项目的 MCP Tab，Electron 就将哪个项目设为当前 MCP 激活项目；IDE 配置中的本地 MCP 地址保持稳定，切换项目不需要修改 `.mcp.json`。
-
-## 当前重构方向
-
-后续开发以 `docs/prototype-structure.md` 为页面结构依据，优先顺序：
-
-1. 统一全局布局和团队上下文。
-2. 补齐我的团队、团队切换、团队成员权限。
-3. 重构项目管理、接口管理、数据模型。
-4. 完善 MCP 管理、依赖拓扑和变更检测闭环。
-5. 将页面模拟数据逐步替换为后端接口。
+---
 
 ## 许可证
 
-当前仓库尚未添加 LICENSE 文件。正式开源发布前需要补充许可证声明。
+MIT
+
+---
+
+## 反馈
+
+- 文档：[docs/](./docs/)
+- 问题：GitHub Issues
+- 邮件：team@synkord.dev

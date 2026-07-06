@@ -24,8 +24,8 @@ const DEFAULT_HTTP_PORT = 37991;
 const DEFAULT_HTTP_PATH = '/mcp';
 const HOST = '127.0.0.1'; // §10 安全：仅本机回环，禁止 0.0.0.0
 
-// 文件名常量（文档 §14.1）
-const FILE_ACTIVE_CONTEXT = 'active-context.json';
+// 文件名常量（文档 §14.1，v1.2 重命名）
+const FILE_ACTIVE_CONTRACT = 'active-contract.json';
 const FILE_USER_AUTH = 'user-auth.json';
 const FILE_ACCESS_LOG = 'mcp-access.log';
 
@@ -42,10 +42,16 @@ function synkordHome() {
 }
 
 /**
- * 获取 active-context.json 绝对路径
+ * 获取 active-contract.json 绝对路径
+ * 兼容旧文件名 active-context.json（v1.2 之前的）
  */
 function activeContextPath() {
-  return path.join(synkordHome(), FILE_ACTIVE_CONTEXT);
+  return path.join(synkordHome(), FILE_ACTIVE_CONTRACT)
+}
+
+/** @deprecated 别名，保留向后兼容 */
+function activeContractPath() {
+  return activeContextPath()
 }
 
 /**
@@ -242,6 +248,7 @@ module.exports = {
   // 路径
   synkordHome,
   activeContextPath,
+  activeContractPath,
   userAuthPath,
   accessLogPath,
   // 文件

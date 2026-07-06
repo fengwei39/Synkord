@@ -12,11 +12,13 @@ export interface AccessLogEntry {
   id: string
   contract_id?: string
   tool_name: string
-  client: string
+  caller: string
   args?: Record<string, unknown>
+  result_status: 'success' | 'error'
   status: number
   duration_ms: number
-  timestamp: string
+  error_message: string
+  created_at: string
 }
 
 /**

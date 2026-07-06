@@ -156,10 +156,7 @@ apiClient.interceptors.response.use(
       // 通知 AuthProvider
       _onUnauthorized?.()
 
-      // Electron 通知主进程
-      window.synkord?.mcpSetActiveProject?.(null).catch(() => undefined)
-
-      // 跳登录页（保留 redirect）
+      // 跳登录页（活跃契约集由后端 API 管理，无需 IPC 通知）
       if (window.location.pathname !== '/login') {
         const redirect =
           currentPath && currentPath !== '/login' && currentPath !== '/'

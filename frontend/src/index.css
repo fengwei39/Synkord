@@ -174,34 +174,46 @@ select {
   background: #f8faff;
 }
 
-.synkord-top-tabs {
+.synkord-nav-tabs {
   height: 100%;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 4px;
+  margin-left: 16px;
 }
 
-.synkord-top-tab {
+.synkord-nav-tab {
   height: 28px;
   border: 0;
   border-radius: 7px;
-  padding: 0 10px;
+  padding: 0 12px;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   color: #34425b;
   background: transparent;
   cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
   -webkit-app-region: no-drag;
 }
 
-.synkord-top-tab.active {
+.synkord-nav-tab:hover {
+  background: rgba(15, 23, 42, 0.05);
+  color: #17233d;
+}
+
+.synkord-nav-tab.active {
   background: #fff;
+  color: #1677ff;
   box-shadow: 0 1px 3px rgba(25, 35, 60, 0.12);
 }
 
-.synkord-top-tab.icon-only {
+.synkord-nav-tab.icon-only {
   width: 28px;
+  padding: 0;
   justify-content: center;
 }
 
@@ -210,8 +222,8 @@ select {
   height: 100%;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding-right: 8px;
+  gap: 6px;
+  padding-right: 10px;
   -webkit-app-region: no-drag;
 }
 
@@ -221,41 +233,639 @@ select {
   color: #25334c;
 }
 
-.mcp-status-chip {
-  height: 24px;
-  border: 1px solid #dde4ef;
+/* ============================================================================
+   MCP Console Page
+   ============================================================================ */
+
+.mcp-console {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.mcp-status-card .ant-statistic-content {
+  font-size: 16px;
+}
+
+.mcp-status-card .ant-statistic-title {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.active-contract-card .active-contract-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.active-contract-card .ant-statistic-content {
+  font-size: 18px;
+}
+
+.ide-config-card .ide-config-textarea,
+.ide-config-card .ant-input {
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  background: #1e293b !important;
+  color: #e2e8f0;
+  border: 0;
+}
+
+.ide-config-card .ide-config-textarea .ant-input {
+  background: transparent !important;
+  color: #e2e8f0;
+}
+
+.recent-logs-card .recent-logs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.recent-logs-card .recent-log-item {
+  padding: 8px 10px;
+  border-radius: 6px;
+  margin-bottom: 4px;
+  background: #f8fafc;
+  border-left: 3px solid #cbd5e1;
+}
+
+.recent-logs-card .recent-log-item.log-success {
+  border-left-color: #52c41a;
+}
+
+.recent-logs-card .recent-log-item.log-error {
+  border-left-color: #ff4d4f;
+  background: #fff1f0;
+}
+
+.recent-logs-card .log-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.recent-logs-card .log-tool {
+  font-size: 12px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-logs-card .log-time {
+  font-size: 11px;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.recent-logs-card .log-error {
+  font-size: 11px;
+  display: block;
+  margin-top: 2px;
+  margin-left: 4px;
+}
+
+.quick-start-card .ant-steps-item-title {
+  font-size: 13px;
+}
+
+.mcp-actions-card .ant-btn {
+  min-width: 80px;
+}
+
+/* ============================================================================
+   Contract Create Page
+   ============================================================================ */
+
+.contract-create {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.contract-create-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .contract-create-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.contract-create-form-card {
+  background: #fff;
+}
+
+.contract-create .ant-form-item-label > label {
+  font-weight: 500;
+  color: #17233d;
+}
+
+.contract-create .ant-input,
+.contract-create .ant-input-affix-wrapper {
   border-radius: 7px;
-  padding: 0 8px;
+}
+
+.contract-type-group .ant-radio-button-wrapper {
+  border-radius: 8px !important;
+  height: auto;
+  padding: 12px 16px;
+  border-color: #e4e8f0;
+}
+
+.contract-type-group .ant-radio-button-wrapper:not(:first-child)::before {
+  display: none;
+}
+
+.contract-type-group .ant-radio-button-wrapper-checked {
+  border-color: #1677ff !important;
+  background: #e6f4ff !important;
+  box-shadow: 0 0 0 1px #1677ff !important;
+}
+
+.contract-type-option {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  color: #5f6c82;
+}
+
+.contract-type-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.contract-create-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.side-card {
   background: #fff;
-  font-size: 12px;
+}
+
+.side-card .ant-card-body {
+  padding: 16px 18px;
+}
+
+.side-card h5 {
+  font-size: 13px;
+  font-weight: 600;
+  color: #17233d;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.side-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.side-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 12.5px;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.side-icon {
+  color: #52c41a;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.hint-card {
+  background: linear-gradient(135deg, #f0f7ff, #f5f0ff) !important;
+}
+
+.hint-card .ant-typography {
+  margin-bottom: 0;
+}
+
+.type-example-card .ant-typography {
+  margin-bottom: 0;
+}
+
+/* ============================================================================
+   契约集切换器（顶栏 + MCP 页面共用）
+   ============================================================================ */
+
+.contract-switcher {
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+.contract-switcher-trigger {
+  height: 28px;
+  border: 1px solid #dde4ef;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 12px;
+  background: #fff;
+  color: #17233d;
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.contract-switcher-trigger:hover {
+  border-color: #b9c4d6;
+  background: #f8faff;
+}
+
+.contract-switcher.open .contract-switcher-trigger {
+  border-color: #1677ff;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.1);
+}
+
+.contract-switcher-topbar .contract-switcher-trigger {
+  min-width: 220px;
+  max-width: 320px;
+}
+
+.contract-switcher-page .contract-switcher-trigger {
+  min-width: 280px;
+}
+
+.contract-switcher-trigger .trigger-label {
+  font-size: 11px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.contract-switcher-trigger .trigger-value {
+  font-size: 13px;
+  font-weight: 500;
+  color: #17233d;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.contract-switcher-trigger .trigger-value.empty {
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+.contract-switcher-trigger .trigger-arrow {
+  font-size: 10px;
+  color: #94a3b8;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+
+.contract-switcher.open .trigger-arrow.flip {
+  transform: rotate(180deg);
+}
+
+/* 下拉面板 */
+.contract-switcher-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 360px;
+  max-height: 540px;
+  background: #fff;
+  border: 1px solid #e4e8f0;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.06);
+  z-index: 1050;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: switcherDropdownIn 0.12s ease-out;
+}
+
+.contract-switcher-page .contract-switcher-dropdown {
+  right: auto;
+  left: 0;
+}
+
+@keyframes switcherDropdownIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.switcher-header {
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #f0f2f5;
+}
+
+.switcher-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #17233d;
+}
+
+.switcher-close {
+  border: 0;
+  background: transparent;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
   cursor: pointer;
 }
 
-.mcp-status-chip.enabled {
-  color: #047857;
-  border-color: #bbf7d0;
-  background: #f0fdf4;
+.switcher-close:hover {
+  background: #f0f2f5;
+  color: #475569;
 }
 
-.mcp-status-chip.disabled {
-  color: #b45309;
-  border-color: #fde68a;
-  background: #fffbeb;
+.switcher-search {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0f2f5;
 }
 
-.mcp-status-chip.not_configured {
-  color: #64748b;
+.switcher-search .ant-input-affix-wrapper {
+  border-radius: 7px;
+}
+
+.switcher-search .ant-input {
+  font-size: 13px;
+}
+
+.switcher-search .search-icon {
+  color: #94a3b8;
+}
+
+.switcher-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px;
+  min-height: 80px;
+  max-height: 360px;
+}
+
+.switcher-item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  transition: background 0.12s;
+}
+
+.switcher-item:hover {
+  background: #f5f7fb;
+}
+
+.switcher-item.current {
+  background: #eef4ff;
+}
+
+.switcher-item.current:hover {
+  background: #e1ebff;
+}
+
+.switcher-item .item-row {
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.switcher-item .item-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.switcher-item .item-bullet {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 50%;
+}
+
+.switcher-item .item-check {
+  color: #1677ff;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.switcher-item .item-name-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: #17233d;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.switcher-item .item-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.switcher-item .item-meta .ant-tag {
+  margin: 0;
+  font-size: 11px;
+  padding: 0 6px;
+  line-height: 18px;
+}
+
+.switcher-empty {
+  padding: 20px 12px;
+  text-align: center;
+}
+
+.switcher-action-btn {
+  width: 100%;
+  margin-top: 8px;
+  height: 32px;
+  border: 0;
+  border-radius: 7px;
+  font-size: 13px;
+  cursor: pointer;
+  background: #1677ff;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background 0.12s;
+}
+
+.switcher-action-btn:hover {
+  background: #4096ff;
+}
+
+.switcher-action-btn.ghost {
+  background: #f5f7fb;
+  color: #475569;
+  border: 1px solid #e4e8f0;
+}
+
+.switcher-action-btn.ghost:hover {
+  background: #eef0f4;
+}
+
+.switcher-footer {
+  border-top: 1px solid #f0f2f5;
+  padding: 6px 8px;
+}
+
+.switcher-footer-link {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #475569;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.12s, color 0.12s;
+}
+
+.switcher-footer-link:hover {
+  background: #f5f7fb;
+  color: #1677ff;
+}
+
+/* ============================================================================
+   顶栏活跃指示器
+   ============================================================================ */
+
+.topbar-active-indicator {
+  height: 24px;
+  border: 0;
+  background: #eef4ff;
+  color: #1677ff;
+  border-radius: 12px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s;
+  -webkit-app-region: no-drag;
+}
+
+.topbar-active-indicator:hover {
+  background: #d6e4ff;
+}
+
+.topbar-active-indicator .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #1677ff;
+  box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.2);
+}
+
+/* ============================================================================
+   用户菜单 / 窗口控制
+   ============================================================================ */
+
+.user-menu {
+  -webkit-app-region: no-drag;
+}
+
+.user-avatar-btn {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0 4px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.12s;
+}
+
+.user-avatar-btn:hover {
+  opacity: 0.85;
 }
 
 .synkord-user-avatar {
-  margin: 0 6px;
   background: linear-gradient(135deg, #dbeafe, #eef2ff);
-  color: #7c8aa3;
+  color: #5b6b87;
   font-size: 12px;
+  font-weight: 600;
+}
+
+.window-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  margin-left: 4px;
+  padding-left: 6px;
+  border-left: 1px solid #dfe4ee;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+.window-button {
+  border: 0;
+  background: transparent;
+  width: 30px;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #5f6c82;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.12s, color 0.12s;
+}
+
+.window-button:hover {
+  background: rgba(15, 23, 42, 0.06);
+  color: #17233d;
 }
 
 .window-button.close:hover {

@@ -180,8 +180,8 @@ async function callTool({ loader, tool, args, auth }) {
   if (!tool) throw codeError(CODES.INVALID_ARGS, 'tool name required');
 
   const ctx = loader.resolveContext();
-  if (!ctx || !ctx.team_id || !ctx.project_id) {
-    throw codeError(CODES.NOT_FOUND, 'no active project context');
+  if (!ctx || !ctx.contract_id) {
+    throw codeError(CODES.NOT_FOUND, 'no active contract context');
   }
 
   return callBackend({
@@ -190,8 +190,7 @@ async function callTool({ loader, tool, args, auth }) {
     loader,
     auth,
     body: {
-      team_id: ctx.team_id,
-      project_id: ctx.project_id,
+      contract_id: ctx.contract_id,
       tool,
       args: args || {},
     },
@@ -215,7 +214,7 @@ async function callTool({ loader, tool, args, auth }) {
  */
 async function writeAudit({ loader, toolName, caller, paramsSummary, resultStatus, errorMessage, auth }) {
   const ctx = loader.resolveContext();
-  if (!ctx || !ctx.team_id || !ctx.project_id) {
+  if (!ctx || !ctx.contract_id) {
     return null; // 无上下文不写
   }
   try {
@@ -225,8 +224,7 @@ async function writeAudit({ loader, toolName, caller, paramsSummary, resultStatu
       loader,
       auth,
       body: {
-        team_id: ctx.team_id,
-        project_id: ctx.project_id,
+        contract_id: ctx.contract_id,
         tool_name: toolName,
         caller: caller || 'local-mcp',
         params_summary: paramsSummary || '{}',

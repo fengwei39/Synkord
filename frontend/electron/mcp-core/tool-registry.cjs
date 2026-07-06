@@ -120,8 +120,8 @@ class ToolRegistry {
 
     // 3. 上下文校验
     const ctx = loader.resolveContext();
-    if (!ctx || !ctx.team_id || !ctx.project_id) {
-      const err = codeError(CODES.NOT_FOUND, 'no active project context');
+    if (!ctx || !ctx.contract_id) {
+      const err = codeError(CODES.NOT_FOUND, 'no active contract context');
       await this._writeAuditSafe(loader, tool, args, entry, 'error', err.message);
       return this._errorResult(err);
     }

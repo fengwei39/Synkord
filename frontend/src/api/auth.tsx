@@ -54,7 +54,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem('synkord_current_project_id')
     setToken(null)
     setUser(null)
-    window.synkord?.mcpSetActiveProject?.(null).catch(() => undefined)
+    // 通知主进程：MCP 重新启动时会自动重新读取凭证
+    // 活跃契约集由后端 API 管理（setActiveContract），无需 IPC 通知
     setBootstrapping(false)
   }, [])
 

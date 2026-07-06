@@ -26,9 +26,9 @@ async function handler(args, context) {
   const total = data.total ?? items.length;
 
   const text = JSON.stringify({
-    project: {
-      team_id: context.context.team_id,
-      project_id: context.context.project_id,
+    contract: {
+      contract_id: context.context.contract_id,
+      contract_name: context.context.contract_name,
     },
     total,
     items,

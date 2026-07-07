@@ -39,6 +39,9 @@ import { useContract } from '../contexts/ContractContext'
 import type { ContractSet } from '../types/contract'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { DangerConfirm } from '../components/DangerConfirm'
+import ContractApisList from '../components/ContractApisList'
+import ContractEntitiesList from '../components/ContractEntitiesList'
+import ContractMembersList from '../components/ContractMembersList'
 
 const { Title, Text } = Typography
 
@@ -277,32 +280,33 @@ export default function ContractDetail() {
           {
             key: 'apis',
             label: <span><ApiOutlined /> 接口 ({contract?.api_count ?? 0})</span>,
-            children: (
+            children: contract ? (
+              <ContractApisList contractId={contract.id} embedded />
+            ) : (
               <Card>
-                <Text type="secondary">接口列表（Phase 2 详细实现）</Text>
+                <Skeleton active />
               </Card>
             ),
           },
           {
             key: 'models',
             label: <span><DatabaseOutlined /> 数据模型 ({contract?.entity_count ?? 0})</span>,
-            children: (
+            children: contract ? (
+              <ContractEntitiesList contractId={contract.id} embedded />
+            ) : (
               <Card>
-                <Text type="secondary">数据模型列表（Phase 2 详细实现）</Text>
+                <Skeleton active />
               </Card>
             ),
           },
           {
             key: 'members',
             label: <span><TeamOutlined /> 成员 ({contract?.member_count ?? 0})</span>,
-            children: (
+            children: contract ? (
+              <ContractMembersList contractId={contract.id} embedded />
+            ) : (
               <Card>
-                <Text type="secondary">
-                  成员管理（Phase 6 详细实现） ·{' '}
-                  {contract && (
-                    <a onClick={() => navigate(`/contracts/${contract.id}/members`)}>前往成员管理 →</a>
-                  )}
-                </Text>
+                <Skeleton active />
               </Card>
             ),
           },

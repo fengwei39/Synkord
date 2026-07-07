@@ -2587,3 +2587,142 @@ select {
 .danger-zone-action {
   display: block;
 }
+
+/* ============================================================
+ * ContractApisList - 分组表格
+ * 每个分组一张 Table，组头有底色 + 顶部 margin
+ * ============================================================ */
+.api-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.api-group {
+  display: block;
+}
+.api-group-header {
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  background: rgba(0, 0, 0, 0.02);
+  border-left: 3px solid #1677ff;
+  border-radius: 2px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+.api-group-header:hover {
+  background: rgba(22, 119, 255, 0.06);
+}
+.api-group-header:focus-visible {
+  outline: 2px solid #1677ff;
+  outline-offset: 2px;
+}
+.api-group-caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.55);
+  transition: transform 0.2s ease;
+}
+.api-group-caret.collapsed {
+  transform: rotate(-90deg);
+}
+.api-group .ant-table-wrapper .ant-table {
+  margin-bottom: 0;
+}
+
+/* ============================================================
+ * 主从布局（接口 / 数据模型 Tab）
+ * 左侧列表 + 右侧详情；窄屏自动堆叠
+ * ============================================================ */
+.master-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 5fr) minmax(0, 7fr);
+  gap: 16px;
+  align-items: start;
+}
+.master-detail-layout .master-pane {
+  min-width: 0;
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
+  padding-right: 16px;
+  max-height: calc(100vh - 280px);
+  overflow-y: auto;
+}
+.master-detail-layout .detail-pane {
+  min-width: 0;
+  max-height: calc(100vh - 280px);
+  overflow-y: auto;
+  padding-left: 4px;
+}
+.apis-detail-empty {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 300px;
+}
+@media (max-width: 1100px) {
+  .master-detail-layout {
+    grid-template-columns: 1fr;
+  }
+  .master-detail-layout .master-pane {
+    border-right: none;
+    padding-right: 0;
+    max-height: none;
+    overflow: visible;
+  }
+  .master-detail-layout .detail-pane {
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+/* 行选中态：左侧列表当前选中的行加浅蓝底色 */
+.ant-table-tbody > tr.api-row-selected > td {
+  background: rgba(22, 119, 255, 0.08) !important;
+}
+.ant-table-tbody > tr.api-row-selected:hover > td {
+  background: rgba(22, 119, 255, 0.12) !important;
+}
+
+/* 详情面板：标题行、section 排版 */
+.api-detail-panel,
+.entity-detail-panel {
+  font-size: 13px;
+}
+.api-detail-header,
+.entity-detail-header {
+  padding: 4px 4px 0;
+}
+.api-detail-title-row,
+.entity-detail-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.api-detail-section {
+  margin-bottom: 12px;
+}
+.api-detail-section:last-child {
+  margin-bottom: 0;
+}
+.api-detail-section-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.55);
+  margin-bottom: 6px;
+}
+.api-detail-pre {
+  background: #fafafa;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  padding: 10px 12px;
+  border-radius: 4px;
+  overflow: auto;
+  font-family: 'SF Mono', Consolas, Monaco, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  max-height: 320px;
+}

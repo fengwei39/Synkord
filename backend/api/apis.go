@@ -4,13 +4,86 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/synkord/core/database"
+	"github.com/synkord/core/models"
 	"github.com/synkord/core/services"
 )
+
+// apiResponseItem 把 models.APIEndpoint 的 JSON 字符串字段（tags / parameters_json /
+// request_body_json / responses_json）解码成前端友好的对象/数组形式。
+// 模型底层仍是 JSON 字符串（GORM schema 兼容），但 API 契约层面保持干净的 JSON 结构。
+type apiResponseItem struct {
+	ID              string                 `json:"id"`
+	ContractID      string                 `json:"contract_id"`
+	Path            string                 `json:"path"`
+	Method          string                 `json:"method"`
+	Summary         string                 `json:"summary"`
+	Description     string                 `json:"description"`
+	Tags            []string               `json:"tags"`
+	Parameters      []interface{}           `json:"parameters"`
+	RequestBody     map[string]interface{} `json:"request_body"`
+	Responses       map[string]interface{} `json:"responses"`
+	Deprecated      bool                   `json:"deprecated"`
+	CreatedAt       time.Time              `json:"created_at"`
+	UpdatedAt       time.Time              `json:"updated_at"`
+}
+
+func toAPIResponse(a models.APIEndpoint) apiResponseItem {
+	return apiResponseItem{
+		ID:          a.ID,
+		ContractID:  a.ContractID,
+		Path:        a.Path,
+		Method:      a.Method,
+		Summary:     a.Summary,
+		Description: a.Description,
+		Tags:        decodeStringSlice(a.Tags),
+		Parameters:  decodeAnySlice(a.ParametersJSON),
+		RequestBody: decodeAnyMap(a.RequestBodyJSON),
+		Responses:   decodeAnyMap(a.ResponsesJSON),
+		Deprecated:  a.Deprecated,
+		CreatedAt:   a.CreatedAt,
+		UpdatedAt:   a.UpdatedAt,
+	}
+}
+
+func decodeStringSlice(raw string) []string {
+	if raw == "" {
+		return []string{}
+	}
+	var out []string
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return []string{}
+	}
+	return out
+}
+
+func decodeAnySlice(raw string) []interface{} {
+	if raw == "" {
+		return nil
+	}
+	var out []interface{}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func decodeAnyMap(raw string) map[string]interface{} {
+	if raw == "" {
+		return nil
+	}
+	var out map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil
+	}
+	return out
+}
 
 func listContractAPIs(c *gin.Context) {
 	contractID := c.Param("id")
@@ -31,7 +104,11 @@ func listContractAPIs(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"total": total, "items": apis})
+	items := make([]apiResponseItem, 0, len(apis))
+	for _, a := range apis {
+		items = append(items, toAPIResponse(a))
+	}
+	c.JSON(http.StatusOK, gin.H{"total": total, "items": items})
 }
 
 func createContractAPI(c *gin.Context) {
@@ -59,7 +136,7 @@ func createContractAPI(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
 	}
-	c.JSON(http.StatusCreated, api)
+	c.JSON(http.StatusCreated, toAPIResponse(*api))
 }
 
 func getContractAPI(c *gin.Context) {
@@ -75,7 +152,7 @@ func getContractAPI(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"detail": "API not found"})
 		return
 	}
-	c.JSON(http.StatusOK, api)
+	c.JSON(http.StatusOK, toAPIResponse(*api))
 }
 
 func updateContractAPI(c *gin.Context) {
@@ -94,7 +171,7 @@ func updateContractAPI(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, api)
+	c.JSON(http.StatusOK, toAPIResponse(*api))
 }
 
 func deleteContractAPI(c *gin.Context) {

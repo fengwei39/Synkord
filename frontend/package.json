@@ -3,6 +3,10 @@
   "productName": "Synkord",
   "private": true,
   "version": "0.1.0",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=9.0.0"
+  },
   "description": "Synkord — MCP 时代的 API 知识层",
   "author": {
     "name": "Synkord Team",

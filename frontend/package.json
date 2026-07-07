@@ -28,11 +28,6 @@
       "esbuild"
     ]
   },
-  "description": "Synkord — MCP 时代的 API 知识层",
-  "author": {
-    "name": "Synkord Team",
-    "email": "team@synkord.dev"
-  },
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {

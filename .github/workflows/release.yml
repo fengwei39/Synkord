@@ -62,6 +62,7 @@ jobs:
           cache: true
           cache-dependency-path: backend/go.sum
       - name: Build
+        shell: bash
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
           GOOS: ${{ matrix.os == 'windows-latest' && 'windows' || (matrix.os == 'macos-latest' && 'darwin' || 'linux') }}
@@ -73,6 +74,7 @@ jobs:
             -o ../dist/${{ matrix.binary }} .
 
       - name: Smoke test
+        shell: bash
         run: |
           # Linux/macOS 上跑一下看能不能启动 + /health 200
           if [ "${{ matrix.os }}" != "windows-latest" ]; then

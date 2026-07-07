@@ -90,37 +90,7 @@
       "releaseType": "release"
     },
     "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
-      "extraResources": [
-        {
-          "from": "electron/bin/synkord-windows-amd64.exe",
-          "to": "synkord.exe"
-        }
-      ],
-      "nsis": {
-        "oneClick": false,
-        "perMachine": false,
-        "allowElevation": true,
-        "allowToChangeInstallationDirectory": true,
-        "createDesktopShortcut": true,
-        "createStartMenuShortcut": true,
-        "shortcutName": "Synkord",
-        "shortcutDescription": "Synkord — MCP 时代的 API 知识层"
-      }
+      "target": "nsis"
     },
     "mac": {
       "target": [

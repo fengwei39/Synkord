@@ -377,7 +377,7 @@ export default function ContractApisList({ contractId, embedded, onCountChange }
   const listContent = (
     <div className="apis-list-pane">
       {/* 过滤行 */}
-      <Space style={{ marginBottom: 12 }} wrap>
+      <Space style={{ marginBottom: 8 }} wrap size={6}>
         <Input
           prefix={<SearchOutlined />}
           placeholder="搜索路径或描述..."
@@ -385,20 +385,23 @@ export default function ContractApisList({ contractId, embedded, onCountChange }
           onChange={(e) => setKeyword(e.target.value)}
           onPressEnter={load}
           allowClear
-          style={{ width: 240 }}
+          size="small"
+          style={{ width: 200 }}
         />
         <Select
           placeholder="HTTP 方法"
           value={methodFilter}
           onChange={setMethodFilter}
           allowClear
-          style={{ width: 130 }}
+          size="small"
+          style={{ width: 110 }}
           options={HTTP_METHODS.map((m) => ({ value: m, label: m }))}
         />
         <Select
           value={groupBy}
           onChange={(v) => setGroupBy(v as GroupBy)}
-          style={{ width: 130 }}
+          size="small"
+          style={{ width: 110 }}
           options={GROUP_BY_OPTIONS}
         />
         <Checkbox
@@ -539,15 +542,16 @@ export default function ContractApisList({ contractId, embedded, onCountChange }
       )}
 
       {embedded && canEdit && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-          <Space>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+          <Space size={6}>
             <Button
+              size="small"
               icon={<ImportOutlined />}
               onClick={() => navigate(`/contracts/${contractId}/import`)}
             >
               导入 OpenAPI
             </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+            <Button size="small" type="primary" icon={<PlusOutlined />} onClick={openCreate}>
               新增接口
             </Button>
           </Space>

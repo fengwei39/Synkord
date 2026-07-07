@@ -49,6 +49,16 @@ export async function deleteContract(id: string): Promise<void> {
   await apiClient.delete(`/contracts/${id}`)
 }
 
+export async function clearContractApis(id: string): Promise<{ deleted_apis: number }> {
+  const resp = await apiClient.post(`/contracts/${id}/apis/clear`)
+  return resp.data
+}
+
+export async function clearContractEntities(id: string): Promise<{ deleted_entities: number }> {
+  const resp = await apiClient.post(`/contracts/${id}/entities/clear`)
+  return resp.data
+}
+
 // ============================================================================
 // MCP Active Contract
 // ============================================================================

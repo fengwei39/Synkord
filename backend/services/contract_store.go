@@ -205,6 +205,101 @@ func UpdateContract(db *gorm.DB, contractID, userID string, name, description *s
 // ErrContractNotEmpty 契约集非空，禁止删除
 var ErrContractNotEmpty = errors.New("contract is not empty: remove all APIs, data models and other members before deleting")
 
+// ClearContractAPIs 清空契约集下所有接口（仅 owner / editor 可调用）
+// 同时清理：dependencies（依赖图按 contract_id 全清，因为 Dependency 是按
+// entity_name/api_path 软引用，没有外键关联）
+// 返回删除的接口数
+func ClearContractAPIs(db *gorm.DB, contractID, userID string) (int, error) {
+	role, err := getMemberRole(db, contractID, userID)
+	if err != nil || (role != models.ContractRoleOwner && role != models.ContractRoleEditor) {
+		return 0, errors.New("editor or owner required")
+	}
+
+	tx := db.Begin()
+	if tx.Error != nil {
+		return 0, tx.Error
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// 先清掉依赖图（按 contract_id 全清，依赖节点将全部失效）
+	if err := tx.Where("contract_id = ?", contractID).Delete(&models.Dependency{}).Error; err != nil {
+		tx.Rollback()
+		return 0, err
+	}
+
+	res := tx.Where("contract_id = ?", contractID).Delete(&models.APIEndpoint{})
+	if res.Error != nil {
+		tx.Rollback()
+		return 0, res.Error
+	}
+	count := int(res.RowsAffected)
+
+	if err := tx.Commit().Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// ClearContractEntities 清空契约集下所有数据模型（仅 owner / editor 可调用）
+// 同时清理：依赖图、entity_versions
+// 返回删除的实体数
+func ClearContractEntities(db *gorm.DB, contractID, userID string) (int, error) {
+	role, err := getMemberRole(db, contractID, userID)
+	if err != nil || (role != models.ContractRoleOwner && role != models.ContractRoleEditor) {
+		return 0, errors.New("editor or owner required")
+	}
+
+	tx := db.Begin()
+	if tx.Error != nil {
+		return 0, tx.Error
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// 先取本契约集所有 entity id，用于清 entity_versions
+	var entityIDs []string
+	if err := tx.Model(&models.DataModel{}).
+		Where("contract_id = ?", contractID).
+		Pluck("id", &entityIDs).Error; err != nil {
+		tx.Rollback()
+		return 0, err
+	}
+
+	// 清依赖图（按 contract_id 全清）
+	if err := tx.Where("contract_id = ?", contractID).Delete(&models.Dependency{}).Error; err != nil {
+		tx.Rollback()
+		return 0, err
+	}
+
+	// 清 entity_versions（按 entity_id 子查询）
+	if len(entityIDs) > 0 {
+		if err := tx.Where("entity_id IN ?", entityIDs).
+			Delete(&models.DataModelVersion{}).Error; err != nil {
+			tx.Rollback()
+		}
+	}
+
+	// 清实体本体
+	res := tx.Where("contract_id = ?", contractID).Delete(&models.DataModel{})
+	if res.Error != nil {
+		tx.Rollback()
+		return 0, res.Error
+	}
+	count := int(res.RowsAffected)
+
+	if err := tx.Commit().Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // DeleteContract 删除契约集（级联删除所有内容，仅 owner）
 //
 // 前置条件：契约集必须为空

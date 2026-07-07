@@ -216,14 +216,15 @@ export default function ContractEntitiesList({ contractId, embedded, onCountChan
   // 左侧列表内容
   const listContent = (
     <div className="entities-list-pane">
-      <Space style={{ marginBottom: 12 }} wrap>
+      <Space style={{ marginBottom: 8 }} wrap>
         <Input
           prefix={<SearchOutlined />}
           placeholder="搜索模型名称或描述..."
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
           allowClear
-          style={{ width: 280 }}
+          size="small"
+          style={{ width: 240 }}
         />
       </Space>
 
@@ -313,8 +314,8 @@ export default function ContractEntitiesList({ contractId, embedded, onCountChan
       )}
 
       {embedded && canEdit && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+          <Button size="small" type="primary" icon={<PlusOutlined />} onClick={openCreate}>
             新增数据模型
           </Button>
         </div>

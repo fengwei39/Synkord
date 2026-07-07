@@ -35,6 +35,7 @@ func RegisterContractRoutes(r *gin.RouterGroup) {
 		c.GET("/:id/apis/:apiId", getContractAPI)
 		c.PATCH("/:id/apis/:apiId", updateContractAPI)
 		c.DELETE("/:id/apis/:apiId", deleteContractAPI)
+		c.POST("/:id/apis/clear", clearContractAPIs)
 		c.GET("/:id/apis/:apiId/dependencies", getContractAPIDependencies)
 
 		// 数据模型
@@ -43,6 +44,7 @@ func RegisterContractRoutes(r *gin.RouterGroup) {
 		c.GET("/:id/entities/:entityId", getContractEntity)
 		c.PATCH("/:id/entities/:entityId", updateContractEntity)
 		c.DELETE("/:id/entities/:entityId", deleteContractEntity)
+		c.POST("/:id/entities/clear", clearContractEntities)
 		c.GET("/:id/entities/:entityId/dependencies", getContractEntityDependencies)
 		c.GET("/:id/entities/:entityId/versions", listContractEntityVersions)
 
@@ -189,6 +191,36 @@ func deleteContract(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+// clearContractAPIs 清空契约集下所有接口（owner / editor 可调用）
+func clearContractAPIs(c *gin.Context) {
+	contractID, ok := requireContractEditor(c)
+	if !ok {
+		return
+	}
+	userID := c.GetString("user_id")
+	count, err := services.ClearContractAPIs(database.DB, contractID, userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"deleted_apis": count})
+}
+
+// clearContractEntities 清空契约集下所有数据模型（owner / editor 可调用）
+func clearContractEntities(c *gin.Context) {
+	contractID, ok := requireContractEditor(c)
+	if !ok {
+		return
+	}
+	userID := c.GetString("user_id")
+	count, err := services.ClearContractEntities(database.DB, contractID, userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"deleted_entities": count})
 }
 
 // 共享权限校验：校验当前用户对 contractID 有访问权限

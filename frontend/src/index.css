@@ -1754,7 +1754,7 @@ select {
   height: 100%;
   overflow: auto;
   background: #fff;
-  padding: 36px 48px 56px 32px;
+  padding: 16px 24px 32px 16px;
 }
 
 .workspace-home {
@@ -2639,28 +2639,28 @@ select {
  * ============================================================ */
 .master-detail-layout {
   display: grid;
-  grid-template-columns: minmax(320px, 5fr) minmax(0, 7fr);
-  gap: 16px;
+  grid-template-columns: minmax(280px, 5fr) minmax(0, 7fr);
+  gap: 12px;
   align-items: start;
 }
 .master-detail-layout .master-pane {
   min-width: 0;
   border-right: 1px solid rgba(0, 0, 0, 0.06);
-  padding-right: 16px;
-  max-height: calc(100vh - 280px);
+  padding-right: 12px;
+  max-height: calc(100vh - 160px);
   overflow-y: auto;
 }
 .master-detail-layout .detail-pane {
   min-width: 0;
-  max-height: calc(100vh - 280px);
+  max-height: calc(100vh - 160px);
   overflow-y: auto;
-  padding-left: 4px;
+  padding-left: 2px;
 }
 .apis-detail-empty {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  min-height: 300px;
+  min-height: 240px;
 }
 @media (max-width: 1100px) {
   .master-detail-layout {
@@ -2678,6 +2678,17 @@ select {
   }
 }
 
+/* 列表行紧凑：减小行内边距 */
+.master-detail-layout .ant-table-tbody > tr > td {
+  padding: 6px 12px !important;
+}
+.master-detail-layout .ant-table-tbody > tr > td:first-child {
+  padding-left: 0 !important;
+}
+.master-detail-layout .ant-table-thead > tr > th {
+  padding: 6px 12px !important;
+}
+
 /* 行选中态：左侧列表当前选中的行加浅蓝底色 */
 .ant-table-tbody > tr.api-row-selected > td {
   background: rgba(22, 119, 255, 0.08) !important;
@@ -2693,7 +2704,7 @@ select {
 }
 .api-detail-header,
 .entity-detail-header {
-  padding: 4px 4px 0;
+  padding: 0 0 4px;
 }
 .api-detail-title-row,
 .entity-detail-title-row {
@@ -2703,7 +2714,7 @@ select {
   flex-wrap: wrap;
 }
 .api-detail-section {
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 .api-detail-section:last-child {
   margin-bottom: 0;
@@ -2712,17 +2723,51 @@ select {
   font-size: 12px;
   font-weight: 500;
   color: rgba(0, 0, 0, 0.55);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 .api-detail-pre {
   background: #fafafa;
   border: 1px solid rgba(0, 0, 0, 0.06);
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-radius: 4px;
   overflow: auto;
   font-family: 'SF Mono', Consolas, Monaco, 'Courier New', monospace;
   font-size: 12px;
   line-height: 1.5;
   margin: 0;
-  max-height: 320px;
+  max-height: 280px;
+}
+
+/* 详情面板：每个 Card 之间紧凑 */
+.api-detail-panel .ant-card,
+.entity-detail-panel .ant-card {
+  margin-top: 8px;
+}
+.api-detail-panel .ant-card:first-child,
+.entity-detail-panel .ant-card:first-child {
+  margin-top: 0;
+}
+/* Card body 内边距收紧 */
+.api-detail-panel .ant-card-body,
+.entity-detail-panel .ant-card-body {
+  padding: 10px 14px;
+}
+.api-detail-panel .ant-card-head,
+.entity-detail-panel .ant-card-head {
+  padding: 0 14px;
+  min-height: 36px;
+}
+.api-detail-panel .ant-card-head-title,
+.entity-detail-panel .ant-card-head-title {
+  padding: 8px 0;
+  font-size: 13px;
+}
+/* Card 内 table 行紧凑 */
+.api-detail-panel .ant-table-tbody > tr > td,
+.entity-detail-panel .ant-table-tbody > tr > td {
+  padding: 4px 12px !important;
+}
+.api-detail-panel .ant-table-thead > tr > th,
+.entity-detail-panel .ant-table-thead > tr > th {
+  padding: 6px 12px !important;
 }

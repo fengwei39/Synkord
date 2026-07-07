@@ -34,7 +34,7 @@ import {
   SettingOutlined,
   TeamOutlined,
 } from '@ant-design/icons'
-import { getContract, updateContract, deleteContract } from '../api/contracts'
+import { getContract, updateContract, deleteContract, clearContractApis, clearContractEntities } from '../api/contracts'
 import { useContract } from '../contexts/ContractContext'
 import type { ContractSet } from '../types/contract'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
@@ -65,6 +65,9 @@ export default function ContractDetail() {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [clearApisOpen, setClearApisOpen] = useState(false)
+  const [clearEntitiesOpen, setClearEntitiesOpen] = useState(false)
+  const [clearing, setClearing] = useState(false)
   // owner 在「查看 / 编辑」两种模式间切换；非 owner 永远不可编辑
   const [editing, setEditing] = useState(false)
   const [form] = Form.useForm<BasicInfoFormValues>()
@@ -73,6 +76,8 @@ export default function ContractDetail() {
 
   // 删除前置条件：仅 owner + 契约集为空（无 API/模型，成员只有创建者）
   const isOwner = contract?.my_role === 'owner'
+  // 编辑权限：owner / editor
+  const canEdit = contract?.my_role === 'owner' || contract?.my_role === 'editor'
   const emptyForDelete = useMemo(
     () =>
       !!contract &&
@@ -235,39 +240,69 @@ export default function ContractDetail() {
     }
   }
 
+  const handleClearApis = async () => {
+    if (!contract) return
+    setClearing(true)
+    try {
+      const res = await clearContractApis(contract.id)
+      ctxMessage.success(`已清除 ${res.deleted_apis} 个接口`)
+      setClearApisOpen(false)
+      // 重新拉取当前 contract（接口数 / 实体数都会变）
+      await load(contract.id)
+    } catch (e: any) {
+      ctxMessage.error(e?.message || '清除失败')
+    } finally {
+      setClearing(false)
+    }
+  }
+
+  const handleClearEntities = async () => {
+    if (!contract) return
+    setClearing(true)
+    try {
+      const res = await clearContractEntities(contract.id)
+      ctxMessage.success(`已清除 ${res.deleted_entities} 个数据模型`)
+      setClearEntitiesOpen(false)
+      await load(contract.id)
+    } catch (e: any) {
+      ctxMessage.error(e?.message || '清除失败')
+    } finally {
+      setClearing(false)
+    }
+  }
+
   return (
     <div className="page-content contract-detail">
-      <Space style={{ marginBottom: 16 }}>
-        <Button icon={<LeftOutlined />} type="text" onClick={() => navigate('/contracts')}>
+      <Space style={{ marginBottom: 8 }}>
+        <Button
+          icon={<LeftOutlined />}
+          type="text"
+          size="small"
+          onClick={() => navigate('/contracts')}
+        >
           返回
         </Button>
       </Space>
 
       <div className="contract-detail-header">
         {contract ? (
-          <>
-            <Title level={3} style={{ margin: 0 }}>
+          <Space size={10} wrap align="center" style={{ marginBottom: 12 }}>
+            <Title level={4} style={{ margin: 0 }}>
               {contract.name}
-              {isActive && <Tag color="blue" style={{ marginLeft: 12 }}>活跃中</Tag>}
-              {contract.archived && <Tag color="default" style={{ marginLeft: 8 }}>已归档</Tag>}
             </Title>
-            <Space style={{ marginTop: 8 }}>
-              <Text type="secondary">
-                创建于 {new Date(contract.created_at).toLocaleDateString()} · 最近更新 {new Date(contract.updated_at).toLocaleDateString()}
-              </Text>
-            </Space>
-            <Space style={{ marginTop: 8 }}>
-              {role && <Tag>我的角色：{role === 'owner' ? '创建者' : role === 'editor' ? '编辑者' : '查看者'}</Tag>}
-            </Space>
-            <Space style={{ marginTop: 16 }}>
-              {!isActive && role && (
-                <Button type="primary" onClick={handleSetActive}>设为活跃</Button>
-              )}
-              {(role === 'owner' || role === 'editor') && (
-                <Button onClick={() => navigate(`/contracts/${contract.id}/import`)}>导入 API</Button>
-              )}
-            </Space>
-          </>
+            {isActive && <Tag color="blue">活跃中</Tag>}
+            {contract.archived && <Tag color="default">已归档</Tag>}
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              创建于 {new Date(contract.created_at).toLocaleDateString()} · 最近更新 {new Date(contract.updated_at).toLocaleDateString()}
+            </Text>
+            {role && <Tag>我的角色：{role === 'owner' ? '创建者' : role === 'editor' ? '编辑者' : '查看者'}</Tag>}
+            {!isActive && role && (
+              <Button size="small" type="primary" onClick={handleSetActive}>设为活跃</Button>
+            )}
+            {(role === 'owner' || role === 'editor') && (
+              <Button size="small" onClick={() => navigate(`/contracts/${contract.id}/import`)}>导入 API</Button>
+            )}
+          </Space>
         ) : (
           <Skeleton active paragraph={{ rows: 2 }} title={{ width: 240 }} />
         )}
@@ -275,7 +310,7 @@ export default function ContractDetail() {
 
       <Tabs
         defaultActiveKey="apis"
-        style={{ marginTop: 24 }}
+        style={{ marginTop: 4 }}
         items={[
           {
             key: 'apis',
@@ -433,7 +468,51 @@ export default function ContractDetail() {
                 <Divider style={{ margin: '24px 0 16px' }} />
                 <div className="danger-zone">
                   <div className="danger-zone-label">
-                    <Text strong style={{ color: '#ff4d4f' }}>危险操作</Text>
+                    <Text strong style={{ color: '#ff4d4f' }}>清除内容</Text>
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      清空所有接口与数据模型，保留契约集本身、成员、活跃状态。
+                      依赖图会随之一并清理。
+                    </Text>
+                  </div>
+                  <Space wrap>
+                    <Tooltip title={!isOwner && !canEdit ? '仅编辑者及以上可操作' : ''}>
+                      <Button
+                        danger
+                        icon={<ApiOutlined />}
+                        size="small"
+                        disabled={!canEdit || (contract?.api_count ?? 0) === 0}
+                        onClick={() => setClearApisOpen(true)}
+                      >
+                        清除所有接口
+                        {contract && contract.api_count > 0 && (
+                          <span style={{ marginLeft: 6, opacity: 0.7 }}>({contract.api_count})</span>
+                        )}
+                      </Button>
+                    </Tooltip>
+                    <Tooltip title={!isOwner && !canEdit ? '仅编辑者及以上可操作' : ''}>
+                      <Button
+                        danger
+                        icon={<DatabaseOutlined />}
+                        size="small"
+                        disabled={!canEdit || (contract?.entity_count ?? 0) === 0}
+                        onClick={() => setClearEntitiesOpen(true)}
+                      >
+                        清除所有数据模型
+                        {contract && contract.entity_count > 0 && (
+                          <span style={{ marginLeft: 6, opacity: 0.7 }}>({contract.entity_count})</span>
+                        )}
+                      </Button>
+                    </Tooltip>
+                  </Space>
+                </div>
+
+                <Divider style={{ margin: '16px 0' }} />
+
+                <div className="danger-zone">
+                  <div className="danger-zone-label">
+                    <Text strong style={{ color: '#ff4d4f' }}>删除契约集</Text>
                   </div>
                   {!isOwner && (
                     <Alert
@@ -503,6 +582,40 @@ export default function ContractDetail() {
         acknowledge="我已了解此操作不可恢复"
         onCancel={() => setDeleteOpen(false)}
         onOk={handleConfirmDelete}
+      />
+
+      <DangerConfirm
+        open={clearApisOpen}
+        title={contract ? `清除「${contract.name}」的所有接口` : '清除所有接口'}
+        description={
+          <Space direction="vertical" size={4}>
+            <span>将永久删除该契约集下所有接口及其依赖关系，无法恢复。</span>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              当前 {contract?.api_count ?? 0} 个接口 · 成员、数据模型、导入历史会保留。
+            </Text>
+          </Space>
+        }
+        okText={`清除 ${contract?.api_count ?? 0} 个接口`}
+        acknowledge="我已了解此操作不可恢复"
+        onCancel={() => setClearApisOpen(false)}
+        onOk={handleClearApis}
+      />
+
+      <DangerConfirm
+        open={clearEntitiesOpen}
+        title={contract ? `清除「${contract.name}」的所有数据模型` : '清除所有数据模型'}
+        description={
+          <Space direction="vertical" size={4}>
+            <span>将永久删除该契约集下所有数据模型、版本历史、依赖关系，无法恢复。</span>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              当前 {contract?.entity_count ?? 0} 个数据模型 · 成员、接口、导入历史会保留。
+            </Text>
+          </Space>
+        }
+        okText={`清除 ${contract?.entity_count ?? 0} 个数据模型`}
+        acknowledge="我已了解此操作不可恢复"
+        onCancel={() => setClearEntitiesOpen(false)}
+        onOk={handleClearEntities}
       />
     </div>
   )

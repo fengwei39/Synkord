@@ -83,12 +83,6 @@
     "extraMetadata": {
       "main": "electron/main.cjs"
     },
-    "publish": {
-      "provider": "github",
-      "owner": "synkord",
-      "repo": "synkord",
-      "releaseType": "release"
-    },
     "win": {
       "target": "nsis"
     },

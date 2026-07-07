@@ -16,8 +16,10 @@ const {
   readJsonFile,
   activeContextPath,
   userAuthPath,
+  serverConfigPath,
   DEFAULT_API_BASE,
 } = require('./utils.cjs');
+const fs = require('fs');
 
 // ============================================================================
 // ConfigLoader 类
@@ -109,6 +111,10 @@ class ConfigLoader {
    * @returns {string}
    */
   resolveApiBase() {
+    const serverConfig = this._serverConfig();
+    if (serverConfig?.apiBase) {
+      return serverConfig.apiBase;
+    }
     const ctx = this.resolveContext();
     if (ctx && ctx.synkord_core_url) {
       return ctx.synkord_core_url;
@@ -142,6 +148,15 @@ class ConfigLoader {
       updated_at: '1970-01-01T00:00:00Z', // 占位：环境变量无时间戳
       source: 'env',
     };
+  }
+
+  _serverConfig() {
+    try {
+      if (!fs.existsSync(serverConfigPath())) return null;
+      return JSON.parse(fs.readFileSync(serverConfigPath(), 'utf-8'));
+    } catch {
+      return null;
+    }
   }
 }
 

@@ -121,7 +121,7 @@ git push origin v0.2.0
 https://github.com/synkord/synkord/actions/workflows/release.yml
 
 # 大约 5-10 分钟（4 个 job 并行 + 1 个汇总）
-# 4 个产物：synkord-core × 4 / synkord-cli × 4 / 桌面端 × 3 / docker × 1
+# 4 类产物：客户端 macOS / 客户端 Windows / Go 后端 / SQLite 部署包
 ```
 
 ### 4.6 检查 release
@@ -131,7 +131,10 @@ https://github.com/synkord/synkord/actions/workflows/release.yml
 https://github.com/synkord/synkord/releases/tag/v0.2.0
 
 # 2. 检查 asset 是否齐全（约 12 个文件）
-# - synkord-core-{linux/darwin/windows}-{amd64/arm64}[.exe]
+# - Synkord-*.dmg
+# - Synkord-Setup-*-x64.exe
+# - synkord-core-linux-amd64
+# - synkord-sqlite-deploy-*.tar.gz
 # - synkord-cli-*
 # - Synkord-Setup-x64.exe (Windows)
 # - Synkord-x.x.x-arm64.dmg (macOS)
@@ -144,7 +147,7 @@ sha256sum -c checksums.txt
 # 4. 验证二进制版本号
 ./synkord-cli-linux-amd64 version
 # → synkord v0.2.0
-curl -s http://localhost:8000/api/health
+curl -s http://localhost:8000/health
 # → { "version": "v0.2.0", ... }
 ```
 
@@ -163,8 +166,9 @@ curl -s http://localhost:8000/api/health
 - 修复 YYY bug (#456)
 - 文档更新：ZZZ
 
-Docker 用户：
-  docker pull ghcr.io/synkord/synkord-core:0.2.0
+服务端管理员：
+  下载 synkord-core-linux-amd64 + synkord-sqlite-deploy-0.2.0.tar.gz
+  按 deploy/server/README.md 升级
 
 完整 changelog：见 release notes
 ```
@@ -228,7 +232,7 @@ gh release delete v0.2.0 --yes
 # 4. 修复问题，重新走 4.3 - 4.5
 ```
 
-**Docker 镜像无法删除**（GHCR 限制）：标记为 `v0.2.0-broken`，新版本用 `v0.2.1`。
+如已公开错误服务端包，保留问题版本并发布修复版本（例如 `v0.2.1`），在 Release notes 标注 `v0.2.0` 不建议使用。
 
 ## 8. 发布 checklist
 
@@ -264,7 +268,7 @@ gh release delete v0.2.0 --yes
 ## 10. 相关文档
 
 - [CONTRIBUTING.md](../CONTRIBUTING.md) — 贡献者指南（含提交规范）
-- [docs/deployment.md](deployment.md) — 部署方案（CI/CD、桌面端、Docker）
+- [docs/deployment.md](deployment.md) — 部署方案（CI/CD、桌面端、Go + SQLite）
 - [.github/release-drafter.yml](../.github/release-drafter.yml) — release notes 分类规则
 - [.github/workflows/release.yml](../.github/workflows/release.yml) — 完整 workflow 源码
 - [scripts/bump-version.sh](../scripts/bump-version.sh) — bump 脚本

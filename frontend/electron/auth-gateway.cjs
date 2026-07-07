@@ -13,6 +13,19 @@
 'use strict';
 
 const http = require('http');
+const https = require('https');
+
+function parseBackendUrl(backendUrl) {
+  const raw = String(backendUrl || '').trim().replace(/\/+$/, '')
+  const match = raw.match(/^(https?):\/\/(\[[^\]]+\]|[^/:]+)(?::(\d+))?(.*)$/i)
+  if (!match) {
+    throw new Error(`invalid backend url: ${backendUrl}`)
+  }
+  const protocol = match[1].toLowerCase() + ':'
+  const hostname = match[2].replace(/^\[(.*)\]$/, '$1')
+  const port = match[3] || (protocol === 'https:' ? '443' : '80')
+  return { raw, protocol, hostname, port }
+}
 
 class AuthGateway {
   /**
@@ -25,10 +38,16 @@ class AuthGateway {
     this.authManager = authManager
     this.backendUrl = backendUrl
     this.instanceId = instanceId
-    this.backend = new URL(backendUrl)
+    this.backend = parseBackendUrl(backendUrl)
     this.server = null
     this.port = null
     this.allowedInstances = new Set() // 注册的 MCP 实例
+  }
+
+  setBackendUrl(backendUrl) {
+    if (!backendUrl) return
+    this.backendUrl = backendUrl.replace(/\/+$/, '')
+    this.backend = parseBackendUrl(this.backendUrl)
   }
 
   /**
@@ -155,13 +174,14 @@ class AuthGateway {
 
     const options = {
       hostname: this.backend.hostname,
-      port: this.backend.port || (this.backend.protocol === 'https:' ? 443 : 80),
+      port: this.backend.port,
       path,
       method: req.method,
       headers,
     }
 
-    const proxyReq = http.request(options, (proxyRes) => {
+    const transport = this.backend.protocol === 'https:' ? https : http
+    const proxyReq = transport.request(options, (proxyRes) => {
       res.writeHead(proxyRes.statusCode || 502, proxyRes.headers)
       proxyRes.pipe(res)
     })

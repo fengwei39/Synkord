@@ -32,6 +32,12 @@ class AuthManager {
     this._refreshing = null
   }
 
+  setBackendUrl(backendUrl) {
+    if (backendUrl) {
+      this.backendUrl = backendUrl.replace(/\/+$/, '')
+    }
+  }
+
   /**
    * 初始化：加载本地凭证（如有）
    */

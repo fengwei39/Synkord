@@ -107,23 +107,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 关键：pnpm 必须先于 setup-node 装，setup-node@v4 需要 pnpm 已就绪才能用 cache: pnpm
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-      # 兜底：actions/setup-node@v4 + pnpm/action-setup@v4 在 Windows runner 上
-      # PATH 传播有问题，'Install' step 找不到 pnpm。
-      # 改用 npm install -g 强制装到 Node 同目录的 bin（一定在 PATH 里）
-      - name: Install pnpm (fallback)
-        if: matrix.os == 'windows-latest'
-        run: npm install -g pnpm@9
-        shell: pwsh
 
       - run: pnpm install --frozen-lockfile
 

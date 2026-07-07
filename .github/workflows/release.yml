@@ -131,6 +131,7 @@ jobs:
       # 桌面端内置 CLI：先编译 CLI 到 electron/bin/，再让 electron-builder 把它打进 extraResources
       - name: Build CLI (${{ matrix.os }})
         working-directory: synkord-cli
+        shell: bash    # Windows runner 默认 pwsh，bash 语法（[[ ]]、&&、${}）会报 ParserError
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
           GOOS: ${{ matrix.os == 'windows-latest' && 'windows' || 'darwin' }}
@@ -138,13 +139,14 @@ jobs:
         run: |
           mkdir -p ../frontend/electron/bin
           EXT=""
-          [ "$GOOS" = "windows" ] && EXT=".exe"
+          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
           CGO_ENABLED=0 go build -trimpath \
             -ldflags="-s -w -X main.version=${VERSION}" \
             -o ../frontend/electron/bin/synkord-${GOOS}-${GOARCH}${EXT} .
           ls -la ../frontend/electron/bin/
 
       - name: Build Desktop
+        shell: bash
         env:
           # 不做代码签名：用户首次运行会看到 OS 自身的告警
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

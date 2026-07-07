@@ -3,6 +3,20 @@
   "productName": "Synkord",
   "private": true,
   "version": "0.1.0",
+  "description": "Synkord — MCP 时代的 API 知识层",
+  "author": {
+    "name": "Synkord Team",
+    "email": "team@synkord.dev"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/synkord/synkord#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fengwei39/Synkord.git"
+  },
+  "bugs": {
+    "url": "https://github.com/fengwei39/Synkord/issues"
+  },
   "engines": {
     "node": ">=22.0.0",
     "pnpm": ">=9.0.0"

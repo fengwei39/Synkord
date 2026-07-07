@@ -105,7 +105,6 @@
         }
       ],
       "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
-      "signtoolOptions": null,
       "extraResources": [
         {
           "from": "electron/bin/synkord-windows-amd64.exe",

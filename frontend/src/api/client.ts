@@ -5,33 +5,51 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import type { ApiError } from '../types/contract'
 
+const API_BASE_STORAGE_KEY = 'synkord_api_base'
+const API_BASE_RAW_STORAGE_KEY = 'synkord_api_base_raw'
+
+function ensureApiSuffix(url: string): string {
+  const trimmed = (url || '').trim().replace(/\/+$/, '')
+  if (!trimmed) return '/api'
+  return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`
+}
+
+function getUserConfiguredApiBase(): string | null {
+  const raw = localStorage.getItem(API_BASE_RAW_STORAGE_KEY)
+  if (raw?.trim()) {
+    return localStorage.getItem(API_BASE_STORAGE_KEY) || ensureApiSuffix(raw)
+  }
+  return null
+}
+
 const apiClient = axios.create({
-  baseURL: localStorage.getItem('synkord_api_base') || '/api',
+  baseURL: getUserConfiguredApiBase() || '/api',
   timeout: 30000,
 })
 
 // Dynamic base URL from Electron (if available)
 // v1.2 修复：Electron 返回的 baseURL 必须以 '/api' 结尾，否则请求会缺前缀导致 404
 //   - 校验：若 IPC 返回的 baseURL 不带 '/api' 后缀，自动补上
-//   - 优先级：localStorage 中已有的值仍优先（用户手动改过），但若不带 /api 也纠正
-function ensureApiSuffix(url: string): string {
-  return url.replace(/\/+$/, '') + (url.endsWith('/api') ? '' : '/api')
-}
+//   - 优先级：用户手动配置的服务器地址最高；Electron 默认地址只做运行时 fallback，不写回配置
 if (window.synkord?.getAPIBase) {
   window.synkord.getAPIBase().then((baseURL) => {
-    if (!baseURL) return
-    const normalized = ensureApiSuffix(baseURL)
-    const stored = localStorage.getItem('synkord_api_base')
-    if (!stored || stored !== normalized) {
-      apiClient.defaults.baseURL = normalized
-      // 同步回写，便于下次启动 / 浏览器 DevTools 调试
-      localStorage.setItem('synkord_api_base', normalized)
+    const configured = getUserConfiguredApiBase()
+    if (configured) {
+      apiClient.defaults.baseURL = ensureApiSuffix(configured)
+      return
     }
+    if (!baseURL) return
+    apiClient.defaults.baseURL = ensureApiSuffix(baseURL)
   })
 }
 
 // Token injection
 apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  const configured = getUserConfiguredApiBase()
+  if (configured) {
+    config.baseURL = ensureApiSuffix(configured)
+    apiClient.defaults.baseURL = config.baseURL
+  }
   const token = localStorage.getItem('synkord_token')
   if (token) {
     config.headers.set('Authorization', `Bearer ${token}`)

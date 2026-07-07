@@ -7,7 +7,7 @@
 
 1. [形态总览](#1-形态总览)
 2. [桌面端单机（Electron）](#2-桌面端单机electron)
-3. [自托管服务端（Docker）](#3-自托管服务端docker)
+3. [自托管服务端（Go + SQLite）](#3-自托管服务端go--sqlite)
 4. [生产环境升级路径](#4-生产环境升级路径)
 5. [CI/CD Pipeline](#5-cicd-pipeline)
 6. [CLI 工具分发](#6-cli-工具分发)
@@ -72,19 +72,18 @@ pnpm dist:linux         # → release/Synkord-0.1.0-x64.AppImage + .deb
 
 ---
 
-## 3. 自托管服务端（Docker）
+## 3. 自托管服务端（Go + SQLite）
 
-**详细步骤**：[`deploy/selfhost/README.md`](../deploy/selfhost/README.md)
+**详细步骤**：[`deploy/server/README.md`](../deploy/server/README.md)
 
-**快速开始**：
+**发布包部署**：
 
 ```bash
-cd deploy/selfhost
-cp .env.example .env
-# 修改 JWT_SECRET / MCP_TOKEN / 域名
-openssl rand -hex 32  # 填到 JWT_SECRET
-openssl rand -hex 32  # 填到 MCP_TOKEN
-docker compose up -d
+sudo mkdir -p /opt/synkord
+sudo cp synkord-core-linux-amd64 /opt/synkord/synkord-core
+sudo chmod +x /opt/synkord/synkord-core
+sudo tar -xzf synkord-sqlite-deploy-X.Y.Z.tar.gz -C /opt/synkord
+sudo /opt/synkord/init-db.sh
 ```
 
 ### 架构
@@ -192,10 +191,9 @@ PR 触发，三端并行：
 | Job | 产物 | 版本号来源 |
 |---|---|---|
 | `resolve` | （内部）| 从 tag 抽 `vX.Y.Z`，下游用 |
-| `backend` | 3 平台二进制（linux/amd64+arm64, darwin/arm64, windows/amd64）| `-ldflags "-X main.version=$VERSION"` |
-| `cli` | 3 平台 CLI 二进制 | `-ldflags "-X main.version=$VERSION"` |
-| `desktop` | electron-builder 安装包（NSIS/DMG/AppImage+deb）| `frontend/package.json` `version` |
-| `docker` | `ghcr.io/synkord/synkord-core` 多 tag（latest / 版本 / sha）| `--build-arg VERSION=…` |
+| `backend` | Go 后端：`synkord-core-linux-amd64` | `-ldflags "-X main.version=$VERSION"` |
+| `sqlite-package` | SQLite 部署辅助包：`synkord-sqlite-deploy-X.Y.Z.tar.gz` | `VERSION` |
+| `desktop` | 客户端 2 个：macOS DMG、Windows NSIS | `frontend/package.json` `version` |
 
 汇总 job 收集所有 artifact → 生成 SHA256SUMS → 创建 GitHub Release。
 
@@ -286,7 +284,7 @@ synkord validate-deps --used-entities User,Order --used-apis /api/users/{id},/ap
 后端已有 `/health` 端点（[backend/main.go](../../backend/main.go)）：
 
 ```bash
-curl -s https://synkord.yourcompany.com/api/health
+curl -s https://synkord.yourcompany.com/health
 # {
 #   "status": "ok",
 #   "service": "synkord-core",
@@ -295,18 +293,18 @@ curl -s https://synkord.yourcompany.com/api/health
 # }
 ```
 
-`docker-compose.yml` 已配 `healthcheck`：
-- 每 30s 探活
-- 失败 3 次重启容器
-- `depends_on: condition: service_healthy` 串行启动
+systemd 服务由 `deploy/server/init-db.sh` 安装：
+- `Restart=on-failure`
+- 失败 5 秒后自动重启
+- 日志通过 `journalctl -u synkord -f` 查看
 
 ### 8.2 推荐接入的监控
 
 | 工具 | 用途 | 接入方式 |
 |---|---|---|
-| UptimeRobot / Better Stack | HTTP 健康监控 | 探 `/api/health`，5min 一次 |
+| UptimeRobot / Better Stack | HTTP 健康监控 | 探 `/health`，5min 一次 |
 | Prometheus + Grafana | 指标 + 仪表盘 | 需后端加 `/metrics`（pprof 已有）|
-| Loki / Vector | 日志聚合 | Caddy 访问日志 + Docker json 日志 |
+| Loki / Vector | 日志聚合 | Caddy 访问日志 + systemd journal |
 | Sentry | 错误聚合 | 后端加 sentry-go，前端 @sentry/react |
 
 ### 8.3 备份策略
@@ -425,7 +423,7 @@ docker compose exec synkord-core sqlite3 /app/data/synkord.db ".backup /app/data
 docker compose cp synkord-core:/app/data/backup.db ./backup-$(date +%F).db
 
 # 健康检查
-curl -s https://$SYNKORD_DOMAIN/api/health | jq
+curl -s https://$SYNKORD_DOMAIN/health | jq
 ```
 
 ---

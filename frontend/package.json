@@ -32,7 +32,8 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
-    "electron": "electron .",
+    "electron": "node scripts/dev-electron.cjs",
+    "electron:raw": "electron .",
     "dev:electron": "node scripts/dev-electron.cjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
@@ -93,7 +94,13 @@
       "main": "electron/main.cjs"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "extraResources": [
+        {
+          "from": "electron/bin/synkord-windows-amd64.exe",
+          "to": "synkord.exe"
+        }
+      ]
     },
     "mac": {
       "target": [

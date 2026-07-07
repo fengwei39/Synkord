@@ -9,7 +9,7 @@ MCP 时代的 API 知识层 — 把后端契约集中管理，让 Cursor / VSCod
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![GitHub release](https://img.shields.io/github/v/release/synkord/synkord)](https://github.com/synkord/synkord/releases)
 [![CI](https://github.com/synkord/synkord/workflows/CI/badge.svg)](.github/workflows/ci.yml)
-[![Docker](https://img.shields.io/badge/docker-ghcr.io-blue)](https://github.com/synkord/synkord/pkgs/container/synkord-core)
+[![Release](https://img.shields.io/badge/release-client%20%2B%20server-blue)](https://github.com/synkord/synkord/releases)
 [![GitHub stars](https://img.shields.io/github/stars/synkord/synkord?style=social)](https://github.com/synkord/synkord/stargazers)
 
 [English](README.en.md) · [快速开始](#-快速开始) · [文档](docs/) · [贡献](CONTRIBUTING.md)
@@ -33,7 +33,7 @@ MCP 时代的 API 知识层 — 把后端契约集中管理，让 Cursor / VSCod
 - 📚 **OpenAPI / Postman 一键导入**（批量建契约）
 - 🔍 **MCP 工具**：让 IDE AI 查端点 / 校验代码 / 跨契约搜索
 - 👥 **成员协作**：owner / editor / viewer 三级权限
-- 🖥️ **桌面端 + 服务端双形态**：单机 SQLite 自带 MCP / 团队自托管 Docker
+- 🖥️ **桌面端 + 服务端双形态**：成员安装客户端 / 团队只部署一台 Go + SQLite 后端
 
 ---
 
@@ -54,17 +54,17 @@ MCP 时代的 API 知识层 — 把后端契约集中管理，让 Cursor / VSCod
 
 ### 方式 B：自托管服务端（团队用）
 
-需要 Docker，5 分钟上线：
+管理员部署一次 Go 后端和 SQLite 数据库，团队成员只安装客户端：
 
 ```bash
-git clone https://github.com/synkord/synkord.git
-cd synkord/deploy/selfhost
-cp .env.example .env
-vi .env  # 改 JWT_SECRET / MCP_TOKEN / 域名
-docker compose up -d
+sudo mkdir -p /opt/synkord
+sudo cp synkord-core-linux-amd64 /opt/synkord/synkord-core
+sudo chmod +x /opt/synkord/synkord-core
+sudo tar -xzf synkord-sqlite-deploy-X.Y.Z.tar.gz -C /opt/synkord
+sudo /opt/synkord/init-db.sh
 ```
 
-详见 [deploy/selfhost/README.md](deploy/selfhost/README.md) 和 [docs/deployment.md](docs/deployment.md)。
+详见 [deploy/server/README.md](deploy/server/README.md) 和 [docs/deployment.md](docs/deployment.md)。
 
 ### 方式 C：CLI
 
@@ -129,7 +129,7 @@ synkord/
 │   ├── architecture.md           # 技术架构、认证、Electron 模块
 │   ├── mcp-spec.md               # MCP 工具、资源、错误码
 │   ├── ui-spec.md                # UI/UX 规范
-│   ├── deployment.md             # 部署方案（桌面端 / Docker / SaaS）
+│   ├── deployment.md             # 部署方案（桌面端 / Go+SQLite / SaaS）
 │   ├── implementation.md        # 8 周实施路线
 │   ├── mcp-user-guide.md        # MCP 用户使用指南
 │   ├── mcp-prompt-template.md    # AI prompt 模板
@@ -158,7 +158,7 @@ synkord/
 │
 ├── synkord-cli/                # Go CLI（CI 推送 / Git Hook 校验）
 │
-├── deploy/selfhost/            # 自托管部署（docker-compose + Caddy）
+├── deploy/server/              # 自托管部署（Go + SQLite + Caddy）
 │
 ├── .github/                    # CI/CD + Issue / PR 模板
 │   ├── workflows/                # GitHub Actions

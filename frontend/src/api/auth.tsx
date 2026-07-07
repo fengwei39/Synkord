@@ -4,6 +4,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import apiClient, { setUnauthorizedHandler } from './client'
+import { assertValidApiBase, getConfiguredApiBase } from './baseUrl'
 
 interface User {
   id: string
@@ -16,7 +17,7 @@ interface AuthContextType {
   user: User | null
   token: string | null
   bootstrapping: boolean
-  login: (username: string, password: string) => Promise<void>
+  login: (username: string, password: string, apiBase?: string) => Promise<void>
   logout: () => void
 }
 
@@ -27,6 +28,14 @@ const AuthContext = createContext<AuthContextType>({
   login: async () => {},
   logout: () => {},
 })
+
+async function resolveRequestApiBase(apiBase?: string): Promise<string> {
+  const base = assertValidApiBase(apiBase || getConfiguredApiBase())
+  if (base.startsWith('/') && window.synkord?.getAPIBase) {
+    return assertValidApiBase(await window.synkord.getAPIBase())
+  }
+  return base
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(() => {
@@ -67,9 +76,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => setUnauthorizedHandler(null)
   }, [logout])
 
-  const login = useCallback(async (username: string, password: string) => {
-    const resp = await apiClient.post('/auth/login', { username, password })
-    const { access_token, ...userData } = resp.data
+  const login = useCallback(async (username: string, password: string, apiBase?: string) => {
+    const loginBaseURL = await resolveRequestApiBase(apiBase)
+    apiClient.defaults.baseURL = loginBaseURL
+    let data: any
+    try {
+      if (window.synkord?.backendLogin) {
+        data = await window.synkord.backendLogin(loginBaseURL, username, password)
+      } else {
+        const resp = await apiClient.post('/auth/login', { username, password }, { baseURL: loginBaseURL })
+        data = resp.data
+      }
+    } catch (error: any) {
+      error.message = `${error?.message || '登录失败'}（请求地址：${loginBaseURL}/auth/login）`
+      throw error
+    }
+    const { access_token, ...userData } = data
     localStorage.setItem('synkord_token', access_token)
     localStorage.setItem('synkord_user', JSON.stringify(userData))
     setToken(access_token)
@@ -83,10 +105,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setBootstrapping(false)
       return
     }
-    apiClient.get('/auth/me')
-      .then((resp) => {
+    resolveRequestApiBase()
+      .then((meBaseURL) => {
+        apiClient.defaults.baseURL = meBaseURL
+        return window.synkord?.backendMe
+          ? window.synkord.backendMe(meBaseURL, token)
+          : apiClient.get('/auth/me', { baseURL: meBaseURL }).then((resp) => resp.data)
+      })
+      .then((data) => {
         if (cancelled) return
-        const userData = resp.data as User | undefined
+        const userData = data as User | undefined
         if (userData?.id) {
           setUser(userData)
           localStorage.setItem('synkord_user', JSON.stringify(userData))

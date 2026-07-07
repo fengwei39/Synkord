@@ -62,6 +62,7 @@ const os = require('os');
 const fs = require('fs');
 const { fork, spawn } = require('child_process');
 const http = require('http');
+const https = require('https');
 const crypto = require('crypto');
 
 const { AuthManager, ActiveContractStore, SYNKORD_HOME } = require('./auth-manager.cjs');
@@ -72,12 +73,140 @@ const { AuthGateway } = require('./auth-gateway.cjs');
 // ============================================================================
 
 const HOST = '127.0.0.1';  // 仅本机
-const BACKEND_URL = process.env.SYNKORD_API_BASE || 'http://127.0.0.1:8000';
+const DEFAULT_BACKEND_URL = process.env.SYNKORD_API_BASE || 'http://127.0.0.1:8000';
 const DEFAULT_MCP_PORT = 37991;
 const SYNCORD_HOME = process.env.SYNKORD_HOME || path.join(os.homedir(), '.synkord');
+const SERVER_CONFIG_FILE = path.join(SYNCORD_HOME, 'server-config.json');
 
 process.env.SYNKORD_HOME = SYNCORD_HOME;
 fs.mkdirSync(SYNCORD_HOME, { recursive: true, mode: 0o700 });
+
+function ensureApiSuffix(url) {
+  const trimmed = String(url || '').trim().replace(/\/+$/, '')
+  if (!trimmed) return ''
+  return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`
+}
+
+function assertValidApiBase(apiBase) {
+  const normalized = ensureApiSuffix(apiBase)
+  return normalized
+}
+
+function apiBaseToBackendUrl(apiBase) {
+  return ensureApiSuffix(apiBase).replace(/\/api$/, '')
+}
+
+function loadConfiguredApiBase() {
+  try {
+    if (!fs.existsSync(SERVER_CONFIG_FILE)) return null
+    const data = JSON.parse(fs.readFileSync(SERVER_CONFIG_FILE, 'utf-8'))
+    return data.apiBase ? ensureApiSuffix(data.apiBase) : null
+  } catch (err) {
+    console.warn('[main] load server config failed:', err.message)
+    return null
+  }
+}
+
+function saveConfiguredApiBase(apiBase) {
+  const normalized = assertValidApiBase(apiBase)
+  fs.mkdirSync(SYNCORD_HOME, { recursive: true, mode: 0o700 })
+  fs.writeFileSync(
+    SERVER_CONFIG_FILE,
+    JSON.stringify({ apiBase: normalized, updated_at: new Date().toISOString() }, null, 2),
+    { mode: 0o600 },
+  )
+  return normalized
+}
+
+let configuredApiBase = loadConfiguredApiBase()
+let currentBackendUrl = configuredApiBase
+  ? apiBaseToBackendUrl(configuredApiBase)
+  : DEFAULT_BACKEND_URL.replace(/\/+$/, '')
+
+function currentApiBase() {
+  return configuredApiBase || ensureApiSuffix(currentBackendUrl)
+}
+
+function parseHttpApiBase(apiBase) {
+  const normalized = ensureApiSuffix(apiBase)
+  const match = normalized.match(/^(https?):\/\/(\[[^\]]+\]|[^/:]+)(?::(\d+))?(\/.*)?$/i)
+  if (!match) {
+    throw new Error(`server address cannot be used for HTTP request: ${apiBase}`)
+  }
+  const protocol = match[1].toLowerCase() + ':'
+  const hostname = match[2].replace(/^\[(.*)\]$/, '$1')
+  const port = match[3] || (protocol === 'https:' ? '443' : '80')
+  const basePath = (match[4] || '').replace(/\/+$/, '')
+  return { protocol, hostname, port, basePath, normalized }
+}
+
+function joinPath(basePath, pathPart) {
+  const left = String(basePath || '').replace(/\/+$/, '')
+  const right = String(pathPart || '').replace(/^\/+/, '')
+  return `${left}/${right}`
+}
+
+function backendJsonRequest({ apiBase, path: requestPath, method = 'GET', body, token }) {
+  const requestApiBase = apiBase && !String(apiBase).trim().startsWith('/')
+    ? apiBase
+    : currentApiBase()
+  const parsed = parseHttpApiBase(requestApiBase)
+  const bodyText = body === undefined ? null : JSON.stringify(body)
+  const headers = {
+    Accept: 'application/json',
+  }
+  if (bodyText !== null) {
+    headers['Content-Type'] = 'application/json'
+    headers['Content-Length'] = Buffer.byteLength(bodyText)
+  }
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+
+  const options = {
+    hostname: parsed.hostname,
+    port: parsed.port,
+    path: joinPath(parsed.basePath, requestPath),
+    method,
+    headers,
+  }
+
+  console.log(`[main] backend request → ${method} ${parsed.protocol}//${parsed.hostname}:${parsed.port}${options.path}`)
+
+  return new Promise((resolve, reject) => {
+    const transport = parsed.protocol === 'https:' ? https : http
+    const req = transport.request(options, (res) => {
+      const chunks = []
+      res.on('data', (chunk) => chunks.push(chunk))
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8')
+        let data = null
+        try {
+          data = text ? JSON.parse(text) : null
+        } catch {
+          data = text
+        }
+        if ((res.statusCode || 0) < 200 || (res.statusCode || 0) >= 300) {
+          const detail = typeof data === 'object' && data ? (data.detail || data.message) : text
+          const err = new Error(detail || `HTTP ${res.statusCode}`)
+          err.status = res.statusCode
+          err.data = data
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+    req.on('error', reject)
+    req.setTimeout(30000, () => {
+      req.destroy(new Error('request timeout'))
+    })
+    if (bodyText !== null) {
+      req.write(bodyText)
+    }
+    req.end()
+  })
+}
 
 // 实例 ID（用于审计）
 const INSTANCE_ID = crypto.randomUUID();
@@ -86,7 +215,7 @@ const INSTANCE_ID = crypto.randomUUID();
 // 单例：auth manager / gateway / active contract store
 // ============================================================================
 
-const authManager = new AuthManager({ backendUrl: BACKEND_URL, onUnauthorized });
+const authManager = new AuthManager({ backendUrl: currentBackendUrl, onUnauthorized });
 let authGateway = null;
 let activeContractStore = new ActiveContractStore();
 
@@ -148,7 +277,7 @@ async function startMCPServer() {
   if (!authGateway) {
     authGateway = new AuthGateway({
       authManager,
-      backendUrl: BACKEND_URL,
+      backendUrl: currentBackendUrl,
       instanceId: INSTANCE_ID,
     })
     try {
@@ -169,7 +298,7 @@ async function startMCPServer() {
     const env = {
       ...process.env,
       SYNKORD_HOME,
-      SYNKORD_API_BASE: BACKEND_URL,
+      SYNKORD_API_BASE: currentApiBase(),
       SYNKORD_GATEWAY_URL: `http://${HOST}:${authGateway.port}`,
       SYNKORD_INSTANCE_ID: INSTANCE_ID,
     }
@@ -310,15 +439,41 @@ function mcpStatus() {
 }
 
 function getAPIBase() {
-  // v1.2 修复：renderer axios 期待 baseURL 以 '/api' 结尾
-  // 直接后端 + AuthGateway 两条路径都要保证后缀
-  const base = mcpState.gateway_port
-    ? `http://127.0.0.1:${mcpState.gateway_port}`
-    : BACKEND_URL
-  const out = base.replace(/\/+$/, '') + '/api'
+  const base = configuredApiBase
+    ? configuredApiBase
+    : (mcpState.gateway_port ? `http://127.0.0.1:${mcpState.gateway_port}/api` : currentApiBase())
+  const out = ensureApiSuffix(base)
   // 调试：每次 IPC 调用都打一次，便于排查 baseURL 错误
-  console.log(`[main] getAPIBase() → ${out}  (gateway_port=${mcpState.gateway_port}, BACKEND_URL=${BACKEND_URL})`)
+  console.log(`[main] getAPIBase() → ${out}  (gateway_port=${mcpState.gateway_port}, backend=${currentBackendUrl})`)
   return out
+}
+
+function setAPIBase(apiBase) {
+  const normalized = saveConfiguredApiBase(apiBase)
+  configuredApiBase = normalized
+  currentBackendUrl = apiBaseToBackendUrl(normalized)
+  authManager.setBackendUrl(currentBackendUrl)
+  if (authGateway) {
+    authGateway.setBackendUrl(currentBackendUrl)
+  }
+  console.log(`[main] setAPIBase() → ${normalized} (backend=${currentBackendUrl})`)
+  return { ok: true, apiBase: normalized }
+}
+
+function clearAPIBase() {
+  try {
+    if (fs.existsSync(SERVER_CONFIG_FILE)) fs.unlinkSync(SERVER_CONFIG_FILE)
+  } catch (err) {
+    console.warn('[main] clear server config failed:', err.message)
+  }
+  configuredApiBase = null
+  currentBackendUrl = DEFAULT_BACKEND_URL.replace(/\/+$/, '')
+  authManager.setBackendUrl(currentBackendUrl)
+  if (authGateway) {
+    authGateway.setBackendUrl(currentBackendUrl)
+  }
+  console.log(`[main] clearAPIBase() → backend=${currentBackendUrl}`)
+  return { ok: true, apiBase: currentApiBase() }
 }
 
 function getIdeConfig() {
@@ -354,6 +509,24 @@ function onUnauthorized() {
 function registerIpc() {
   // 基础：渲染端拿 API base；handler 内部走 getAPIBase()（保证带 /api 后缀）
   ipcMain.handle('mcp:get-api-base', () => getAPIBase())
+  ipcMain.handle('mcp:set-api-base', (_event, apiBase) => setAPIBase(apiBase))
+  ipcMain.handle('mcp:clear-api-base', () => clearAPIBase())
+  ipcMain.handle('auth:login', (_event, payload) => {
+    return backendJsonRequest({
+      apiBase: payload?.apiBase,
+      path: '/auth/login',
+      method: 'POST',
+      body: { username: payload?.username, password: payload?.password },
+    })
+  })
+  ipcMain.handle('auth:me', (_event, payload) => {
+    return backendJsonRequest({
+      apiBase: payload?.apiBase,
+      path: '/auth/me',
+      method: 'GET',
+      token: payload?.token,
+    })
+  })
 
   // MCP 进程控制
   ipcMain.handle('mcp:get-status', () => mcpStatus())

@@ -1,6 +1,6 @@
 # Synkord Release
 #
-# 完整发布闭环：tag (v*.*.*) 触发 → 抽版本号 → 后端/CLI/桌面端/Docker 全平台构建 → GitHub Release
+# 完整发布闭环：tag (v*.*.*) 触发 → 抽版本号 → 客户端/后端/SQLite 部署包构建 → GitHub Release
 #
 # 维护者发布流程：
 #   1. 合并 dev → main
@@ -9,10 +9,9 @@
 #   4. git tag v0.2.0
 #   5. git push origin main --tags        # → 触发本 workflow
 #   6. 自动产出：
-#      - synkord-core (3 平台二进制，-ldflags 注入版本)
-#      - synkord-cli (3 平台二进制，-ldflags 注入版本)
-#      - 桌面端安装包 (NSIS / DMG / AppImage + deb)
-#      - Docker 镜像 (ghcr.io/synkord/synkord-core:VERSION)
+#      - 客户端 2 个：macOS DMG、Windows NSIS
+#      - 后端 Go 1 个：synkord-core-linux-amd64
+#      - SQLite 部署包 1 个：init-db.sh / backup.sh / Caddyfile / README
 #      - GitHub Release (含 SHA256SUMS)
 name: Release
 
@@ -29,28 +28,16 @@ on:
 
 permissions:
   contents: write   # 创建 release
-  packages: write   # 推送 ghcr
 
 jobs:
   # --------------------------------------------------------------------------
-  # 后端：只构建与桌面端对应的 2 个平台（用 -ldflags 注入版本号）
+  # 后端：Linux x64 Go 二进制（部署到唯一后端服务器）
+  # 用 -ldflags 注入版本号
   # --------------------------------------------------------------------------
   backend:
-    name: Backend (${{ matrix.os }}-${{ matrix.arch }})
-    runs-on: ${{ matrix.os }}
+    name: Backend (linux-amd64)
+    runs-on: ubuntu-latest
     needs: [resolve]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            arch: arm64
-            artifact: synkord-core-darwin-arm64
-            binary: synkord-core
-          - os: windows-latest
-            arch: amd64
-            artifact: synkord-core-windows-amd64.exe
-            binary: synkord-core.exe
     defaults:
       run:
         working-directory: backend
@@ -65,30 +52,61 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
-          GOOS: ${{ matrix.os == 'windows-latest' && 'windows' || (matrix.os == 'macos-latest' && 'darwin' || 'linux') }}
-          GOARCH: ${{ matrix.arch }}
+          GOOS: linux
+          GOARCH: amd64
         run: |
           mkdir -p ../dist
           CGO_ENABLED=0 go build -trimpath \
             -ldflags="-s -w -X main.version=${VERSION}" \
-            -o ../dist/${{ matrix.binary }} .
+            -o ../dist/synkord-core-linux-amd64 .
 
       - name: Smoke test
         shell: bash
         run: |
-          # Linux/macOS 上跑一下看能不能启动 + /health 200
-          if [ "${{ matrix.os }}" != "windows-latest" ]; then
-            chmod +x ../dist/${{ matrix.binary }}
-            (../dist/${{ matrix.binary }} &) && sleep 2 && \
-              curl -sf http://localhost:8000/health | head -c 200 && echo "" || true
-            pkill -f ${{ matrix.binary }} || true
-          fi
+          chmod +x ../dist/synkord-core-linux-amd64
+          (../dist/synkord-core-linux-amd64 &) && sleep 2 && \
+            curl -sf http://localhost:8000/health | head -c 200 && echo "" || true
+          pkill -f synkord-core-linux-amd64 || true
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: dist/${{ matrix.binary }}
+          name: synkord-core-linux-amd64
+          path: dist/synkord-core-linux-amd64
+          if-no-files-found: error
+
+  # --------------------------------------------------------------------------
+  # SQLite 部署包（内部团队部署用）
+  # 包含：init-db.sh + backup.sh + Caddyfile + README
+  # --------------------------------------------------------------------------
+  sqlite-package:
+    name: SQLite Deploy Package
+    runs-on: ubuntu-latest
+    needs: [resolve]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage SQLite deploy files
+        run: |
+          mkdir -p dist-sqlite
+          cp deploy/server/init-db.sh dist-sqlite/
+          cp deploy/server/backup.sh dist-sqlite/
+          cp deploy/server/Caddyfile dist-sqlite/
+          cp deploy/server/README.md dist-sqlite/
+          chmod +x dist-sqlite/init-db.sh dist-sqlite/backup.sh
+          ls -la dist-sqlite/
+
+      - name: Create tarball
+        run: |
+          cd dist-sqlite
+          tar -czf "../synkord-sqlite-deploy-${{ needs.resolve.outputs.version_stripped }}.tar.gz" .
+          ls -la "../synkord-sqlite-deploy-${{ needs.resolve.outputs.version_stripped }}.tar.gz"
+
+      - name: Upload SQLite package
+        uses: actions/upload-artifact@v4
+        with:
+          name: synkord-sqlite-deploy
+          path: synkord-sqlite-deploy-*.tar.gz
           if-no-files-found: error
 
   # --------------------------------------------------------------------------
@@ -128,7 +146,7 @@ jobs:
         with:
           go-version: '1.25'
           cache: true
-          cache-dependency-path: synkord-cli/go.sum
+          cache-dependency-path: synkord-cli/go.mod
 
       # 桌面端内置 CLI：先编译 CLI 到 electron/bin/，再让 electron-builder 把它打进 extraResources
       - name: Build CLI (${{ matrix.os }})
@@ -163,7 +181,7 @@ jobs:
         if: matrix.os == 'macos-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-macos
+          name: client-macos
           path: |
             frontend/release/*.dmg
             frontend/release/*.zip
@@ -173,48 +191,11 @@ jobs:
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-windows
+          name: client-windows
           path: |
             frontend/release/*.exe
             frontend/release/*.zip
           if-no-files-found: error
-
-  # --------------------------------------------------------------------------
-  # Docker 镜像（多 tag：latest / 版本 / sha）
-  # --------------------------------------------------------------------------
-  docker:
-    name: Docker (ghcr.io)
-    runs-on: ubuntu-latest
-    needs: [resolve]
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build & push
-        uses: docker/build-push-action@v5
-        with:
-          context: ./backend
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/synkord-core:latest
-            ghcr.io/${{ github.repository_owner }}/synkord-core:${{ needs.resolve.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/synkord-core:${{ needs.resolve.outputs.version }}-${{ github.sha }}
-          build-args: |
-            VERSION=${{ needs.resolve.outputs.version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
   # --------------------------------------------------------------------------
   # 解析版本号（最先跑，给所有下游 job 用）
@@ -252,7 +233,7 @@ jobs:
   release:
     name: GitHub Release
     runs-on: ubuntu-latest
-    needs: [backend, desktop, docker, resolve]
+    needs: [backend, desktop, sqlite-package, resolve]
     permissions:
       contents: write
     steps:
@@ -271,7 +252,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ needs.resolve.outputs.version }}
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ needs.resolve.outputs.version }}
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(needs.resolve.outputs.version, '-') }}
@@ -280,27 +261,27 @@ jobs:
 
             自动构建产物（由 [.github/workflows/release.yml](.github/workflows/release.yml) 产出）。
 
-            ### 📦 桌面端
+            ### 客户端（成员安装）
             - **macOS** (Apple Silicon): `Synkord-${{ needs.resolve.outputs.version_stripped }}-arm64.dmg`
-            - **Windows**: `Synkord-Setup-${{ needs.resolve.outputs.version_stripped }}-x64.exe` (NSIS 安装包) + 便携版
+            - **Windows**: `Synkord-Setup-${{ needs.resolve.outputs.version_stripped }}-x64.exe`
 
-            ### 🖥️ 后端二进制（与桌面端同平台）
-            - **macOS**: `synkord-core-darwin-arm64`
-            - **Windows**: `synkord-core-windows-amd64.exe`
+            客户端首次打开时，在登录页填写管理员给出的服务器域名；登录后也可在 **设置 → 后端连接** 修改。
+
+            ### 服务端（管理员部署）
+            只需要部署一台后端服务：
+            - Go 后端二进制：`synkord-core-linux-amd64`
+            - SQLite 部署辅助包：`synkord-sqlite-deploy-${{ needs.resolve.outputs.version_stripped }}.tar.gz`
+
+            部署说明见 SQLite 部署包内 `README.md`，核心流程：把二进制放到 `/opt/synkord/synkord-core`，解压部署包，执行 `sudo /opt/synkord/init-db.sh`，再配置 Caddy 域名。健康检查地址为 `/health`。
 
             验证：
             ```sh
             sha256sum -c checksums.txt
             ```
 
-            > 💡 **CLI 工具已内置到桌面端**：装好桌面应用后，打开 设置 → CLI 工具 → "安装到 PATH"，即可在终端用 `synkord` 命令（CI/CD 推送 + Git pre-commit 校验）。不需要单独下载。
+            > CLI 工具已内置到桌面端：装好桌面应用后，打开 设置 → CLI 工具 → “安装到 PATH”，即可在终端用 `synkord` 命令。
 
-            ### 🐳 Docker（自托管）
-            ```sh
-            docker pull ghcr.io/${{ github.repository_owner }}/synkord-core:${{ needs.resolve.outputs.version_stripped }}
-            ```
-
-            ### 📝 更新日志
+            ### 更新日志
             自动从 PR 生成。详见下方 release notes。
           files: |
             dist/**

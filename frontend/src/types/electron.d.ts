@@ -7,6 +7,10 @@ declare global {
   interface Window {
     synkord?: {
       getAPIBase: () => Promise<string>
+      setAPIBase: (apiBase: string) => Promise<{ ok: boolean; apiBase: string }>
+      clearAPIBase: () => Promise<{ ok: boolean; apiBase: string }>
+      backendLogin: (apiBase: string, username: string, password: string) => Promise<Record<string, unknown>>
+      backendMe: (apiBase: string, token: string) => Promise<Record<string, unknown>>
       mcpGetStatus: () => Promise<MCPStatus>
       mcpStart: () => Promise<MCPStatus>
       mcpStop: () => Promise<MCPStatus>

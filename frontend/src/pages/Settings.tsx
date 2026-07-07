@@ -8,6 +8,7 @@ import {
   Card,
   Form,
   Input,
+  Select,
   Skeleton,
   Space,
   Tag,
@@ -16,13 +17,26 @@ import {
 } from 'antd'
 import {
   CheckCircleOutlined,
+  CloudServerOutlined,
   CodeOutlined,
   DeleteOutlined,
   KeyOutlined,
   LogoutOutlined,
+  ReloadOutlined,
+  SaveOutlined,
   UserOutlined,
 } from '@ant-design/icons'
 import { useAuth } from '../api/auth'
+import {
+  composeServerAddress,
+  configureApiBase,
+  getConfiguredApiBase,
+  getConfiguredApiBaseRaw,
+  normalizeApiBase,
+  resetApiBase,
+  splitServerAddress,
+  type ServerProtocol,
+} from '../api/baseUrl'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 
 const { Title, Text, Paragraph } = Typography
@@ -51,6 +65,11 @@ export default function Settings() {
   const [submitting, setSubmitting] = useState(false)
   const [cli, setCli] = useState<CliStatus | null>(null)
   const [cliBusy, setCliBusy] = useState(false)
+  const [serverSaving, setServerSaving] = useState(false)
+  const initialServer = splitServerAddress(getConfiguredApiBaseRaw())
+  const [serverProtocol, setServerProtocol] = useState<ServerProtocol>(initialServer.protocol)
+  const [serverRaw, setServerRaw] = useState(() => initialServer.address)
+  const [serverBase, setServerBase] = useState(() => getConfiguredApiBase())
 
   // 拉取 CLI 状态
   const refreshCli = async () => {
@@ -132,6 +151,34 @@ export default function Settings() {
       message.error(e?.message || '修改失败')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handleServerSave = async () => {
+    setServerSaving(true)
+    try {
+      const normalized = await configureApiBase(composeServerAddress(serverProtocol, serverRaw))
+      setServerBase(normalized)
+      message.success('服务器地址已保存')
+    } catch (e: any) {
+      message.error(e?.message || '服务器地址保存失败')
+    } finally {
+      setServerSaving(false)
+    }
+  }
+
+  const handleServerReset = async () => {
+    setServerSaving(true)
+    try {
+      const normalized = await resetApiBase()
+      setServerRaw('')
+      setServerProtocol('https')
+      setServerBase(normalized)
+      message.success('已恢复默认连接')
+    } catch (e: any) {
+      message.error(e?.message || '恢复默认连接失败')
+    } finally {
+      setServerSaving(false)
     }
   }
 
@@ -280,16 +327,57 @@ export default function Settings() {
         </Card>
       )}
 
-      <Card title="后端连接" style={{ marginBottom: 16 }}>
-        <Paragraph>
-          当前 base URL：<Text code>{localStorage.getItem('synkord_api_base') || '/api'}</Text>
-        </Paragraph>
-        <Paragraph type="secondary" style={{ fontSize: 12 }}>
-          由 Synkord 桌面应用自动注入（默认 <code>http://127.0.0.1:8000/api</code>）；
-          若需要手动切换，在浏览器开发者工具里设置
-          <Text code>localStorage.setItem('synkord_api_base', '...')</Text>
-          然后刷新页面。
-        </Paragraph>
+      <Card
+        title={<Space><CloudServerOutlined /><span>后端连接</span></Space>}
+        style={{ marginBottom: 16 }}
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%', maxWidth: 640 }}>
+          <Form layout="vertical">
+            <Form.Item
+              label="服务器域名"
+              extra="填写管理员部署的 Synkord 服务地址，例如 https://synkord.yourcompany.com。系统会自动补齐 /api。"
+            >
+              <Input
+                value={serverRaw}
+                onChange={(event) => {
+                  const raw = event.target.value
+                  setServerRaw(raw)
+                  setServerBase(normalizeApiBase(composeServerAddress(serverProtocol, raw)))
+                }}
+                addonBefore={
+                  <Select
+                    value={serverProtocol}
+                    onChange={(value: ServerProtocol) => {
+                      setServerProtocol(value)
+                      setServerBase(normalizeApiBase(composeServerAddress(value, serverRaw)))
+                    }}
+                    style={{ width: 92 }}
+                    options={[
+                      { value: 'https', label: 'https://' },
+                      { value: 'http', label: 'http://' },
+                    ]}
+                  />
+                }
+                placeholder="synkord.yourcompany.com"
+                allowClear
+              />
+            </Form.Item>
+            <Space>
+              <Button type="primary" icon={<SaveOutlined />} loading={serverSaving} onClick={handleServerSave}>
+                保存
+              </Button>
+              <Button icon={<ReloadOutlined />} loading={serverSaving} onClick={handleServerReset}>
+                恢复默认
+              </Button>
+            </Space>
+          </Form>
+          <Paragraph style={{ marginBottom: 0 }}>
+            当前 API base：<Text code>{serverBase}</Text>
+          </Paragraph>
+          <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0 }}>
+            修改后新的请求会立即使用该地址；如果当前会话来自旧服务，建议重新登录一次。
+          </Paragraph>
+        </Space>
       </Card>
 
       <Card title="会话">

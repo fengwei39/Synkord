@@ -1,0 +1,47 @@
+# Caddy 反代配置（Synkord 服务端）
+# 复制到 /etc/caddy/Caddyfile，然后：systemctl reload caddy
+#
+# 前提：synkord-core 监听 127.0.0.1:8000（init-db.sh 装好 systemd unit 后默认这样）
+
+# 全局配置
+{
+    email admin@yourcompany.com   # 改：Let's Encrypt 证书通知邮箱
+    admin off                      # 生产关掉 Caddy admin API
+}
+
+# 主域名（改：换成实际公司域名）
+synkord.yourcompany.com {
+    # 后端 API（go 服务）
+    reverse_proxy 127.0.0.1:8000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {header.X-Forwarded-For}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # 安全头
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubdomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    # 限流：单 IP 每秒 50 请求（保护 synkord-core）
+    # 调大或调小根据实际流量
+    # rate_limit {remote.ip} 50r/s
+
+    # 访问日志
+    log {
+        output file /var/log/caddy/synkord-access.log {
+            roll_size 100mb
+            roll_keep 5
+        }
+    }
+}
+
+# HTTP → HTTPS 重定向
+http://synkord.yourcompany.com {
+    redir https://synkord.yourcompany.com{uri} permanent
+}

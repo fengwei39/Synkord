@@ -27,6 +27,7 @@ const HOST = '127.0.0.1'; // §10 安全：仅本机回环，禁止 0.0.0.0
 // 文件名常量（文档 §14.1，v1.2 重命名）
 const FILE_ACTIVE_CONTRACT = 'active-contract.json';
 const FILE_USER_AUTH = 'user-auth.json';
+const FILE_SERVER_CONFIG = 'server-config.json';
 const FILE_ACCESS_LOG = 'mcp-access.log';
 
 // ============================================================================
@@ -59,6 +60,13 @@ function activeContractPath() {
  */
 function userAuthPath() {
   return path.join(synkordHome(), FILE_USER_AUTH);
+}
+
+/**
+ * 获取 server-config.json 绝对路径
+ */
+function serverConfigPath() {
+  return path.join(synkordHome(), FILE_SERVER_CONFIG);
 }
 
 /**
@@ -250,6 +258,7 @@ module.exports = {
   activeContextPath,
   activeContractPath,
   userAuthPath,
+  serverConfigPath,
   accessLogPath,
   // 文件
   readJsonFile,

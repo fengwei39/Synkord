@@ -20,6 +20,10 @@ const path = require('path');
 
 const ALLOWED_INVOKES = new Set([
   'mcp:get-api-base',
+  'mcp:set-api-base',
+  'mcp:clear-api-base',
+  'auth:login',
+  'auth:me',
   'mcp:get-status',
   'mcp:start',
   'mcp:stop',
@@ -47,6 +51,10 @@ const ALLOWED_EVENTS = new Set([
 contextBridge.exposeInMainWorld('synkord', {
   // ---- 基础 API ----
   getAPIBase: () => ipcRenderer.invoke('mcp:get-api-base'),
+  setAPIBase: (apiBase) => ipcRenderer.invoke('mcp:set-api-base', apiBase),
+  clearAPIBase: () => ipcRenderer.invoke('mcp:clear-api-base'),
+  backendLogin: (apiBase, username, password) => ipcRenderer.invoke('auth:login', { apiBase, username, password }),
+  backendMe: (apiBase, token) => ipcRenderer.invoke('auth:me', { apiBase, token }),
 
   // ---- MCP Server 生命周期 ----
   mcpGetStatus: () => ipcRenderer.invoke('mcp:get-status'),

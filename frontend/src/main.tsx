@@ -1,16 +1,18 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, HashRouter } from 'react-router-dom';
 import { App as AntApp, ConfigProvider, theme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
 import './index.css';
 
+const Router = window.location.protocol === 'file:' ? HashRouter : BrowserRouter;
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <BrowserRouter>
+      <Router>
         <ConfigProvider
           locale={zhCN}
           theme={{
@@ -25,7 +27,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <App />
           </AntApp>
         </ConfigProvider>
-      </BrowserRouter>
+      </Router>
     </ErrorBoundary>
   </React.StrictMode>
 );

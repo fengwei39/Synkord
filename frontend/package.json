@@ -111,17 +111,17 @@
           "from": "electron/bin/synkord-windows-amd64.exe",
           "to": "synkord.exe"
         }
-      ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowElevation": true,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "Synkord",
-      "shortcutDescription": "Synkord — MCP 时代的 API 知识层"
+      ],
+      "nsis": {
+        "oneClick": false,
+        "perMachine": false,
+        "allowElevation": true,
+        "allowToChangeInstallationDirectory": true,
+        "createDesktopShortcut": true,
+        "createStartMenuShortcut": true,
+        "shortcutName": "Synkord",
+        "shortcutDescription": "Synkord — MCP 时代的 API 知识层"
+      }
     },
     "mac": {
       "target": [

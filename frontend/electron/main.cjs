@@ -25,7 +25,21 @@
 // 这里做一次 sanity check 并给出明确提示，避免白屏。
 // ============================================================================
 const electron = require('electron')
-const { app, BrowserWindow, ipcMain, shell } = electron
+const { app, BrowserWindow, ipcMain, shell, dialog } = electron
+// electron-updater 仅在打包后的生产环境加载；开发模式 dev 模式下不要触发更新
+let autoUpdater = null
+if (app.isPackaged) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { autoUpdater: au } = require('electron-updater')
+    autoUpdater = au
+    autoUpdater.logger = require('electron-log').default
+    autoUpdater.autoDownload = false  // 显式确认，不静默下载
+    autoUpdater.autoInstallOnAppQuit = true
+  } catch (err) {
+    console.warn('[main] electron-updater not available:', err.message)
+  }
+}
 if (typeof electron !== 'object' || !app || typeof app.whenReady !== 'function') {
   console.error('')
   console.error('[synkord] FATAL: require("electron") did not return the native module.')
@@ -485,7 +499,86 @@ app.whenReady().then(async () => {
 
   registerIpc()
   await createWindow()
+  setupAutoUpdater()
 })
+
+/**
+ * 集成 electron-updater：检查新版本、提示用户、重启安装
+ * 流程：
+ *   1. App 启动后 3 秒延迟检查（避免阻塞启动）
+ *   2. 发现更新 → 弹窗"立即下载 / 稍后"
+ *   3. 用户同意 → 后台下载，下载完成后再弹"立即重启 / 稍后"
+ *   4. 重启前不阻塞，autoInstallOnAppQuit 让用户关闭时自动装
+ */
+function setupAutoUpdater() {
+  if (!autoUpdater) return
+  let downloading = false
+
+  const promptToDownload = (info) => {
+    if (!info || !info.version) return
+    const choice = dialog.showMessageBoxSync({
+      type: 'info',
+      title: '发现新版本',
+      message: `Synkord ${info.version} 已发布`,
+      detail: `当前版本：${app.getVersion()}\n新版本：${info.version}\n\n是否立即下载并安装？`,
+      buttons: ['立即下载', '稍后提醒'],
+      defaultId: 0,
+      cancelId: 1,
+    })
+    if (choice === 0) {
+      downloading = true
+      autoUpdater.downloadUpdate().catch((err) => {
+        console.error('[auto-update] download failed:', err)
+        downloading = false
+      })
+    }
+  }
+
+  const promptToInstall = () => {
+    const choice = dialog.showMessageBoxSync({
+      type: 'info',
+      title: '更新已就绪',
+      message: '新版本已下载完成，重启后生效。',
+      detail: '你也可以稍后退出应用时自动安装。',
+      buttons: ['立即重启', '稍后'],
+      defaultId: 0,
+      cancelId: 1,
+    })
+    if (choice === 0) {
+      autoUpdater.quitAndInstall(false, true)
+    }
+  }
+
+  autoUpdater.on('checking-for-update', () => {
+    console.log('[auto-update] checking for update…')
+  })
+  autoUpdater.on('update-available', (info) => {
+    console.log(`[auto-update] available: ${info.version}`)
+    promptToDownload(info)
+  })
+  autoUpdater.on('update-not-available', () => {
+    console.log('[auto-update] no update available')
+  })
+  autoUpdater.on('download-progress', (progress) => {
+    console.log(`[auto-update] downloading ${progress.percent.toFixed(1)}%`)
+  })
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log(`[auto-update] downloaded ${info.version}`)
+    downloading = false
+    promptToInstall()
+  })
+  autoUpdater.on('error', (err) => {
+    console.error('[auto-update] error:', err)
+    downloading = false
+  })
+
+  // 延迟 3 秒再检查，避免阻塞窗口渲染
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((err) => {
+      console.warn('[auto-update] check failed:', err)
+    })
+  }, 3000)
+}
 
 app.on('window-all-closed', async () => {
   await stopMCPServer().catch(() => {})

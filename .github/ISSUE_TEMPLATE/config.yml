@@ -1,0 +1,9 @@
+# Issue 模板配置
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Synkord Discussions
+    url: https://github.com/synkord/synkord/discussions
+    about: 一般问题、功能讨论、最佳实践
+  - name: 🔒 安全漏洞
+    url: https://github.com/synkord/synkord/security/advisories/new
+    about: 请勿在公开 issue 报告安全问题

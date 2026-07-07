@@ -15,6 +15,10 @@ import (
 	"github.com/synkord/core/services"
 )
 
+// version 通过 -ldflags "-X main.version=vX.Y.Z" 在构建时注入（见 scripts/bump-version.sh）
+// 运行时 `synkord-core --version` 也会打印
+var version = "dev"
+
 func main() {
 	cfg := config.Load()
 
@@ -89,7 +93,7 @@ func main() {
 		payload := gin.H{
 			"status":     status,
 			"service":    "synkord-core",
-			"version":    "1.0.0",
+			"version":    version,
 			"components": gin.H{
 				"database": dbStatus,
 			},
@@ -101,7 +105,7 @@ func main() {
 	})
 
 	addr := fmt.Sprintf(":%s", cfg.Port)
-	log.Printf("synkord-core starting on %s (REST API)", addr)
+	log.Printf("synkord-core v%s starting on %s (REST API)", version, addr)
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}

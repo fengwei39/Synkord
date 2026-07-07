@@ -1,0 +1,27 @@
+# Release Drafter — 自动起草 release notes
+# 触发：PR 合到 main 时自动更新 draft release
+# 配合 .github/release-drafter.yml 的分类规则
+name: Release Drafter
+
+on:
+  push:
+    # 仅在 main 分支跑（不在 dev，避免 dev 上的 PR 被错误归类）
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update_release_draft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: release-drafter/release-drafter@v6
+        with:
+          config-name: release-drafter.yml
+          tag: ${{ github.ref_name }}
+          # 始终保持 draft 状态 → 维护者人工 review + publish
+          publish-target: ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

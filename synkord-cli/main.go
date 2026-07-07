@@ -22,7 +22,9 @@ import (
 	"os"
 )
 
-const version = "0.1.0"
+// version 通过 -ldflags "-X main.version=vX.Y.Z" 在构建时注入
+// 见 scripts/bump-version.sh
+var version = "dev"
 
 func main() {
 	if len(os.Args) < 2 {

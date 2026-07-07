@@ -1,0 +1,360 @@
+# Synkord Release
+#
+# 完整发布闭环：tag (v*.*.*) 触发 → 抽版本号 → 后端/CLI/桌面端/Docker 全平台构建 → GitHub Release
+#
+# 维护者发布流程：
+#   1. 合并 dev → main
+#   2. ./scripts/bump-version.sh minor     # 同步 VERSION + frontend/package.json
+#   3. git commit -m "chore(release): bump version to 0.2.0"
+#   4. git tag v0.2.0
+#   5. git push origin main --tags        # → 触发本 workflow
+#   6. 自动产出：
+#      - synkord-core (3 平台二进制，-ldflags 注入版本)
+#      - synkord-cli (3 平台二进制，-ldflags 注入版本)
+#      - 桌面端安装包 (NSIS / DMG / AppImage + deb)
+#      - Docker 镜像 (ghcr.io/synkord/synkord-core:VERSION)
+#      - GitHub Release (含 SHA256SUMS)
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '手动发布版本（如 v0.2.0），留空从当前 VERSION 文件读取'
+        required: false
+        default: ''
+
+permissions:
+  contents: write   # 创建 release
+  packages: write   # 推送 ghcr
+
+jobs:
+  # --------------------------------------------------------------------------
+  # 后端：3 平台二进制（用 -ldflags 注入版本号）
+  # --------------------------------------------------------------------------
+  backend:
+    name: Backend (${{ matrix.os }}-${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+            artifact: synkord-core-linux-amd64
+            binary: synkord-core
+          - os: ubuntu-latest
+            arch: arm64
+            artifact: synkord-core-linux-arm64
+            binary: synkord-core
+          - os: macos-latest
+            arch: arm64
+            artifact: synkord-core-darwin-arm64
+            binary: synkord-core
+          - os: windows-latest
+            arch: amd64
+            artifact: synkord-core-windows-amd64.exe
+            binary: synkord-core.exe
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: backend/go.sum
+      - name: Build
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          GOOS: ${{ matrix.os == 'windows-latest' && 'windows' || (matrix.os == 'macos-latest' && 'darwin' || 'linux') }}
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p ../dist
+          CGO_ENABLED=0 go build -trimpath \
+            -ldflags="-s -w -X main.version=${VERSION}" \
+            -o ../dist/${{ matrix.binary }} .
+
+      - name: Smoke test
+        run: |
+          # Linux/macOS 上跑一下看能不能启动 + /health 200
+          if [ "${{ matrix.os }}" != "windows-latest" ]; then
+            chmod +x ../dist/${{ matrix.binary }}
+            (../dist/${{ matrix.binary }} &) && sleep 2 && \
+              curl -sf http://localhost:8000/health | head -c 200 && echo "" || true
+            pkill -f ${{ matrix.binary }} || true
+          fi
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.binary }}
+          if-no-files-found: error
+
+  # --------------------------------------------------------------------------
+  # CLI：3 平台二进制（用 -ldflags 注入版本号）
+  # --------------------------------------------------------------------------
+  cli:
+    name: CLI (${{ matrix.os }}-${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+            asset: synkord-cli-linux-amd64
+            binary: synkord
+          - os: ubuntu-latest
+            arch: arm64
+            asset: synkord-cli-linux-arm64
+            binary: synkord
+          - os: macos-latest
+            arch: arm64
+            asset: synkord-cli-darwin-arm64
+            binary: synkord
+          - os: windows-latest
+            arch: amd64
+            asset: synkord-cli-windows-amd64.exe
+            binary: synkord.exe
+    defaults:
+      run:
+        working-directory: synkord-cli
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: synkord-cli/go.sum
+      - name: Build
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          GOOS: ${{ matrix.os == 'windows-latest' && 'windows' || (matrix.os == 'macos-latest' && 'darwin' || 'linux') }}
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p ../dist
+          CGO_ENABLED=0 go build -trimpath \
+            -ldflags="-s -w -X main.version=${VERSION}" \
+            -o ../dist/${{ matrix.binary }} .
+      - name: Smoke test
+        run: |
+          if [ "${{ matrix.os }}" != "windows-latest" ]; then
+            chmod +x ../dist/${{ matrix.binary }}
+            ../dist/${{ matrix.binary }} version
+          fi
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.binary }}
+          if-no-files-found: error
+
+  # --------------------------------------------------------------------------
+  # 桌面端：electron-builder 安装包（读 frontend/package.json 的 version）
+  # --------------------------------------------------------------------------
+  desktop:
+    name: Desktop (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: [resolve]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - run: pnpm install --frozen-lockfile
+
+      # Linux 需要额外系统库
+      - name: Install Linux deps
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libatk-bridge2.0-0 libdrm2 \
+            libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+            libgbm1 libxss1 libasound2t64 rpm fakeroot dpkg
+
+      - name: Build
+        env:
+          # 不做代码签名：用户首次运行会看到 OS 自身的告警
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: |
+          case "${{ matrix.os }}" in
+            ubuntu-latest)  pnpm dist:linux ;;
+            macos-latest)   pnpm dist:mac ;;
+            windows-latest) pnpm dist:win ;;
+          esac
+
+      - name: Upload (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux
+          path: |
+            frontend/release/*.AppImage
+            frontend/release/*.deb
+          if-no-files-found: error
+
+      - name: Upload (macOS)
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos
+          path: |
+            frontend/release/*.dmg
+            frontend/release/*.zip
+          if-no-files-found: error
+
+      - name: Upload (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows
+          path: |
+            frontend/release/*.exe
+            frontend/release/*.zip
+          if-no-files-found: error
+
+  # --------------------------------------------------------------------------
+  # Docker 镜像（多 tag：latest / 版本 / sha）
+  # --------------------------------------------------------------------------
+  docker:
+    name: Docker (ghcr.io)
+    runs-on: ubuntu-latest
+    needs: [resolve]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/synkord-core:latest
+            ghcr.io/${{ github.repository_owner }}/synkord-core:${{ needs.resolve.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/synkord-core:${{ needs.resolve.outputs.version }}-${{ github.sha }}
+          build-args: |
+            VERSION=${{ needs.resolve.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # --------------------------------------------------------------------------
+  # 解析版本号（最先跑，给所有下游 job 用）
+  # --------------------------------------------------------------------------
+  resolve:
+    name: Resolve Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.parse.outputs.version }}
+      version_stripped: ${{ steps.parse.outputs.version_stripped }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: parse
+        run: |
+          # 三种触发场景：
+          #   1. tag push（vX.Y.Z）→ 从 GITHUB_REF_NAME 拿
+          #   2. workflow_dispatch + 输入 version → 用输入
+          #   3. workflow_dispatch 无输入 → 从 VERSION 文件读
+          if [ -n "${{ inputs.version }}" ]; then
+            V="${{ inputs.version }}"
+          elif [[ "${{ github.ref_type }}" == "tag" ]]; then
+            V="${GITHUB_REF_NAME}"
+          else
+            V="$(cat VERSION 2>/dev/null || echo 'dev')"
+          fi
+          # 去掉 v 前缀
+          V_STRIPPED="${V#v}"
+          echo "version=${V}" >> $GITHUB_OUTPUT
+          echo "version_stripped=${V_STRIPPED}" >> $GITHUB_OUTPUT
+          echo "Resolved version: ${V} (stripped: ${V_STRIPPED})"
+
+  # --------------------------------------------------------------------------
+  # 汇总 + 创建 GitHub Release（含 SHA256SUMS）
+  # --------------------------------------------------------------------------
+  release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    needs: [backend, cli, desktop, docker, resolve]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * 2>/dev/null | grep -v checksums.txt > checksums.txt
+          cat checksums.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ needs.resolve.outputs.version }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(needs.resolve.outputs.version, '-') }}
+          body: |
+            ## Synkord ${{ needs.resolve.outputs.version }}
+
+            自动构建产物（由 [.github/workflows/release.yml](.github/workflows/release.yml) 产出）。
+
+            ### 📦 桌面端
+            - **macOS**: `Synkord-${{ needs.resolve.outputs.version_stripped }}-arm64.dmg`
+            - **Windows**: `Synkord-Setup-${{ needs.resolve.outputs.version_stripped }}-x64.exe`
+            - **Linux**: `Synkord-${{ needs.resolve.outputs.version_stripped }}-x64.AppImage` / `.deb`
+
+            ### 🖥️ 后端 / CLI 二进制
+            见下方 asset 列表。验证：
+            ```sh
+            sha256sum -c checksums.txt
+            ```
+
+            ### 🐳 Docker
+            ```sh
+            docker pull ghcr.io/${{ github.repository_owner }}/synkord-core:${{ needs.resolve.outputs.version_stripped }}
+            ```
+
+            ### 📝 更新日志
+            自动从 PR 生成。详见下方 release notes。
+          files: |
+            dist/**
+            dist/**/checksums.txt

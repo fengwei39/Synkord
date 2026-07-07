@@ -1,0 +1,46 @@
+# Release Drafter
+# 每次 PR 合到 main 时，根据 PR 标签 + Conventional Commits 自动更新 draft release notes
+# 发布时直接编辑 + publish，不需要手动写 changelog
+#
+# 工作流：.github/workflows/release-drafter.yml（同名 workflow 自动跑）
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+version-resolver:
+  major:
+    labels: ['breaking']
+  minor:
+    labels: ['enhancement', 'feature']
+  patch:
+    labels: ['bug', 'fix', 'docs', 'chore', 'ci', 'refactor', 'test']
+  default: patch
+categories:
+  - title: 🚀 重大变更
+    labels: ['breaking', 'major']
+  - title: ✨ 新功能
+    labels: ['enhancement', 'feature']
+  - title: 🐛 Bug 修复
+    labels: ['bug', 'fix']
+  - title: 📖 文档
+    labels: ['docs']
+  - title: ⚡️ 性能
+    labels: ['performance']
+  - title: ♻️ 重构
+    labels: ['refactor']
+  - title: ✅ 测试
+    labels: ['test']
+  - title: 🔧 构建 / 工具链
+    labels: ['chore', 'ci', 'build']
+  - title: 其他
+    labels: ['*']
+change-template: '- $TITLE (#$NUMBER) @$AUTHOR'
+exclude-labels: ['skip-changelog', 'duplicate', 'wontfix', 'invalid']
+template: |
+  ## 变更
+
+  $CHANGES
+
+  ## 贡献者
+
+  $CONTRIBUTORS
+
+  **完整变更历史**：https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION

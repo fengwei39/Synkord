@@ -1,0 +1,60 @@
+# Synkord Caddyfile
+# 用法：替换 {YOUR_DOMAIN} 为你的实际域名（如 synkord.yourcompany.com）
+# 首次启动会自动申请 Let's Encrypt 证书
+
+# 全局选项
+{
+    email {$LETSENCRYPT_EMAIL}
+    # admin off   # 生产环境禁用 Caddy admin API
+}
+
+# 主域名
+{$SYNKORD_DOMAIN} {
+    # 后端 API 反代
+    reverse_proxy /api/* synkord-core:8000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {header.X-Forwarded-For}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # MCP 端点（如果启用远程 MCP）
+    reverse_proxy /mcp/* synkord-core:8000
+
+    # 静态前端（如把前端 dist/ 部署在同一台机器）
+    # root * /srv/frontend
+    # encode gzip zstd
+    # try_files {path} /index.html
+    # file_server
+
+    # 反代到独立部署的前端（CDN / OSS / Cloudflare Pages）
+    # 见 docs/deployment.md §3
+    reverse_proxy {$FRONTEND_ORIGIN} {
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # 安全头
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # CSP 根据实际前端域名调整
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' wss: https:; font-src 'self' data:"
+        # 去除服务器标识
+        -Server
+    }
+
+    # 日志
+    log {
+        output file /data/access.log {
+            roll_size 100mb
+            roll_keep 5
+        }
+    }
+}
+
+# HTTP → HTTPS 重定向（80 端口）
+http://{$SYNKORD_DOMAIN} {
+    redir https://{$SYNKORD_DOMAIN}{uri} permanent
+}

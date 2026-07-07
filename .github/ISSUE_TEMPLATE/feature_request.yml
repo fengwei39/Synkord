@@ -1,0 +1,67 @@
+name: 💡 Feature Request
+description: 提议新功能
+labels: ["enhancement", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先搜索 [已有 issue](../../issues) 避免重复。
+        大改动建议先在 Discussions 讨论。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 痛点 / 背景
+      placeholder: 描述当前工作流中遇到的问题或不便
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: 期望的解决方案
+      placeholder: 描述你希望的功能行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 备选方案（可选）
+      placeholder: |
+        你考虑过的其他方案，以及为什么你偏好上面那个
+    validations:
+      required: false
+
+  - type: textarea
+    id: use_case
+    attributes:
+      label: 使用场景
+      placeholder: |
+        谁会用？
+        在什么场景下用？
+        频率？
+    validations:
+      required: false
+
+  - type: textarea
+    id: mockup
+    attributes:
+      label: UI 草图 / 类似产品（可选）
+      placeholder: |
+        画个 wireframe 或贴类似产品的截图
+    validations:
+      required: false
+
+  - type: checkbox
+    id: contribute
+    attributes:
+      label: 愿意贡献代码
+      options:
+        - label: 我愿意提交 PR 实现这个功能
+        - label: 我愿意写文档 / 测试
+        - label: 我暂时没有时间，但可以在 issue 里讨论
+    validations:
+      required: false

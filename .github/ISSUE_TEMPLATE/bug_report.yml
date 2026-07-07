@@ -1,0 +1,105 @@
+name: 🐛 Bug Report
+description: 报告一个 bug
+labels: ["bug", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢报告 bug！请提供尽量多的细节，帮我们快速定位。
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: 涉及组件
+      description: bug 出现在哪个组件？
+      options:
+        - 桌面端（Electron）
+        - 后端 (synkord-core)
+        - 前端 (Vite/React)
+        - CLI (synkord-cli)
+        - MCP 工具
+        - 部署 / Docker
+        - 文档
+        - 其他
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: 严重程度
+      options:
+        - "🔴 Blocker — 核心功能不可用"
+        - "🟠 High — 主要功能受影响"
+        - "🟡 Medium — 有 workaround"
+        - "🟢 Low — 边角问题"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug 描述
+      placeholder: 清晰描述 bug 行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开 ...
+        2. 点击 ...
+        3. 输入 ...
+        4. 看到 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      placeholder: 描述期望的正确行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      placeholder: 描述实际看到的
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      placeholder: v0.1.0 / commit hash / docker image tag
+    validations:
+      required: false
+
+  - type: textarea
+    id: env
+    attributes:
+      label: 环境信息
+      placeholder: |
+        - OS: macOS 14.2 / Windows 11 / Ubuntu 22.04
+        - 浏览器: Chrome 120 / Safari 17
+        - Node: 20.10
+        - Go: 1.25
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 错误日志 / 截图
+      placeholder: |
+        贴上控制台 / 终端 / 浏览器 DevTools 的相关日志
+        或拖拽截图到这里
+    validations:
+      required: false

@@ -1,0 +1,8 @@
+# Synkord 自托管部署 - 忽略
+.env
+.env.local
+*.log
+backups/
+data/
+caddy_data/
+caddy_config/

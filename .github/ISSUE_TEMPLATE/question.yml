@@ -1,0 +1,39 @@
+name: ❓ Question
+description: 使用问题 / 配置求助
+labels: ["question"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        使用上的问题？先用 [Discussions](../../discussions) 搜一下看有没有类似问题。
+
+  - type: textarea
+    id: question
+    attributes:
+      label: 问题
+      placeholder: 简洁描述你的问题
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 上下文
+      placeholder: |
+        - 你在做什么
+        - 已经尝试过什么
+        - 期待的结果
+    validations:
+      required: false
+
+  - type: textarea
+    id: env
+    attributes:
+      label: 环境
+      placeholder: |
+        - 版本
+        - 部署方式（桌面端 / Docker / 自建）
+        - 相关配置片段
+    validations:
+      required: false

@@ -68,6 +68,14 @@ jobs:
         with:
           version: 9
 
+      # Windows 上 pnpm/action-setup 安装后 PATH 偶尔不生效，corepack 兜底
+      - name: Setup pnpm (corepack fallback)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare pnpm@9 --activate
+
       - name: Install
         run: pnpm install --frozen-lockfile
 

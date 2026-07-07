@@ -33,23 +33,16 @@ permissions:
 
 jobs:
   # --------------------------------------------------------------------------
-  # 后端：3 平台二进制（用 -ldflags 注入版本号）
+  # 后端：只构建与桌面端对应的 2 个平台（用 -ldflags 注入版本号）
   # --------------------------------------------------------------------------
   backend:
     name: Backend (${{ matrix.os }}-${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
+    needs: [resolve]
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            arch: amd64
-            artifact: synkord-core-linux-amd64
-            binary: synkord-core
-          - os: ubuntu-latest
-            arch: arm64
-            artifact: synkord-core-linux-arm64
-            binary: synkord-core
           - os: macos-latest
             arch: arm64
             artifact: synkord-core-darwin-arm64
@@ -102,6 +95,7 @@ jobs:
   cli:
     name: CLI (${{ matrix.os }}-${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
+    needs: [resolve]
     strategy:
       fail-fast: false
       matrix:
@@ -165,7 +159,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [macos-latest, windows-latest]
     defaults:
       run:
         working-directory: frontend
@@ -185,15 +179,6 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Linux 需要额外系统库
-      - name: Install Linux deps
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libnss3 libatk-bridge2.0-0 libdrm2 \
-            libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
-            libgbm1 libxss1 libasound2t64 rpm fakeroot dpkg
-
       - name: Build
         env:
           # 不做代码签名：用户首次运行会看到 OS 自身的告警
@@ -201,20 +186,9 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: |
           case "${{ matrix.os }}" in
-            ubuntu-latest)  pnpm dist:linux ;;
             macos-latest)   pnpm dist:mac ;;
             windows-latest) pnpm dist:win ;;
           esac
-
-      - name: Upload (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-linux
-          path: |
-            frontend/release/*.AppImage
-            frontend/release/*.deb
-          if-no-files-found: error
 
       - name: Upload (macOS)
         if: matrix.os == 'macos-latest'
@@ -338,17 +312,19 @@ jobs:
             自动构建产物（由 [.github/workflows/release.yml](.github/workflows/release.yml) 产出）。
 
             ### 📦 桌面端
-            - **macOS**: `Synkord-${{ needs.resolve.outputs.version_stripped }}-arm64.dmg`
-            - **Windows**: `Synkord-Setup-${{ needs.resolve.outputs.version_stripped }}-x64.exe`
-            - **Linux**: `Synkord-${{ needs.resolve.outputs.version_stripped }}-x64.AppImage` / `.deb`
+            - **macOS** (Apple Silicon): `Synkord-${{ needs.resolve.outputs.version_stripped }}-arm64.dmg`
+            - **Windows**: `Synkord-Setup-${{ needs.resolve.outputs.version_stripped }}-x64.exe` (NSIS 安装包) + 便携版
 
-            ### 🖥️ 后端 / CLI 二进制
-            见下方 asset 列表。验证：
+            ### 🖥️ 后端二进制（与桌面端同平台）
+            - **macOS**: `synkord-core-darwin-arm64`
+            - **Windows**: `synkord-core-windows-amd64.exe`
+
+            验证：
             ```sh
             sha256sum -c checksums.txt
             ```
 
-            ### 🐳 Docker
+            ### 🐳 Docker（自托管）
             ```sh
             docker pull ghcr.io/${{ github.repository_owner }}/synkord-core:${{ needs.resolve.outputs.version_stripped }}
             ```

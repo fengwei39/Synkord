@@ -90,67 +90,8 @@ jobs:
           if-no-files-found: error
 
   # --------------------------------------------------------------------------
-  # CLI：3 平台二进制（用 -ldflags 注入版本号）
-  # --------------------------------------------------------------------------
-  cli:
-    name: CLI (${{ matrix.os }}-${{ matrix.arch }})
-    runs-on: ${{ matrix.os }}
-    needs: [resolve]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            arch: amd64
-            asset: synkord-cli-linux-amd64
-            binary: synkord
-          - os: ubuntu-latest
-            arch: arm64
-            asset: synkord-cli-linux-arm64
-            binary: synkord
-          - os: macos-latest
-            arch: arm64
-            asset: synkord-cli-darwin-arm64
-            binary: synkord
-          - os: windows-latest
-            arch: amd64
-            asset: synkord-cli-windows-amd64.exe
-            binary: synkord.exe
-    defaults:
-      run:
-        working-directory: synkord-cli
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.25'
-          cache: true
-          cache-dependency-path: synkord-cli/go.sum
-      - name: Build
-        env:
-          VERSION: ${{ needs.resolve.outputs.version }}
-          GOOS: ${{ matrix.os == 'windows-latest' && 'windows' || (matrix.os == 'macos-latest' && 'darwin' || 'linux') }}
-          GOARCH: ${{ matrix.arch }}
-        run: |
-          mkdir -p ../dist
-          CGO_ENABLED=0 go build -trimpath \
-            -ldflags="-s -w -X main.version=${VERSION}" \
-            -o ../dist/${{ matrix.binary }} .
-      - name: Smoke test
-        run: |
-          if [ "${{ matrix.os }}" != "windows-latest" ]; then
-            chmod +x ../dist/${{ matrix.binary }}
-            ../dist/${{ matrix.binary }} version
-          fi
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.asset }}
-          path: dist/${{ matrix.binary }}
-          if-no-files-found: error
-
-  # --------------------------------------------------------------------------
   # 桌面端：electron-builder 安装包（读 frontend/package.json 的 version）
+  # 内置 CLI：通过 extraResources 嵌入到安装包，用户可在终端用 `synkord` 命令
   # --------------------------------------------------------------------------
   desktop:
     name: Desktop (${{ matrix.os }})
@@ -179,7 +120,30 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Build
+      - name: Setup Go (for CLI)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: synkord-cli/go.sum
+
+      # 桌面端内置 CLI：先编译 CLI 到 electron/bin/，再让 electron-builder 把它打进 extraResources
+      - name: Build CLI (${{ matrix.os }})
+        working-directory: synkord-cli
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          GOOS: ${{ matrix.os == 'windows-latest' && 'windows' || 'darwin' }}
+          GOARCH: ${{ matrix.os == 'windows-latest' && 'amd64' || 'arm64' }}
+        run: |
+          mkdir -p ../frontend/electron/bin
+          EXT=""
+          [ "$GOOS" = "windows" ] && EXT=".exe"
+          CGO_ENABLED=0 go build -trimpath \
+            -ldflags="-s -w -X main.version=${VERSION}" \
+            -o ../frontend/electron/bin/synkord-${GOOS}-${GOARCH}${EXT} .
+          ls -la ../frontend/electron/bin/
+
+      - name: Build Desktop
         env:
           # 不做代码签名：用户首次运行会看到 OS 自身的告警
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -283,7 +247,7 @@ jobs:
   release:
     name: GitHub Release
     runs-on: ubuntu-latest
-    needs: [backend, cli, desktop, docker, resolve]
+    needs: [backend, desktop, docker, resolve]
     permissions:
       contents: write
     steps:
@@ -323,6 +287,8 @@ jobs:
             ```sh
             sha256sum -c checksums.txt
             ```
+
+            > 💡 **CLI 工具已内置到桌面端**：装好桌面应用后，打开 设置 → CLI 工具 → "安装到 PATH"，即可在终端用 `synkord` 命令（CI/CD 推送 + Git pre-commit 校验）。不需要单独下载。
 
             ### 🐳 Docker（自托管）
             ```sh

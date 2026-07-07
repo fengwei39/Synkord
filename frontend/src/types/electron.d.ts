@@ -22,11 +22,25 @@ declare global {
       windowMinimize: () => Promise<void>
       windowMaximize: () => Promise<void>
       windowClose: () => Promise<void>
+      // CLI 安装器（v0.1.0 起：桌面端自带 CLI）
+      cliStatus: () => Promise<CliStatus>
+      cliInstall: () => Promise<{ ok: boolean; error?: string; path?: string; warning?: string; shellHint?: string }>
+      cliUninstall: () => Promise<{ ok: boolean; removed: boolean }>
       // 事件订阅
       onMcpEvent: (callback: (payload: MCPEvent) => void) => () => void
       onAuthExpired: (callback: () => void) => () => void
     }
     synkordApiBase?: string
+  }
+
+  // CLI 安装器状态
+  interface CliStatus {
+    bundled: boolean         // 桌面端是否携带了 CLI
+    installed: boolean       // 是否已安装到用户目录
+    path: string | null      // CLI 二进制路径
+    inPath: boolean          // 是否在 PATH 中
+    version: string | null   // 当前版本（执行 CLI 获得）
+    runError?: string | null
   }
 
   // MCP 服务状态

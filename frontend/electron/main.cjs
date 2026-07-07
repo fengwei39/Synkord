@@ -26,6 +26,8 @@
 // ============================================================================
 const electron = require('electron')
 const { app, BrowserWindow, ipcMain, shell, dialog } = electron
+// CLI 安装器（仅打包后使用）
+const cliInstaller = require('./cli-installer.cjs')
 // electron-updater 仅在打包后的生产环境加载；开发模式 dev 模式下不要触发更新
 let autoUpdater = null
 if (app.isPackaged) {
@@ -378,6 +380,45 @@ function registerIpc() {
     else mainWindow.maximize()
   })
   ipcMain.handle('window:close', () => mainWindow?.close())
+
+  // ---- CLI 安装器（v0.1.0 起：桌面端自带 CLI） ----
+  ipcMain.handle('cli:status', async () => {
+    const installed = cliInstaller.isCLIInstalled()
+    if (!installed.installed && !installed.path) {
+      return {
+        bundled: !!cliInstaller.locateBundledCLI(),
+        installed: false,
+        path: null,
+        inPath: false,
+        version: null,
+      }
+    }
+    const run = await cliInstaller.runCLI()
+    return {
+      bundled: !!cliInstaller.locateBundledCLI(),
+      installed: true,
+      path: installed.path,
+      inPath: installed.installed,
+      version: run.ok ? run.output.replace(/^synkord\s+/, '') : null,
+      runError: run.ok ? null : run.error,
+    }
+  })
+
+  ipcMain.handle('cli:install', async () => {
+    try {
+      return await cliInstaller.installCLI()
+    } catch (err) {
+      return { ok: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('cli:uninstall', async () => {
+    try {
+      return await cliInstaller.uninstallCLI()
+    } catch (err) {
+      return { ok: false, error: err.message }
+    }
+  })
 }
 
 // ============================================================================

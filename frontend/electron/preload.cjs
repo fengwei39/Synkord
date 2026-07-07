@@ -30,6 +30,9 @@ const ALLOWED_INVOKES = new Set([
   'window:minimize',
   'window:maximize',
   'window:close',
+  'cli:status',
+  'cli:install',
+  'cli:uninstall',
 ]);
 
 const ALLOWED_EVENTS = new Set([
@@ -64,6 +67,11 @@ contextBridge.exposeInMainWorld('synkord', {
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),
   windowMaximize: () => ipcRenderer.invoke('window:maximize'),
   windowClose: () => ipcRenderer.invoke('window:close'),
+
+  // ---- CLI 安装器 ----
+  cliStatus: () => ipcRenderer.invoke('cli:status'),
+  cliInstall: () => ipcRenderer.invoke('cli:install'),
+  cliUninstall: () => ipcRenderer.invoke('cli:uninstall'),
 
   // ---- 事件订阅（状态变更 / 401 通知）----
   onMcpEvent: (callback) => {

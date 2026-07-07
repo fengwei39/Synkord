@@ -94,7 +94,13 @@
         }
       ],
       "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
-      "signtoolOptions": null
+      "signtoolOptions": null,
+      "extraResources": [
+        {
+          "from": "electron/bin/synkord-windows-amd64.exe",
+          "to": "synkord.exe"
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,
@@ -111,7 +117,6 @@
         {
           "target": "dmg",
           "arch": [
-            "x64",
             "arm64"
           ]
         }
@@ -121,7 +126,13 @@
       "identity": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
-      "notarize": false
+      "notarize": false,
+      "extraResources": [
+        {
+          "from": "electron/bin/synkord-darwin-arm64",
+          "to": "synkord"
+        }
+      ]
     },
     "linux": {
       "target": [
@@ -141,12 +152,6 @@
       "category": "Development",
       "icon": "build/icon.png"
     },
-    "fileAssociations": [],
-    "extraResources": [
-      {
-        "from": "build/icon.png",
-        "to": "icon.png"
-      }
-    ]
+    "fileAssociations": []
   }
 }

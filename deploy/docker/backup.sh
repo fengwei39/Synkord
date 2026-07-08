@@ -2,7 +2,8 @@
 # Synkord 数据库备份
 # 用法：./backup.sh  （必须在 deploy/docker 目录下执行）
 #
-# 用 sqlite3 .backup 拿一致性快照（处理 WAL，不用担心 -wal/-shm 文件）
+# 用 sqlite3 .backup 拿一致性快照。当前后端默认 journal_mode=DELETE，
+# 通常只有 synkord.db 单文件；.backup 仍可避免运行中拷贝的不一致。
 # 输出到 ./backups/backup-YYYYmmdd-HHMMSS.db
 
 set -euo pipefail

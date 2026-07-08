@@ -1,7 +1,7 @@
 /**
  * mcp-tools/index.cjs
  *
- * 工具统一注册入口（v1.2：9 个工具，全部对齐后端 naming）
+ * 工具统一注册入口（v1.2：11 个工具，全部对齐后端 naming）
  * 启动时调用一次，将所有内置工具注册到全局注册表
  */
 'use strict';
@@ -21,6 +21,14 @@ const {
 } = require('./validate_code_against_contract.cjs');
 const { definition: listContractsDef, handler: listContractsHandler } = require('./list_contracts.cjs');
 const { definition: findContractDef, handler: findContractHandler } = require('./find_contract.cjs');
+const {
+  definition: searchApisAcrossContractsDef,
+  handler: searchApisAcrossContractsHandler,
+} = require('./search_apis_across_contracts.cjs');
+const {
+  definition: searchEntitiesAcrossContractsDef,
+  handler: searchEntitiesAcrossContractsHandler,
+} = require('./search_entities_across_contracts.cjs');
 
 /**
  * 注册所有内置工具
@@ -37,6 +45,8 @@ function registerBuiltinTools() {
     [validateCodeDef, validateCodeHandler],
     [listContractsDef, listContractsHandler],
     [findContractDef, findContractHandler],
+    [searchApisAcrossContractsDef, searchApisAcrossContractsHandler],
+    [searchEntitiesAcrossContractsDef, searchEntitiesAcrossContractsHandler],
   ];
 
   for (const [def, handler] of tools) {

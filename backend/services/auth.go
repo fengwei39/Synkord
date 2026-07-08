@@ -27,13 +27,26 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
+const (
+	AccessTokenTTL  = 15 * time.Minute
+	RefreshTokenTTL = 30 * 24 * time.Hour
+)
+
 func GenerateToken(cfg *config.Config, user *models.User) (string, error) {
+	return generateTokenWithTTL(cfg, user, AccessTokenTTL)
+}
+
+func GenerateRefreshToken(cfg *config.Config, user *models.User) (string, error) {
+	return generateTokenWithTTL(cfg, user, RefreshTokenTTL)
+}
+
+func generateTokenWithTTL(cfg *config.Config, user *models.User, ttl time.Duration) (string, error) {
 	claims := Claims{
 		UserID:   user.ID,
 		Username: user.Username,
 		Role:     string(user.Role),
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(8 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}

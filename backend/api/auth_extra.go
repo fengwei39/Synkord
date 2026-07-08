@@ -9,17 +9,19 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/synkord/core/config"
 	"github.com/synkord/core/database"
-	"github.com/synkord/core/models"
 	"github.com/synkord/core/middleware"
+	"github.com/synkord/core/models"
 	"github.com/synkord/core/services"
 )
 
 // LoginResponse 登录响应（对齐前端期望）
 type LoginResponse struct {
-	AccessToken string       `json:"access_token"`
-	TokenType   string       `json:"token_type"`
-	ExpiresIn   int          `json:"expires_in"`
-	User        models.User  `json:"user"`
+	AccessToken  string      `json:"access_token"`
+	Token        string      `json:"token"`
+	RefreshToken string      `json:"refresh_token"`
+	TokenType    string      `json:"token_type"`
+	ExpiresIn    int         `json:"expires_in"`
+	User         models.User `json:"user"`
 }
 
 // Auth handler 包装
@@ -43,11 +45,18 @@ func loginHandler(cfg *config.Config) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"detail": "Failed to generate token"})
 			return
 		}
+		refreshToken, err := services.GenerateRefreshToken(cfg, user)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"detail": "Failed to generate refresh token"})
+			return
+		}
 		c.JSON(http.StatusOK, LoginResponse{
-			AccessToken: token,
-			TokenType:   "bearer",
-			ExpiresIn:   8 * 3600,
-			User:        *user,
+			AccessToken:  token,
+			Token:        token,
+			RefreshToken: refreshToken,
+			TokenType:    "bearer",
+			ExpiresIn:    int(services.AccessTokenTTL.Seconds()),
+			User:         *user,
 		})
 	}
 }
@@ -78,10 +87,17 @@ func refreshTokenHandler(cfg *config.Config) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"detail": "Failed to generate token"})
 			return
 		}
+		refreshToken, err := services.GenerateRefreshToken(cfg, &user)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"detail": "Failed to generate refresh token"})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{
-			"access_token": token,
-			"token_type":   "bearer",
-			"expires_in":   8 * 3600,
+			"access_token":  token,
+			"token":         token,
+			"refresh_token": refreshToken,
+			"token_type":    "bearer",
+			"expires_in":    int(services.AccessTokenTTL.Seconds()),
 		})
 	}
 }

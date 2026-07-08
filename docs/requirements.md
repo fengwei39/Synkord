@@ -172,7 +172,10 @@ interface EntityDefinition {
   contract_id: string
   name: string
   description?: string
-  fields: EntityField[]
+  schema_content: string                    // JSON Schema 原文
+  current_version: string
+  version_count: number
+  created_by?: string
   created_at: string
   updated_at: string
 }
@@ -208,11 +211,15 @@ interface AccessLogEntry {
   id: string
   contract_id?: string
   tool_name: string
-  client: string
+  caller: string
+  client: string                            // caller alias
   args?: Record<string, unknown>
+  result_status: 'success' | 'error'
   status: number
   duration_ms: number
-  timestamp: string
+  error_message?: string
+  created_at: string
+  timestamp: string                         // created_at alias
 }
 
 interface ApiError {
@@ -253,9 +260,9 @@ interface ApiError {
 
 | 方法 | 路径 | 请求 | 响应 |
 |---|---|---|---|
-| POST | `/auth/login` | `{ username, password }` | `{ token, refresh_token, expires_in, user }` |
+| POST | `/auth/login` | `{ username, password }` | `{ access_token, token, refresh_token, expires_in, user }` |
 | POST | `/auth/logout` | - | `{ ok: true }` |
-| POST | `/auth/refresh` | `{ refresh_token }` | `{ token, refresh_token?, expires_in }` |
+| POST | `/auth/refresh` | `{ refresh_token }` | `{ access_token, token, refresh_token, expires_in }` |
 | GET | `/auth/me` | - | `User` |
 
 ### 4.2 契约集
@@ -278,7 +285,7 @@ interface ApiError {
 | 方法 | 路径 | 请求 | 响应 |
 |---|---|---|---|
 | GET | `/contracts/:id/members` | - | `ContractSetMember[]` |
-| POST | `/contracts/:id/members` | `{ username, role }` | `ContractSetMember` |
+| POST | `/contracts/:id/members` | `{ user_id, role }` 或 `{ username, role }` | `ContractSetMember` |
 | PATCH | `/contracts/:id/members/:userId` | `{ role }` | `ContractSetMember` |
 | DELETE | `/contracts/:id/members/:userId` | - | `void` |
 
@@ -295,6 +302,7 @@ interface ApiError {
 | PATCH | `/contracts/:contractId/apis/:apiId` | `Partial<ApiDefinition>` | `ApiDefinition` |
 | DELETE | `/contracts/:contractId/apis/:apiId` | - | `void` |
 | GET | `/contracts/:contractId/apis/:apiId/dependencies` | - | `{ uses_entities: EntityRef[], used_by_apis: ApiRef[] }` |
+| POST | `/contracts/:contractId/apis/clear` | - | `{ deleted_apis }` |
 
 **权限规则**：GET 任何角色；POST/PATCH/DELETE 仅 owner + editor。
 
@@ -304,10 +312,12 @@ interface ApiError {
 |---|---|---|---|
 | GET | `/contracts/:contractId/entities` | query: `keyword?, limit?, offset?` | `{ total, items: EntityDefinition[] }` |
 | GET | `/contracts/:contractId/entities/:entityId` | - | `EntityDefinition` |
-| POST | `/contracts/:contractId/entities` | `Omit<EntityDefinition, 'id'\|'contract_id'\|'created_at'\|'updated_at'>` | `EntityDefinition` |
-| PATCH | `/contracts/:contractId/entities/:entityId` | `Partial<EntityDefinition>` | `EntityDefinition` |
+| POST | `/contracts/:contractId/entities` | `{ name, description?, schema_content }` 或 `{ name, description?, fields }` | `EntityDefinition` |
+| PATCH | `/contracts/:contractId/entities/:entityId` | `{ name?, description?, schema_content?, fields?, change_summary? }` | `EntityDefinition` |
 | DELETE | `/contracts/:contractId/entities/:entityId` | - | `void` |
 | GET | `/contracts/:contractId/entities/:entityId/dependencies` | - | `{ used_in_apis: ApiRef[], references_entities: EntityRef[] }` |
+| GET | `/contracts/:contractId/entities/:entityId/versions` | - | `{ items: EntityVersion[], total }` |
+| POST | `/contracts/:contractId/entities/clear` | - | `{ deleted_entities }` |
 
 **权限规则**：GET 任何角色；POST/PATCH/DELETE 仅 owner + editor。
 
@@ -317,6 +327,7 @@ interface ApiError {
 |---|---|---|---|
 | POST | `/contracts/:contractId/import/parse` | `{ source, content, format }` | `ParsePreview` |
 | POST | `/contracts/:contractId/import/commit` | `{ apis, entities }` | `{ imported_apis, imported_entities }` |
+| POST | `/contracts/:contractId/import/fetch-url` | `{ url }` | `{ content, content_type, status }` |
 
 **权限规则**：仅 owner + editor。
 
@@ -339,10 +350,13 @@ interface ParsePreview {
 | POST | `/mcp/start` | - | `McpStatus` |
 | POST | `/mcp/stop` | - | `McpStatus` |
 | POST | `/mcp/restart` | - | `McpStatus` |
+| GET | `/mcp/summary` | - | `{ pid, started_at, uptime_seconds, restart_count, health }` |
 | GET | `/mcp/active-contract` | - | `ActiveContract \| null` |
 | PUT | `/mcp/active-contract` | `{ contract_id }` | `ActiveContract` |
 | GET | `/mcp/ide-config` | - | `{ stdio: { command, args }, http?: { url, token } }` |
 | GET | `/mcp/access-log` | query: `limit?, offset?` | `{ items: AccessLogEntry[], total }` |
+| GET | `/mcp/access-log/stats` | - | `{ sparkline, error_rate, top_tools }` |
+| POST | `/mcp/query` | `{ contract_id?, tool, args?, caller? }` | `{ result }` |
 
 ### 4.8 用户搜索
 

@@ -165,7 +165,9 @@ func updateContract(c *gin.Context) {
 	userID := c.GetString("user_id")
 	contract, err := services.UpdateContract(database.DB, contractID, userID, req.Name, req.Description, req.Archived)
 	if err != nil {
-		if err.Error() == "only owner can update contract" {
+		if err.Error() == "only owner can update contract" ||
+			err.Error() == "editor or owner required" ||
+			err.Error() == "only owner can archive contract" {
 			c.JSON(http.StatusForbidden, gin.H{"detail": err.Error()})
 			return
 		}

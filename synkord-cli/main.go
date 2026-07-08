@@ -77,8 +77,8 @@ Commands:
   help            Show this help
 
 Environment:
-  SYNKOORD_SERVER   default server URL (overridden by --server)
-  SYNKOORD_TOKEN    default JWT (overridden by --token)
+  SYNKORD_SERVER    default server URL (overridden by --server)
+  SYNKORD_TOKEN     default JWT (overridden by --token)
 
 Per docs/ai-development-guide.md §12.4, this CLI talks REST only.
 MCP is reserved for IDE/AI assistants (Cursor/VSCode/Codex).

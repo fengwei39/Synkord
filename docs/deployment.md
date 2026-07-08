@@ -269,8 +269,8 @@ BIN="synkord"
 synkord login --server https://synkord.yourcompany.com
 # 提示输入用户名/密码，token 存到 ~/.synkord/token
 
-synkord push-spec --spec ./openapi.json
-synkord validate-deps --used-entities User,Order --used-apis /api/users/{id},/api/orders
+synkord push-spec --contract <contract_id> --spec ./openapi.json
+synkord validate-deps --contract <contract_id> --used-entities User,Order --used-apis "GET /api/users/{id},GET /api/orders"
 ```
 
 详见 [synkord-cli/main.go 帮助](../synkord-cli/main.go)。
@@ -380,7 +380,8 @@ docker compose cp synkord:/app/data/backup.db - | \
                          └────────┬─────────┘
                                   │
                          ┌────────▼─────────┐
-                         │   SQLite (WAL)   │
+                         │   SQLite         │
+                         │ journal=DELETE   │
                          │   synkord.db     │
                          └──────────────────┘
 ```

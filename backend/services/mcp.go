@@ -69,9 +69,9 @@ func SetMCPState(state string) error {
 		return err
 	}
 	return database.DB.Model(&s).Updates(map[string]interface{}{
-		"state":   state,
-		"url":     GetMCPRuntimeURL(),
-		"port":    getMCPPortFromEnv(),
+		"state": state,
+		"url":   GetMCPRuntimeURL(),
+		"port":  getMCPPortFromEnv(),
 	}).Error
 }
 
@@ -166,6 +166,8 @@ func (r *MCPToolRegistry) registerDefaults() {
 	r.Register("validate_code_against_contract", toolValidateCode)
 	r.Register("list_contracts", toolListContracts)
 	r.Register("find_contract", toolFindContract)
+	r.Register("search_apis_across_contracts", toolSearchAPIsAcrossContracts)
+	r.Register("search_entities_across_contracts", toolSearchEntitiesAcrossContracts)
 }
 
 // === 工具实现 ===
@@ -391,11 +393,95 @@ func toolFindContract(db *gorm.DB, contractID, userID string, args map[string]in
 			items = append(items, map[string]string{
 				"contract_id":   c.ID,
 				"contract_name": c.Name,
-				"match_type":     matchType,
+				"match_type":    matchType,
 			})
 		}
 	}
 	return items, nil
+}
+
+func toolSearchAPIsAcrossContracts(db *gorm.DB, contractID, userID string, args map[string]interface{}) (interface{}, error) {
+	keyword := stringArg(args, "keyword")
+	if keyword == "" {
+		return nil, errors.New("MISSING_PARAM: keyword")
+	}
+	method := stringArg(args, "method")
+	limit := intArg(args, "limit", 30)
+	if limit <= 0 || limit > 100 {
+		limit = 30
+	}
+	filterContractID := stringArg(args, "contract_id")
+	contracts, err := ListUserContracts(db, userID)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]map[string]interface{}, 0)
+	for _, ct := range contracts {
+		if filterContractID != "" && ct.ID != filterContractID {
+			continue
+		}
+		apis, _, err := ListContractAPIs(db, ct.ID, keyword, method, "", true, 0, limit)
+		if err != nil {
+			return nil, err
+		}
+		for _, api := range apis {
+			results = append(results, map[string]interface{}{
+				"contract_id":   ct.ID,
+				"contract_name": ct.Name,
+				"api": map[string]interface{}{
+					"api_id":  api.ID,
+					"path":    api.Path,
+					"method":  api.Method,
+					"summary": api.Summary,
+				},
+			})
+			if len(results) >= limit {
+				return results, nil
+			}
+		}
+	}
+	return results, nil
+}
+
+func toolSearchEntitiesAcrossContracts(db *gorm.DB, contractID, userID string, args map[string]interface{}) (interface{}, error) {
+	keyword := stringArg(args, "keyword")
+	if keyword == "" {
+		return nil, errors.New("MISSING_PARAM: keyword")
+	}
+	limit := intArg(args, "limit", 30)
+	if limit <= 0 || limit > 100 {
+		limit = 30
+	}
+	filterContractID := stringArg(args, "contract_id")
+	contracts, err := ListUserContracts(db, userID)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]map[string]interface{}, 0)
+	for _, ct := range contracts {
+		if filterContractID != "" && ct.ID != filterContractID {
+			continue
+		}
+		entities, _, err := ListContractEntities(db, ct.ID, keyword, 0, limit)
+		if err != nil {
+			return nil, err
+		}
+		for _, entity := range entities {
+			results = append(results, map[string]interface{}{
+				"contract_id":   ct.ID,
+				"contract_name": ct.Name,
+				"entity": map[string]interface{}{
+					"entity_id":   entity.ID,
+					"name":        entity.Name,
+					"description": entity.Description,
+				},
+			})
+			if len(results) >= limit {
+				return results, nil
+			}
+		}
+	}
+	return results, nil
 }
 
 // ============================================================================
@@ -514,6 +600,31 @@ func boolArg(args map[string]interface{}, key string) bool {
 	return false
 }
 
+func intArg(args map[string]interface{}, key string, fallback int) int {
+	if args == nil {
+		return fallback
+	}
+	v, ok := args[key]
+	if !ok || v == nil {
+		return fallback
+	}
+	switch n := v.(type) {
+	case int:
+		return n
+	case float64:
+		return int(n)
+	case json.Number:
+		if i, err := n.Int64(); err == nil {
+			return int(i)
+		}
+	case string:
+		if i, err := strconv.Atoi(strings.TrimSpace(n)); err == nil {
+			return i
+		}
+	}
+	return fallback
+}
+
 // ============================================================================
 // 运行时摘要 + 访问日志统计（v1.2 评审 R-2 / R-3）
 // 供前端 MCP 主页"状态卡 / 最近调用 sparkline + Top 工具"使用
@@ -531,10 +642,10 @@ type McpHealthSummary struct {
 
 // McpRuntimeSummary MCP 运行时摘要（PID / 启动时间 / 重启次数 / 健康度）
 type McpRuntimeSummary struct {
-	PID           *int            `json:"pid"`
-	StartedAt     *time.Time      `json:"started_at"`
-	UptimeSeconds *int            `json:"uptime_seconds"`
-	RestartCount  int             `json:"restart_count"`
+	PID           *int             `json:"pid"`
+	StartedAt     *time.Time       `json:"started_at"`
+	UptimeSeconds *int             `json:"uptime_seconds"`
+	RestartCount  int              `json:"restart_count"`
 	Health        McpHealthSummary `json:"health"`
 }
 

@@ -115,7 +115,7 @@ const { initAccessLog, logAccess, closeAccessLog, info, warn, error, debug } = r
 const { redactSensitive, getClientIp, readJsonFile } = require('./mcp-core/utils.cjs');
 const { callTool } = require('./mcp-core/backend-client.cjs');
 
-// 注册 5 个内置工具（仅一次）
+// 注册内置工具（仅一次）
 registerBuiltinTools();
 
 // ============================================================================
@@ -125,10 +125,12 @@ registerBuiltinTools();
 const loader = new ConfigLoader();
 
 async function loadFromDisk() {
-  const authPath = path.join(SYNKORD_HOME, 'user-auth.json');
-  const ctxPath = path.join(SYNKORD_HOME, 'active-context.json');
-  const auth = await readJsonFile(authPath);
-  const ctx = await readJsonFile(ctxPath);
+  const authPath = path.join(SYNKORD_HOME, 'credentials.json');
+  const legacyAuthPath = path.join(SYNKORD_HOME, 'user-auth.json');
+  const ctxPath = path.join(SYNKORD_HOME, 'active-contract.json');
+  const legacyCtxPath = path.join(SYNKORD_HOME, 'active-context.json');
+  const auth = (await readJsonFile(authPath)) || (await readJsonFile(legacyAuthPath));
+  const ctx = (await readJsonFile(ctxPath)) || (await readJsonFile(legacyCtxPath));
   // 文件不存在时也调用，setMemory* 会清空旧值
   loader.setMemoryContext(ctx);
   loader.setMemoryAuth(auth);

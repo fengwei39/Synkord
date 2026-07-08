@@ -604,6 +604,18 @@ function registerIpc() {
 
   // 上下文：active contract（v1.2）
   ipcMain.handle('mcp:get-active-contract', () => activeContractStore.get())
+  ipcMain.handle('mcp:set-active-contract', (_event, contract) => {
+    if (!contract?.contract_id) {
+      activeContractStore.clear()
+      return activeContractStore.get()
+    }
+    activeContractStore.set(contract.contract_id, contract.contract_name || '')
+    return activeContractStore.get()
+  })
+  ipcMain.handle('mcp:clear-active-contract', () => {
+    activeContractStore.clear()
+    return { ok: true }
+  })
 
   // IDE 配置
   ipcMain.handle('mcp:get-ide-config', () => getIdeConfig())

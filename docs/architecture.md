@@ -96,7 +96,7 @@
 
 | 层 | 凭证 | 持有方 | 用途 |
 |---|---|---|---|
-| Layer 1: User ↔ Synkord Web | Session Cookie（HttpOnly, Secure, SameSite=Lax） | 浏览器 | 在 Web UI 里管理数据 |
+| Layer 1: User ↔ Synkord Web | JWT（当前 Web MVP 存 localStorage；生产建议升级 HttpOnly Cookie） | 浏览器 | 在 Web UI 里管理数据 |
 | Layer 2: Electron ↔ Backend | JWT (短期 15min) + Refresh Token (长期 30d) | **Auth Manager** | 所有插件调用后端 |
 | Layer 3: IDE ↔ Connect | STDIO 无凭证；HTTP 用本地 Bearer | Connect 自己签发 | IDE 认证到 Connect |
 
@@ -201,7 +201,7 @@ electron/
   ↓
 渲染进程调用 IPC: 'mcp:setActiveContract'
   ↓
-主进程更新 active-contract.json (原子写)
+后端更新 active_contract 表；桌面端主进程同步 active-contract.json (原子写)
   ↓
 主进程通过 IPC/WebSocket 通知 Connect
   ↓
@@ -213,7 +213,8 @@ Connect 更新内存中的活跃契约集
 **契约集切换器**：
 - 顶栏 chip 点击 → 下拉
 - 选中 → 渲染进程调 `PUT /api/mcp/active-contract`
-- 后端写 `active-contract.json`
+- 后端写 `active_contract` 表
+- 桌面端主进程同步写 `active-contract.json`
 - 后端通过 IPC 推送给 Connect
 - Connect 更新内存
 
@@ -264,8 +265,8 @@ ContractContext.setActiveContract(id)
     ↓
 PUT /api/mcp/active-contract
     ↓
-[后端] 写 active-contract.json
-[后端] IPC 推送给 Connect（运行中的）
+[后端] 写 active_contract 表
+[桌面端主进程] 同步 active-contract.json 并 IPC 推送给 Connect（运行中的）
     ↓
 [Connect] 更新内存中的 activeContractId
     ↓

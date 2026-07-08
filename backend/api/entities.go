@@ -39,15 +39,20 @@ func createContractEntity(c *gin.Context) {
 	}
 	userID := c.GetString("user_id")
 	var req struct {
-		Name          string `json:"name" binding:"required"`
-		Description   string `json:"description"`
-		SchemaContent string `json:"schema_content" binding:"required"`
+		Name          string        `json:"name" binding:"required"`
+		Description   string        `json:"description"`
+		SchemaContent string        `json:"schema_content"`
+		Fields        []interface{} `json:"fields"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
 	}
-	entity, err := services.CreateContractEntity(database.DB, contractID, req.Name, req.Description, req.SchemaContent, userID)
+	schemaContent := req.SchemaContent
+	if schemaContent == "" && len(req.Fields) > 0 {
+		schemaContent = marshalAny(buildSchemaFromFields(req.Name, req.Fields))
+	}
+	entity, err := services.CreateContractEntity(database.DB, contractID, req.Name, req.Description, schemaContent, userID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
@@ -79,16 +84,26 @@ func updateContractEntity(c *gin.Context) {
 	entityID := c.Param("entityId")
 	userID := c.GetString("user_id")
 	var req struct {
-		Name          *string `json:"name"`
-		Description   *string `json:"description"`
-		SchemaContent *string `json:"schema_content"`
-		ChangeSummary *string `json:"change_summary"`
+		Name          *string       `json:"name"`
+		Description   *string       `json:"description"`
+		SchemaContent *string       `json:"schema_content"`
+		Fields        []interface{} `json:"fields"`
+		ChangeSummary *string       `json:"change_summary"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
 	}
-	entity, err := services.UpdateContractEntity(database.DB, contractID, entityID, userID, req.Name, req.Description, req.SchemaContent, req.ChangeSummary)
+	schemaContent := req.SchemaContent
+	if schemaContent == nil && len(req.Fields) > 0 {
+		name := ""
+		if req.Name != nil {
+			name = *req.Name
+		}
+		schema := marshalAny(buildSchemaFromFields(name, req.Fields))
+		schemaContent = &schema
+	}
+	entity, err := services.UpdateContractEntity(database.DB, contractID, entityID, userID, req.Name, req.Description, schemaContent, req.ChangeSummary)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
@@ -255,6 +270,12 @@ func extractRefsFromSchema(schemaContent string) []string {
 // searchAPIsAcrossContracts 跨契约集搜索 API
 func searchAPIsAcrossContracts(c *gin.Context) {
 	keyword := c.Query("keyword")
+	filterContractID := c.Query("contract_id")
+	method := c.Query("method")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "30"))
+	if limit <= 0 || limit > 100 {
+		limit = 30
+	}
 	userID := c.GetString("user_id")
 	if keyword == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": "keyword is required"})
@@ -272,11 +293,18 @@ func searchAPIsAcrossContracts(c *gin.Context) {
 	}
 	results := []item{}
 	for _, ct := range contracts {
-		apis, _, _ := services.ListContractAPIs(database.DB, ct.ID, keyword, "", "", true, 0, 30)
+		if filterContractID != "" && ct.ID != filterContractID {
+			continue
+		}
+		apis, _, _ := services.ListContractAPIs(database.DB, ct.ID, keyword, method, "", true, 0, limit)
 		for _, a := range apis {
 			results = append(results, item{
 				ContractID: ct.ID, ContractName: ct.Name, API: a,
 			})
+			if len(results) >= limit {
+				c.JSON(http.StatusOK, results)
+				return
+			}
 		}
 	}
 	c.JSON(http.StatusOK, results)
@@ -285,6 +313,11 @@ func searchAPIsAcrossContracts(c *gin.Context) {
 // searchEntitiesAcrossContracts 跨契约集搜索实体
 func searchEntitiesAcrossContracts(c *gin.Context) {
 	keyword := c.Query("keyword")
+	filterContractID := c.Query("contract_id")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "30"))
+	if limit <= 0 || limit > 100 {
+		limit = 30
+	}
 	userID := c.GetString("user_id")
 	if keyword == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": "keyword is required"})
@@ -302,11 +335,18 @@ func searchEntitiesAcrossContracts(c *gin.Context) {
 	}
 	results := []item{}
 	for _, ct := range contracts {
-		entities, _, _ := services.ListContractEntities(database.DB, ct.ID, keyword, 0, 30)
+		if filterContractID != "" && ct.ID != filterContractID {
+			continue
+		}
+		entities, _, _ := services.ListContractEntities(database.DB, ct.ID, keyword, 0, limit)
 		for _, e := range entities {
 			results = append(results, item{
 				ContractID: ct.ID, ContractName: ct.Name, Entity: e,
 			})
+			if len(results) >= limit {
+				c.JSON(http.StatusOK, results)
+				return
+			}
 		}
 	}
 	c.JSON(http.StatusOK, results)

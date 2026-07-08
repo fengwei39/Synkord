@@ -5,6 +5,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -41,14 +42,18 @@ func RegisterMCPRoutes(r *gin.RouterGroup) {
 // v1.2 修订：端口从环境变量 SYNKORD_MCP_PORT 读，默认 37991（与 Electron Connect 对齐）
 // 状态字段由 MCPStatus 单例表承载（保留向后兼容 running 默认值）
 func getMCPStatus(c *gin.Context) {
+	c.JSON(http.StatusOK, mcpStatusPayload())
+}
+
+func mcpStatusPayload() gin.H {
 	url := services.GetMCPRuntimeURL()
-	c.JSON(http.StatusOK, gin.H{
+	return gin.H{
 		"state":      services.MCPStateOrDefault(),
 		"pid":        nil,
 		"port":       services.GetMCPPort(),
 		"url":        url,
 		"started_at": time.Now().Format(time.RFC3339),
-	})
+	}
 }
 
 // startMCP/stopMCP/restartMCP v1.2 修订：
@@ -59,21 +64,21 @@ func startMCP(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"state": "running"})
+	c.JSON(http.StatusOK, mcpStatusPayload())
 }
 func stopMCP(c *gin.Context) {
 	if err := services.SetMCPState("stopped"); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"state": "stopped"})
+	c.JSON(http.StatusOK, mcpStatusPayload())
 }
 func restartMCP(c *gin.Context) {
 	if err := services.SetMCPState("running"); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"state": "running"})
+	c.JSON(http.StatusOK, mcpStatusPayload())
 }
 
 func getActiveContract(c *gin.Context) {
@@ -140,7 +145,31 @@ func listAccessLog(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items, "total": total})
+	out := make([]gin.H, 0, len(items))
+	for _, item := range items {
+		args := map[string]interface{}{}
+		if item.ArgsJSON != "" {
+			_ = json.Unmarshal([]byte(item.ArgsJSON), &args)
+		}
+		out = append(out, gin.H{
+			"id":             item.ID,
+			"contract_id":    item.ContractID,
+			"user_id":        item.UserID,
+			"tool_name":      item.ToolName,
+			"caller":         item.Caller,
+			"client":         item.Caller,
+			"params_summary": item.ParamsSummary,
+			"args":           args,
+			"args_json":      item.ArgsJSON,
+			"result_status":  item.ResultStatus,
+			"status":         item.Status,
+			"duration_ms":    item.DurationMs,
+			"error_message":  item.ErrorMessage,
+			"created_at":     item.CreatedAt,
+			"timestamp":      item.CreatedAt,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"items": out, "total": total})
 }
 
 // getMCPRuntimeSummary 返回 MCP 运行时完整摘要

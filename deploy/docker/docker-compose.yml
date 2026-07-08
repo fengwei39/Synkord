@@ -16,7 +16,7 @@
 #   想自带数据：scp synkord.db ./data/synkord.db 即可。
 #
 # 备份：
-#   ./backup.sh（用 sqlite3 .backup 拿一致性快照，不受 WAL 影响）
+#   ./backup.sh（用 sqlite3 .backup 拿一致性快照；当前默认 journal_mode=DELETE）
 
 services:
   # --------------------------------------------------------------------------

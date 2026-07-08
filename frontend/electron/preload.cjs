@@ -7,7 +7,7 @@
  * 设计原则：
  *  - §8 仅暴露必要 IPC 通道
  *  - §10 白名单 + invoke 拦截
- *  - v1.2 移除 mcpSetActiveProject（活跃契约集走后端 API）
+ *  - v1.2 活跃契约集以后端 API 为准，并同步一份本地缓存给 MCP 子进程
  */
 'use strict';
 
@@ -32,6 +32,8 @@ const ALLOWED_INVOKES = new Set([
   'mcp:stop',
   'mcp:restart',
   'mcp:get-active-contract',
+  'mcp:set-active-contract',
+  'mcp:clear-active-contract',
   'mcp:get-ide-config',
   'mcp:get-access-log',
   'window:minimize',
@@ -68,8 +70,10 @@ contextBridge.exposeInMainWorld('synkord', {
   mcpStop: () => ipcRenderer.invoke('mcp:stop'),
   mcpRestart: () => ipcRenderer.invoke('mcp:restart'),
 
-  // ---- 活跃契约集（v1.2：从主进程读取缓存，避免 IPC 推送） ----
+  // ---- 活跃契约集（v1.2：后端 API 为准，本地缓存给 MCP 子进程） ----
   mcpGetActiveContract: () => ipcRenderer.invoke('mcp:get-active-contract'),
+  mcpSetActiveContract: (contract) => ipcRenderer.invoke('mcp:set-active-contract', contract),
+  mcpClearActiveContract: () => ipcRenderer.invoke('mcp:clear-active-contract'),
 
   // ---- IDE 配置 ----
   mcpGetIDEConfig: () => ipcRenderer.invoke('mcp:get-ide-config'),

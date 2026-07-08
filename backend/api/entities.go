@@ -267,7 +267,24 @@ func extractRefsFromSchema(schemaContent string) []string {
 	return result
 }
 
+// ApiSummary 跨契约集搜索 API 时返回的精简视图（对齐 docs/requirements.md §4.11）
+// 仅暴露 ai_id/path/method/summary 四个字段，避免 schema_content 等大字段污染 MCP 响应
+type ApiSummary struct {
+	APIID   string `json:"api_id"`
+	Path    string `json:"path"`
+	Method  string `json:"method"`
+	Summary string `json:"summary"`
+}
+
+// EntitySummary 跨契约集搜索 实体时返回的精简视图（对齐 docs/requirements.md §4.11）
+type EntitySummary struct {
+	EntityID    string `json:"entity_id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
 // searchAPIsAcrossContracts 跨契约集搜索 API
+// 修复冲突 #2：返回 ApiSummary（仅 4 字段），禁止透传完整 APIEndpoint + schema_content
 func searchAPIsAcrossContracts(c *gin.Context) {
 	keyword := c.Query("keyword")
 	filterContractID := c.Query("contract_id")
@@ -287,9 +304,9 @@ func searchAPIsAcrossContracts(c *gin.Context) {
 		return
 	}
 	type item struct {
-		ContractID   string `json:"contract_id"`
-		ContractName string `json:"contract_name"`
-		API          any    `json:"api"`
+		ContractID   string     `json:"contract_id"`
+		ContractName string     `json:"contract_name"`
+		API          ApiSummary `json:"api"`
 	}
 	results := []item{}
 	for _, ct := range contracts {
@@ -299,7 +316,14 @@ func searchAPIsAcrossContracts(c *gin.Context) {
 		apis, _, _ := services.ListContractAPIs(database.DB, ct.ID, keyword, method, "", true, 0, limit)
 		for _, a := range apis {
 			results = append(results, item{
-				ContractID: ct.ID, ContractName: ct.Name, API: a,
+				ContractID:   ct.ID,
+				ContractName: ct.Name,
+				API: ApiSummary{
+					APIID:   a.ID,
+					Path:    a.Path,
+					Method:  a.Method,
+					Summary: a.Summary,
+				},
 			})
 			if len(results) >= limit {
 				c.JSON(http.StatusOK, results)
@@ -311,6 +335,7 @@ func searchAPIsAcrossContracts(c *gin.Context) {
 }
 
 // searchEntitiesAcrossContracts 跨契约集搜索实体
+// 修复冲突 #6：返回 EntitySummary（仅 3 字段），禁止透传完整 DataModel + schema_content
 func searchEntitiesAcrossContracts(c *gin.Context) {
 	keyword := c.Query("keyword")
 	filterContractID := c.Query("contract_id")
@@ -329,9 +354,9 @@ func searchEntitiesAcrossContracts(c *gin.Context) {
 		return
 	}
 	type item struct {
-		ContractID   string `json:"contract_id"`
-		ContractName string `json:"contract_name"`
-		Entity       any    `json:"entity"`
+		ContractID   string       `json:"contract_id"`
+		ContractName string       `json:"contract_name"`
+		Entity       EntitySummary `json:"entity"`
 	}
 	results := []item{}
 	for _, ct := range contracts {
@@ -341,7 +366,13 @@ func searchEntitiesAcrossContracts(c *gin.Context) {
 		entities, _, _ := services.ListContractEntities(database.DB, ct.ID, keyword, 0, limit)
 		for _, e := range entities {
 			results = append(results, item{
-				ContractID: ct.ID, ContractName: ct.Name, Entity: e,
+				ContractID:   ct.ID,
+				ContractName: ct.Name,
+				Entity: EntitySummary{
+					EntityID:    e.ID,
+					Name:        e.Name,
+					Description: e.Description,
+				},
 			})
 			if len(results) >= limit {
 				c.JSON(http.StatusOK, results)

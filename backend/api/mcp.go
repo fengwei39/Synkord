@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/synkord/core/database"
+	"github.com/synkord/core/models"
 	"github.com/synkord/core/services"
 )
 
@@ -22,6 +23,8 @@ func RegisterMCPRoutes(r *gin.RouterGroup) {
 		m.POST("/start", startMCP)
 		m.POST("/stop", stopMCP)
 		m.POST("/restart", restartMCP)
+		// 修复冲突 #4：Electron 主进程用此端点上报真实 pid/port/state
+		m.POST("/state", reportMCPState)
 
 		// 评审 R-2：运行时摘要（PID / 启动时间 / 重启次数 / 健康度）
 		m.GET("/summary", getMCPRuntimeSummary)
@@ -39,42 +42,85 @@ func RegisterMCPRoutes(r *gin.RouterGroup) {
 }
 
 // getMCPStatus 返回 MCP 运行状态
-// v1.2 修订：端口从环境变量 SYNKORD_MCP_PORT 读，默认 37991（与 Electron Connect 对齐）
-// 状态字段由 MCPStatus 单例表承载（保留向后兼容 running 默认值）
+// 修复冲突 #4：pid/port/started_at 全部从 MCPStatus 单例表读真实值
 func getMCPStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, mcpStatusPayload())
 }
 
 func mcpStatusPayload() gin.H {
-	url := services.GetMCPRuntimeURL()
-	return gin.H{
+	// 从单例表读真实状态
+	var s models.MCPStatus
+	_ = database.DB.First(&s).Error
+	payload := gin.H{
 		"state":      services.MCPStateOrDefault(),
-		"pid":        nil,
-		"port":       services.GetMCPPort(),
-		"url":        url,
-		"started_at": time.Now().Format(time.RFC3339),
+		"pid":        s.PID,
+		"port":       s.Port,
+		"url":        services.GetMCPRuntimeURL(),
+		"started_at": s.StartedAt,
 	}
+	if s.LastError != "" {
+		payload["last_error"] = gin.H{
+			"message": s.LastError,
+			"at":      s.StartedAt,
+		}
+	}
+	return payload
 }
 
 // startMCP/stopMCP/restartMCP v1.2 修订：
-// MCP 进程由 Electron 主进程管理；后端仅保存状态到 MCPStatus 单例表，
-// 实时控制走 IPC。当前端在浏览器模式下访问，这些端点仅作状态同步。
+// MCP 进程由 Electron 主进程管理；这些端点仅用于浏览器模式状态同步。
+// 真实 pid/port 写入由 Electron 调用 POST /mcp/state 完成。
 func startMCP(c *gin.Context) {
-	if err := services.SetMCPState("running"); err != nil {
+	now := time.Now()
+	port := services.GetMCPPort()
+	if err := services.SetMCPState("running", nil, &port, &now, ""); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, mcpStatusPayload())
 }
 func stopMCP(c *gin.Context) {
-	if err := services.SetMCPState("stopped"); err != nil {
+	if err := services.SetMCPState("stopped", nil, nil, nil, ""); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, mcpStatusPayload())
 }
 func restartMCP(c *gin.Context) {
-	if err := services.SetMCPState("running"); err != nil {
+	now := time.Now()
+	port := services.GetMCPPort()
+	if err := services.SetMCPState("running", nil, &port, &now, ""); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, mcpStatusPayload())
+}
+
+// reportMCPState Electron 主进程上报真实 MCP 进程状态
+// 修复冲突 #4：补齐 pid/port/state 同步通道
+// 允许的 state 值：stopped | running
+func reportMCPState(c *gin.Context) {
+	var req struct {
+		State     string `json:"state"`
+		PID       *int   `json:"pid"`
+		Port      *int   `json:"port"`
+		LastError string `json:"last_error"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+		return
+	}
+	// 修复冲突 #15：收紧 state 合法值集合
+	if req.State != "stopped" && req.State != "running" {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "state must be 'stopped' or 'running'"})
+		return
+	}
+	var startedAt *time.Time
+	if req.State == "running" {
+		now := time.Now()
+		startedAt = &now
+	}
+	if err := services.SetMCPState(req.State, req.PID, req.Port, startedAt, req.LastError); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
 		return
 	}
@@ -121,26 +167,35 @@ func setActiveContract(c *gin.Context) {
 }
 
 // getIDEConfig 返回给 IDE 的连接配置
-// v1.2 修订：HTTP URL 从环境变量推导（默认 37991，与 Electron Connect 对齐），
-// STDIO 由本地命令 `synkord-mcp stdio` 触发。
+// 修复冲突 #3：HTTP 配置仅在 MCP 实际启动（state=running）时返回；
+// token 字段若本地 connect-token.json 未生成则缺省（前端按需提示用户）。
 func getIDEConfig(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
+	payload := gin.H{
 		"stdio": gin.H{
 			"command": "synkord-mcp",
 			"args":    []string{"stdio"},
 		},
-		"http": gin.H{
-			"url":   services.GetMCPRuntimeURL(),
-			"token": "synk_local_placeholder",
-		},
-	})
+	}
+	if services.MCPStateOrDefault() == "running" {
+		payload["http"] = gin.H{
+			"url": services.GetMCPRuntimeURL(),
+			// token 不再硬编码占位；前端通过 mcp:ide-config IPC 拿真实本地 Bearer
+			"token": "",
+		}
+	}
+	c.JSON(http.StatusOK, payload)
 }
 
 // listAccessLog 列出访问日志
+// 修复冲突 #12：实现 start/end/level/keyword 4 个过滤参数
 func listAccessLog(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
-	items, total, err := services.ListMCPAuditLogs(database.DB, offset, limit)
+	start := c.Query("start")             // RFC3339 时间
+	end := c.Query("end")                 // RFC3339 时间
+	level := c.Query("level")             // success | error | all
+	keyword := c.Query("keyword")         // 工具名/错误消息模糊匹配
+	items, total, err := services.ListMCPAuditLogs(database.DB, offset, limit, start, end, level, keyword)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
 		return
@@ -151,6 +206,9 @@ func listAccessLog(c *gin.Context) {
 		if item.ArgsJSON != "" {
 			_ = json.Unmarshal([]byte(item.ArgsJSON), &args)
 		}
+		// 修复冲突 #5：client 字段单独维护（人类可读别名），与 caller 区分
+		// 当前实现：caller = 原始值（IDE 标识符），client = 同 caller
+		// （如未来 IDE 别名表上线，可在此处查表填充）
 		out = append(out, gin.H{
 			"id":             item.ID,
 			"contract_id":    item.ContractID,

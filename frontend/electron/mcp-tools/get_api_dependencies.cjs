@@ -7,53 +7,46 @@ const { codeError, CODES } = require('../mcp-core/errors.cjs');
 
 const definition = {
   name: 'get_api_dependencies',
-  description: '查询指定 API 端点被哪些项目引用。传入 api_path（必填）和 api_method（可选，如 GET/POST）。',
+  description: '查询指定 API 端点使用哪些实体、以及同契约集内其他 API 引用情况。传入 api_id。',
   inputSchema: {
     type: 'object',
     properties: {
-      api_path: {
+      api_id: {
         type: 'string',
-        description: 'API 路径（如 "/users/{id}"）。必填。',
+        description: 'API 端点 ID。必填。',
         minLength: 1,
       },
-      api_method: {
-        type: 'string',
-        description: 'HTTP 方法（GET/POST/PUT/DELETE/PATCH），不区分大小写。可选。',
-        enum: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-      },
+      contract_id: { type: 'string', description: '契约集 ID。可选，默认活跃契约集。' },
     },
-    required: ['api_path'],
+    required: ['api_id'],
     additionalProperties: false,
   },
 };
 
 async function handler(args, context) {
-  const apiPath = (args.api_path || '').trim();
-  if (!apiPath) {
-    throw codeError(CODES.INVALID_ARGS, 'api_path is required');
+  const apiId = (args.api_id || '').trim();
+  if (!apiId) {
+    throw codeError(CODES.INVALID_ARGS, 'api_id is required');
   }
-
-  const apiMethod = args.api_method ? String(args.api_method).toUpperCase() : undefined;
+  const contractID = (args.contract_id || '').toString().trim();
 
   const resp = await context.callBackend({
     tool: 'get_api_dependencies',
     args: {
-      api_path: apiPath,
-      ...(apiMethod ? { api_method: apiMethod } : {}),
+      api_id: apiId,
+      contract_id: contractID,
     },
   });
   const data = resp?.result || resp || {};
-  const referencedBy = data.referenced_by || [];
 
   const text = JSON.stringify({
     contract: {
-      contract_id: context.context.contract_id,
+      contract_id: contractID || context.context.contract_id,
       contract_name: context.context.contract_name,
     },
-    api_path: apiPath,
-    api_method: apiMethod,
-    referenced_count: referencedBy.length,
-    referenced_by: referencedBy,
+    api_id: apiId,
+    uses_entities: data.uses_entities || [],
+    used_by_apis: data.used_by_apis || [],
   }, null, 2);
 
   return {

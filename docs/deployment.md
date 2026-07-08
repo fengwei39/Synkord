@@ -453,6 +453,6 @@ curl -s https://$SYNKORD_DOMAIN/health | jq
 | 前端 404 | 域名 DNS 解析 + Caddyfile 的 `{$SYNKORD_DOMAIN}` 是否对 |
 | 桌面端更新失败 | `electron-log` 日志在 `%APPDATA%/Synkord/logs/main.log` |
 | MCP 工具调用失败 | `/api/mcp/access-log` 看请求；`mcp_audit_logs` 表查历史 |
-| 数据库被锁 | SQLite WAL 模式下并发写偶尔锁，重启容器即可 |
+| 数据库被锁 | 当前 SQLite 使用 `journal_mode=DELETE`；优先检查是否有长事务、备份/复制进程或宿主机文件锁，必要时重启容器 |
 
 更多问题参考 [docs/troubleshooting.md](troubleshooting.md)。

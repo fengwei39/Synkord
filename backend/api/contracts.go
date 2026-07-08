@@ -7,6 +7,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/synkord/core/database"
@@ -70,6 +71,14 @@ func listContracts(c *gin.Context) {
 	userID := c.GetString("user_id")
 	keyword := c.Query("keyword")
 	includeArchived := c.Query("include_archived") == "true"
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "200"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	if offset < 0 {
+		offset = 0
+	}
 
 	contracts, err := services.ListUserContractsWithCounts(database.DB, userID)
 	if err != nil {
@@ -87,10 +96,18 @@ func listContracts(c *gin.Context) {
 		}
 		filtered = append(filtered, ct)
 	}
+	total := len(filtered)
+	if offset > total {
+		offset = total
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"total":  len(filtered),
-		"items": filtered,
+		"total": total,
+		"items": filtered[offset:end],
 	})
 }
 

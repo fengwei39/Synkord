@@ -123,19 +123,22 @@ interface ContractSet {
 }
 
 interface ContractSetMember {
+  id: string
   contract_id: string
   user_id: string
   username: string
   role: ContractSetRole
   invited_at: string
   accepted_at?: string
+  created_at: string
+  updated_at: string
 }
 
 interface ApiDefinition {
   id: string
   contract_id: string
   path: string
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS'
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS' | 'TRACE'
   summary: string
   description?: string
   tags: string[]
@@ -143,7 +146,6 @@ interface ApiDefinition {
   parameters?: ApiParameter[]
   request_body?: ApiRequestBody
   responses: Record<string, ApiResponse>
-  examples?: Record<string, unknown>
   created_at: string
   updated_at: string
 }
@@ -190,7 +192,7 @@ interface EntityField {
   nullable?: boolean
 }
 
-type McpState = 'stopped' | 'starting' | 'running' | 'failed' | 'restarting'
+type McpState = 'stopped' | 'running'
 
 interface McpStatus {
   state: McpState
@@ -202,8 +204,10 @@ interface McpStatus {
 }
 
 interface ActiveContract {
+  id: string
   contract_id: string
   contract_name: string
+  set_by?: string
   set_at: string
 }
 
@@ -211,8 +215,8 @@ interface AccessLogEntry {
   id: string
   contract_id?: string
   tool_name: string
-  caller: string
-  client: string                            // caller alias
+  caller: string                            // 原始 IDE 标识符（Cursor / VSCode / Codex）
+  client: string                            // caller alias（人类可读别名；v1.2 阶段与 caller 同值）
   args?: Record<string, unknown>
   result_status: 'success' | 'error'
   status: number
@@ -260,10 +264,12 @@ interface ApiError {
 
 | 方法 | 路径 | 请求 | 响应 |
 |---|---|---|---|
-| POST | `/auth/login` | `{ username, password }` | `{ access_token, token, refresh_token, expires_in, user }` |
+| POST | `/auth/login` | `{ username, password }` | `{ access_token, token, token_type, refresh_token, expires_in, user }` |
 | POST | `/auth/logout` | - | `{ ok: true }` |
-| POST | `/auth/refresh` | `{ refresh_token }` | `{ access_token, token, refresh_token, expires_in }` |
+| POST | `/auth/refresh` | `{ refresh_token }` | `{ access_token, token, token_type, refresh_token, expires_in }` |
 | GET | `/auth/me` | - | `User` |
+
+> **字段说明**：`access_token` 与 `token` 是同一 JWT 的两个 alias（兼容老客户端）；`token_type` 始终为 `"bearer"`；`expires_in` 为 access token 的秒数（15min）。
 
 ### 4.2 契约集
 
@@ -273,12 +279,13 @@ interface ApiError {
 | POST | `/contracts` | `{ name, description? }` | `ContractSet` |
 | GET | `/contracts/:id` | - | `ContractSet` |
 | PATCH | `/contracts/:id` | `{ name?, description?, archived? }` | `ContractSet` |
-| DELETE | `/contracts/:id` | - | `void` |
+| DELETE | `/contracts/:id` | - | `204 void`；契约集非空时返回 `409` |
 
 **权限规则**：
 - `GET /contracts` 只返回当前用户 `my_role` 不为空的契约集
 - `POST /contracts` 创建者自动成为 owner
-- `PATCH/DELETE` 仅 owner 可操作
+- `PATCH` 的 `name/description` 允许 owner + editor；`archived` 仅 owner
+- `DELETE` 仅 owner，且要求契约集下 API 与数据模型均为空
 
 ### 4.3 契约集成员
 
@@ -333,7 +340,7 @@ interface ApiError {
 
 ```typescript
 type ImportSource = 'file' | 'url' | 'paste'
-type ImportFormat = 'openapi-3.0' | 'swagger-2.0' | 'postman-2.1'
+type ImportFormat = 'openapi-3.0' | 'swagger-2.0'
 
 interface ParsePreview {
   apis: Array<Omit<ApiDefinition, 'id' | 'contract_id' | 'created_at' | 'updated_at'>>
@@ -350,23 +357,40 @@ interface ParsePreview {
 | POST | `/mcp/start` | - | `McpStatus` |
 | POST | `/mcp/stop` | - | `McpStatus` |
 | POST | `/mcp/restart` | - | `McpStatus` |
+| POST | `/mcp/state` | `{ state: 'stopped'\|'running', pid?, port?, last_error? }` | `McpStatus` |
 | GET | `/mcp/summary` | - | `{ pid, started_at, uptime_seconds, restart_count, health }` |
 | GET | `/mcp/active-contract` | - | `ActiveContract \| null` |
 | PUT | `/mcp/active-contract` | `{ contract_id }` | `ActiveContract` |
-| GET | `/mcp/ide-config` | - | `{ stdio: { command, args }, http?: { url, token } }` |
-| GET | `/mcp/access-log` | query: `limit?, offset?` | `{ items: AccessLogEntry[], total }` |
+| GET | `/mcp/ide-config` | - | `{ stdio: { command, args }, http?: { url, token? } }` |
+| GET | `/mcp/access-log` | query: `limit?, offset?, start?, end?, level?, keyword?` | `{ items: AccessLogEntry[], total }` |
 | GET | `/mcp/access-log/stats` | - | `{ sparkline, error_rate, top_tools }` |
 | POST | `/mcp/query` | `{ contract_id?, tool, args?, caller? }` | `{ result }` |
+
+> **McpState 取值（v1.2 收紧）**：合法值仅 `stopped` / `running` 两个。Electron 主进程在 `local-mcp-service` 启动/退出时调用 `POST /mcp/state` 同步真实 pid/port。
+> **MCP 状态机**：`stopped → running` 由 `POST /mcp/state` 驱动；`/mcp/start` / `/mcp/stop` 保留为浏览器模式快捷端点。`pid` 字段在 state=running 时为真实进程 ID，state=stopped 时为 null。
+> **`/mcp/ide-config` 的 `http` 字段**：仅在 state=running 时返回；`token` 字段若本地 connect-token.json 未生成则缺省（前端应改用 STDIO 模式或等待用户登录）。
 
 ### 4.8 用户搜索
 
 | 方法 | 路径 | 请求 | 响应 |
 |---|---|---|---|
-| GET | `/users/search` | query: `q` | `{ items: User[] }` |
+| GET | `/users/search` | query: `q, contract_id?` | `{ items: User[] }` |
 
 **用途**：成员管理页添加成员时搜索用户。
 
-### 4.9 跨契约集搜索
+### 4.9 账户设置
+
+| 方法 | 路径 | 请求 | 响应 |
+|---|---|---|---|
+| POST | `/auth/change-password` | `{ old_password, new_password }` | `{ ok: true }` |
+
+### 4.10 依赖图
+
+| 方法 | 路径 | 请求 | 响应 |
+|---|---|---|---|
+| GET | `/contracts/:contractId/dependencies/graph` | - | `{ nodes, edges }` |
+
+### 4.11 跨契约集搜索
 
 | 方法 | 路径 | 请求 | 响应 |
 |---|---|---|---|
@@ -391,7 +415,7 @@ interface ParsePreview {
 | /projects | /contracts | - |
 | /teams | （删除） | - |
 | /members | /contracts/:id/members | - |
-| synkord://projects | synkord://contracts | - |
+| synkord://projects | synkord://active-contract | 活跃契约集资源 |
 | get_project_apis | get_contract_apis | - |
 | get_project_entities | get_contract_entities | - |
 | API 定义 | 接口定义 | API Definition |

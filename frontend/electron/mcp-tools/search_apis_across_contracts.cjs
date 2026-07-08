@@ -7,7 +7,10 @@
 
 const definition = {
   name: 'search_apis_across_contracts',
-  description: '跨当前用户可访问的契约集搜索 API。支持 keyword / contract_id / method / limit 过滤。',
+  description:
+    '跨当前用户可访问的契约集搜索 API。支持 keyword / contract_id / method / limit 过滤。' +
+    '返回精简 ApiSummary：每项含 { contract_id, contract_name, api: { api_id, path, method, summary } }，' +
+    '不含 schema_content / parameters 等大字段。',
   inputSchema: {
     type: 'object',
     properties: {

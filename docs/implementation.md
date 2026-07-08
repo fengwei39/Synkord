@@ -1,6 +1,6 @@
 # Synkord 实施路线 v1.2
 
-> 本文档约定实施阶段、文件改动清单和验收标准。详见 [requirements.md](./requirements.md) 的产品定位。
+> 本文档约定实施阶段、文件改动清单和后续目标态验收标准。当前已交付行为以 [requirements.md](./requirements.md)、[architecture.md](./architecture.md)、[mcp-spec.md](./mcp-spec.md) 为准。
 
 ---
 
@@ -48,12 +48,18 @@
 **任务清单**：
 - [ ] MCP 页面布局（状态卡 + 活跃契约集卡 + IDE 配置 + 快速开始 + 高级操作）
 - [ ] `<McpStatusDot>` 组件（4 色 + Tooltip）
-- [ ] `<useMcpStatus>` Hook（3 秒轮询）
+- [ ] `<useMcpStatus>` Hook（3 秒轮询 — 仅刷新 `GET /mcp/status` 与 `GET /mcp/summary`；与活跃契约集 1s 轮询是不同通道）
 - [ ] IDE 配置两种模式 Tab 切换（STDIO / HTTP）
 - [ ] 一键复制 IDE 配置（含本地 Bearer）
 - [ ] 启停按钮 + `<ConfirmModal>` confirm
 - [ ] 重启按钮（无 confirm）
 - [ ] 查看访问日志入口
+
+> **轮询周期统一说明（v1.2 修复）**：
+> - 活跃契约集同步：`local-mcp-service` 读 `active-contract.json` 的 setInterval = **1s**（[local-mcp-service.cjs:144](frontend/electron/local-mcp-service.cjs#L144)）
+> - MCP 状态 API（`/mcp/status`、`/mcp/summary`）：前端 `<useMcpStatus>` Hook 轮询 = **3s**
+> - 访问日志统计（`/mcp/access-log/stats`）：按需拉取，不轮询
+> 之前 implementation.md 与 architecture.md 表述有歧义，本版统一为"1s 活跃契约集 / 3s MCP 状态 / 按需日志"三档。
 
 **验收**：
 - [ ] IDE 配置可一键复制到 Cursor 跑通
@@ -69,15 +75,15 @@
 **任务清单**：
 - [ ] 契约集工具 `get_contract_apis` 等默认操作活跃契约集
 - [ ] `synkord://active-contract` resource
-- [ ] 事件推送替代轮询（切换 < 50ms 生效）
-- [ ] 删除 Gateway → MCP 子进程的 active context 文件
+- [ ] 后续优化：事件推送替代 1s 文件轮询（切换 < 50ms 生效）
+- [ ] 后续优化：删除 Gateway → MCP 子进程的 active context 文件
 - [ ] MCP 子进程启动时拉取活跃契约集
 - [ ] 标准化错误响应（4 类 actionable 错误）
 - [ ] MCP README + AI prompt 模板
 
 **验收**：
-- [ ] 任何业务工具缺活跃契约集返回 NO_ACTIVE_CONTRACT 错误
-- [ ] 切换契约集后 < 50ms 生效
+- [ ] 任何业务工具缺活跃契约集返回 `NOT_FOUND` / 后端 `NO_ACTIVE_CONTRACT` detail
+- [ ] 当前切换契约集后 1s 内生效；后续事件推送目标 < 50ms
 - [ ] MCP server 重启后能恢复活跃契约集
 
 ---
@@ -174,7 +180,7 @@
 electron/
 ├── auth-manager.cjs                   Auth Manager（JWT 持有、自动 refresh）
 ├── auth-gateway.cjs                   Auth Gateway（本地 HTTP、注入 JWT）
-└── connect.cjs                        Connect（MCP 子进程）
+└── local-mcp-service.cjs              MCP 子进程（当前实现）
 
 src/
 ├── pages/
@@ -231,7 +237,7 @@ src/
 electron/
 ├── main.cjs                           引入 AuthManager/Gateway；移除旧的 MCP 硬编码
 ├── preload.cjs                        暴露新的 IPC
-└── ipc-handlers.cjs                   所有 IPC handler 注册
+└── main.cjs                           IPC handler 注册集中在主进程
 
 package.json                           electron-builder 配置
 ```
@@ -258,9 +264,9 @@ src/
     └── ProjectContext.tsx             (删除)
 
 electron/
-├── local-mcp-service.cjs              → connect.cjs
-├── mcp-core/                          (整体删除，迁入 connect.cjs)
-└── mcp-tools/                         (整体删除，迁入 connect.cjs)
+├── local-mcp-service.cjs              当前 MCP 子进程入口
+├── mcp-core/                          当前 MCP 核心能力
+└── mcp-tools/                         当前 MCP 工具实现
 ```
 
 ---

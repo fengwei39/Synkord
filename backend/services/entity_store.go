@@ -126,38 +126,78 @@ func DeleteContractEntity(db *gorm.DB, contractID, entityID string) error {
 }
 
 // GetEntityDependencies 获取数据模型的依赖关系
+// 修复冲突 #8 / #9：
+//   - references_entities[].entity_id 必须可追溯到 entities.id（之前硬编码为空）
+//   - used_in_apis[].api_id 必须可追溯到 api_endpoints.id（之前取错表，取了 dependency 行 ID）
 func GetEntityDependencies(db *gorm.DB, contractID, entityName string) (map[string]interface{}, error) {
 	entity, err := GetContractEntityByName(db, contractID, entityName)
 	if err != nil {
 		return nil, err
 	}
-	// 引用了哪些实体（字段类型引用）
-	var refs []models.Dependency
-	if err := db.Where("contract_id = ? AND entity_name = ? AND dependency_type = ?", contractID, entityName, "entity_entity").Find(&refs).Error; err != nil {
+
+	// 字段类型引用：SELECT cm.entity_name + e.id AS entity_id
+	type entityRefRow struct {
+		EntityName string
+		EntityID   string
+		APIPath    string
+	}
+	var refRows []entityRefRow
+	if err := db.Raw(`
+		SELECT DISTINCT d.entity_name AS entity_name,
+		       COALESCE(e.id, '')    AS entity_id,
+		       d.api_path           AS field_name
+		FROM dependencies d
+		LEFT JOIN entities e
+		  ON e.contract_id = d.contract_id AND e.name = d.entity_name
+		WHERE d.contract_id = ?
+		  AND d.api_path = ?
+		  AND d.dependency_type = 'entity_entity'
+	`, contractID, entityName).Scan(&refRows).Error; err != nil {
 		return nil, err
 	}
-	referencesEntities := make([]map[string]string, 0, len(refs))
-	for _, r := range refs {
+	referencesEntities := make([]map[string]string, 0, len(refRows))
+	for _, r := range refRows {
 		referencesEntities = append(referencesEntities, map[string]string{
-			"entity_id":   "",
+			"entity_id":   r.EntityID,
 			"entity_name": r.EntityName,
 			"field_name":  r.APIPath,
 		})
 	}
-	// 被哪些 API 使用
-	var deps []models.Dependency
-	if err := db.Where("contract_id = ? AND entity_name = ?", contractID, entityName).Find(&deps).Error; err != nil {
+
+	// 被哪些 API 使用：JOIN api_endpoints 拿真 api_id
+	type usedInApiRow struct {
+		APIEndpointID string
+		APIPath       string
+		APIMethod     string
+		Usage         string
+	}
+	var apiRows []usedInApiRow
+	if err := db.Raw(`
+		SELECT a.id            AS api_endpoint_id,
+		       a.path          AS api_path,
+		       a.method        AS api_method,
+		       d.dependency_type AS usage
+		FROM dependencies d
+		INNER JOIN api_endpoints a
+		  ON a.contract_id = d.contract_id
+		 AND a.path        = d.api_path
+		 AND a.method      = d.api_method
+		WHERE d.contract_id = ?
+		  AND d.entity_name = ?
+		  AND d.dependency_type <> 'entity_entity'
+	`, contractID, entityName).Scan(&apiRows).Error; err != nil {
 		return nil, err
 	}
-	usedInApis := make([]map[string]string, 0, len(deps))
-	for _, d := range deps {
+	usedInApis := make([]map[string]string, 0, len(apiRows))
+	for _, r := range apiRows {
 		usedInApis = append(usedInApis, map[string]string{
-			"api_id": d.ID,
-			"path":   d.APIPath,
-			"method": d.APIMethod,
-			"usage":  d.DependencyType,
+			"api_id": r.APIEndpointID,
+			"path":   r.APIPath,
+			"method": r.APIMethod,
+			"usage":  r.Usage,
 		})
 	}
+
 	return map[string]interface{}{
 		"entity": map[string]interface{}{
 			"entity_id": entity.ID,

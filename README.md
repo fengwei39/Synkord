@@ -30,7 +30,7 @@ MCP 时代的 API 知识层 — 把后端契约集中管理，让 Cursor / VSCod
 | 写新接口 | 翻 5 个文档 | 一句话问 AI 拿完整定义 |
 
 **核心能力**：
-- 📚 **OpenAPI / Postman 一键导入**（批量建契约）
+- 📚 **OpenAPI / Swagger 一键导入**（批量建契约；桌面端支持 Postman Collection 转换预览）
 - 🔍 **MCP 工具**：让 IDE AI 查端点 / 校验代码 / 跨契约搜索
 - 👥 **成员协作**：owner / editor / viewer 三级权限
 - 🖥️ **桌面端 + 服务端双形态**：成员安装客户端 / 团队只部署一台 Go + SQLite 后端
@@ -242,7 +242,7 @@ go install github.com/synkord/synkord/synkord-cli@latest
 
 # 首次使用（指向团队或本机的服务端）
 synkord login --server http://localhost:8000
-synkord push-spec --spec ./openapi.json
+synkord push-spec --contract <contract_id> --spec ./openapi.json
 ```
 
 **从源码开发** — 改代码 / 提 PR

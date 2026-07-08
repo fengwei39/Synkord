@@ -7,7 +7,10 @@
 
 const definition = {
   name: 'search_entities_across_contracts',
-  description: '跨当前用户可访问的契约集搜索数据模型。支持 keyword / contract_id / limit 过滤。',
+  description:
+    '跨当前用户可访问的契约集搜索数据模型。支持 keyword / contract_id / limit 过滤。' +
+    '返回精简 EntitySummary：每项含 { contract_id, contract_name, entity: { entity_id, name, description } }，' +
+    '不含 schema_content 全文。',
   inputSchema: {
     type: 'object',
     properties: {

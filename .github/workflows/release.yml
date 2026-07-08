@@ -1,6 +1,6 @@
 # Synkord Release
 #
-# 完整发布闭环：tag (v*.*.*) 触发 → 抽版本号 → 客户端/后端/SQLite 部署包构建 → GitHub Release
+# 完整发布闭环：tag (v*.*.*) 触发 → 抽版本号 → 客户端/后端/Docker 镜像构建 → GitHub Release
 #
 # 维护者发布流程：
 #   1. 合并 dev → main
@@ -11,7 +11,7 @@
 #   6. 自动产出：
 #      - 客户端 2 个：macOS DMG、Windows NSIS
 #      - 后端 Go 1 个：synkord-core-linux-amd64
-#      - SQLite 部署包 1 个：init-db.sh / backup.sh / Caddyfile / README
+#      - Docker 镜像 1 个：ghcr.io/synkord/synkord-core:vX.Y.Z / :X.Y.Z / :latest
 #      - GitHub Release (含 SHA256SUMS)
 name: Release
 
@@ -73,40 +73,6 @@ jobs:
         with:
           name: synkord-core-linux-amd64
           path: dist/synkord-core-linux-amd64
-          if-no-files-found: error
-
-  # --------------------------------------------------------------------------
-  # SQLite 部署包（内部团队部署用）
-  # 包含：init-db.sh + backup.sh + Caddyfile + README
-  # --------------------------------------------------------------------------
-  sqlite-package:
-    name: SQLite Deploy Package
-    runs-on: ubuntu-latest
-    needs: [resolve]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Stage SQLite deploy files
-        run: |
-          mkdir -p dist-sqlite
-          cp deploy/server/init-db.sh dist-sqlite/
-          cp deploy/server/backup.sh dist-sqlite/
-          cp deploy/server/Caddyfile dist-sqlite/
-          cp deploy/server/README.md dist-sqlite/
-          chmod +x dist-sqlite/init-db.sh dist-sqlite/backup.sh
-          ls -la dist-sqlite/
-
-      - name: Create tarball
-        run: |
-          cd dist-sqlite
-          tar -czf "../synkord-sqlite-deploy-${{ needs.resolve.outputs.version_stripped }}.tar.gz" .
-          ls -la "../synkord-sqlite-deploy-${{ needs.resolve.outputs.version_stripped }}.tar.gz"
-
-      - name: Upload SQLite package
-        uses: actions/upload-artifact@v4
-        with:
-          name: synkord-sqlite-deploy
-          path: synkord-sqlite-deploy-*.tar.gz
           if-no-files-found: error
 
   # --------------------------------------------------------------------------
@@ -198,6 +164,51 @@ jobs:
           if-no-files-found: error
 
   # --------------------------------------------------------------------------
+  # Docker 镜像：tag 触发时构建并推送到 ghcr.io
+  # 由 deploy/docker/docker-compose.yml 引用：ghcr.io/synkord/synkord-core:vX.Y.Z
+  # --------------------------------------------------------------------------
+  docker:
+    name: Docker Image
+    runs-on: ubuntu-latest
+    needs: [resolve, backend]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/synkord-core
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build & push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+  # --------------------------------------------------------------------------
   # 解析版本号（最先跑，给所有下游 job 用）
   # --------------------------------------------------------------------------
   resolve:
@@ -233,7 +244,7 @@ jobs:
   release:
     name: GitHub Release
     runs-on: ubuntu-latest
-    needs: [backend, desktop, sqlite-package, resolve]
+    needs: [backend, desktop, docker, resolve]
     permissions:
       contents: write
     steps:
@@ -268,11 +279,19 @@ jobs:
             客户端首次打开时，在登录页填写管理员给出的服务器域名；登录后也可在 **设置 → 后端连接** 修改。
 
             ### 服务端（管理员部署）
-            只需要部署一台后端服务：
-            - Go 后端二进制：`synkord-core-linux-amd64`
-            - SQLite 部署辅助包：`synkord-sqlite-deploy-${{ needs.resolve.outputs.version_stripped }}.tar.gz`
+            部署一台后端，团队成员共享。**推荐 Docker 部署**，详见 [deploy/docker/README.md](deploy/docker/README.md)：
 
-            部署说明见 SQLite 部署包内 `README.md`，核心流程：把二进制放到 `/opt/synkord/synkord-core`，解压部署包，执行 `sudo /opt/synkord/init-db.sh`，再配置 Caddy 域名。健康检查地址为 `/health`。
+            ```bash
+            mkdir -p /opt/synkord && cd /opt/synkord
+            curl -fsSL https://codeload.github.com/synkord/synkord/tar.gz/refs/heads/main | \
+              tar -xz --strip-components=2 synkord-main/deploy/docker
+            cp .env.example .env
+            sed -i "s/__REPLACE_WITH_64_HEX_CHARS__/$(openssl rand -hex 32)/" .env
+            docker compose up -d
+            curl http://localhost:8000/health
+            ```
+
+            Docker 镜像：`ghcr.io/synkord/synkord-core:${{ needs.resolve.outputs.version_stripped }}`
 
             验证：
             ```sh

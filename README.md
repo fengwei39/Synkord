@@ -12,7 +12,7 @@ MCP 时代的 API 知识层 — 把后端契约集中管理，让 Cursor / VSCod
 [![Release](https://img.shields.io/badge/release-client%20%2B%20server-blue)](https://github.com/synkord/synkord/releases)
 [![GitHub stars](https://img.shields.io/github/stars/synkord/synkord?style=social)](https://github.com/synkord/synkord/stargazers)
 
-[English](README.en.md) · [快速开始](#-快速开始) · [文档](docs/) · [贡献](CONTRIBUTING.md)
+[快速开始](#-快速开始) · [部署](#-部署) · [文档](docs/) · [贡献](CONTRIBUTING.md)
 
 </div>
 
@@ -39,34 +39,196 @@ MCP 时代的 API 知识层 — 把后端契约集中管理，让 Cursor / VSCod
 
 ## 🚀 快速开始
 
-### 方式 A：桌面端（推荐，3 分钟上手）
+### 部署架构（一图说明关系）
 
-下载对应平台安装包：
-
-| 平台 | 下载 |
-|---|---|
-| **macOS** (Apple Silicon / Intel) | [Synkord-0.1.0-arm64.dmg](https://github.com/synkord/synkord/releases/latest) |
-| **Windows** | [Synkord-Setup-0.1.0-x64.exe](https://github.com/synkord/synkord/releases/latest) |
-| **Linux** | [Synkord-0.1.0-x64.AppImage](https://github.com/synkord/synkord/releases/latest) · [.deb](https://github.com/synkord/synkord/releases/latest) |
-
-首次运行会看到 OS 自身的"未知发布者"告警（[为什么不签名？](docs/deployment.md#7-安装提示)），点"仍要运行"即可。
-首次启动用 `admin / admin123` 登录，**登录后立即改密码**。
-
-### 方式 B：自托管服务端（团队用）
-
-管理员部署一次 Go 后端和 SQLite 数据库，团队成员只安装客户端：
-
-```bash
-sudo mkdir -p /opt/synkord
-sudo cp synkord-core-linux-amd64 /opt/synkord/synkord-core
-sudo chmod +x /opt/synkord/synkord-core
-sudo tar -xzf synkord-sqlite-deploy-X.Y.Z.tar.gz -C /opt/synkord
-sudo /opt/synkord/init-db.sh
+```
+   ┌────────────────────┐
+   │  你的电脑（成员）  │  ← 每个团队成员各装一份
+   │  Synkord 桌面端    │
+   └──────────┬─────────┘
+              │ HTTPS / HTTP
+              ▼
+   ┌────────────────────┐
+   │  1 台服务器（团队）│  ← 管理员部署，全队共享
+   │  synkord-core      │     Go + Gin + SQLite
+   │  （Docker / 裸机） │     5-50 人单机足够
+   └────────────────────┘
 ```
 
-详见 [deploy/server/README.md](deploy/server/README.md) 和 [docs/deployment.md](docs/deployment.md)。
+**桌面端是客户端，服务端是数据中枢**——没有服务端，桌面端登录时会提示"未配置服务器地址"。
 
-### 方式 C：CLI
+所以部署流程是：
+1. **管理员**先把服务端跑起来（一次性，~5 分钟）
+2. **每个成员**装桌面端，登录页填服务端地址（~3 分钟）
+
+下面按使用场景分两条路：**团队部署**（多数人的场景）和**单机试用**（想先跑起来看看）。
+
+---
+
+### 场景一：团队部署（5–50 人）
+
+> 管理员只部署**一台**服务端，团队成员全部装桌面端连过来。
+
+#### 第 1 步：管理员部署服务端
+
+**选哪种网络模式：**
+
+| 你的情况 | 用什么 |
+|---|---|
+| 服务在内网 / VPN / Tailscale / Cloudflare Tunnel 后面 | **内部模式**（不开 HTTPS，最简） |
+| 服务要直接在公网暴露 | **HTTPS 模式**（自动签 Let's Encrypt 证书） |
+
+> 团队规模 5–50 人、SQLite 即可；> 100 人见 [升级路径](deploy/docker/README.md#升级路径)。
+
+**a. 装 Docker（一次性）**
+
+```bash
+# Ubuntu / Debian
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+# 重新登录让 docker 组生效
+```
+
+**b. 拿部署文件**
+
+```bash
+mkdir -p /opt/synkord && cd /opt/synkord
+# 从 GitHub 拉 deploy/docker 目录（不需要 git clone 全仓库）
+curl -fsSL https://codeload.github.com/synkord/synkord/tar.gz/refs/heads/main | \
+  tar -xz --strip-components=2 synkord-main/deploy/docker
+ls   # 看到 Caddyfile  backup.sh  docker-compose.yml  README.md
+```
+
+**c. 配环境变量**
+
+```bash
+cp .env.example .env
+# 一行生成 64 字符随机密钥
+sed -i "s/__REPLACE_WITH_64_HEX_CHARS__/$(openssl rand -hex 32)/" .env
+
+# HTTPS 模式还要补这几行（去掉 # 注释 + 改成你的域名）
+vi .env
+#   SYNKORD_DOMAIN=synkord.yourcompany.com
+#   LETSENCRYPT_EMAIL=ops@yourcompany.com
+#   FRONTEND_ORIGIN=https://synkord.yourcompany.com
+#   SYNKORD_CORS_ORIGINS=https://synkord.yourcompany.com
+```
+
+> `.env` 不要提交到 Git（已在 `.gitignore`）。
+
+**d. 启动**
+
+```bash
+# 内部模式（一条命令搞定）
+docker compose up -d
+docker compose ps                  # STATUS 应显示 "healthy"
+
+# 或公网 HTTPS 模式（需要先把 DNS A 记录指过来）
+docker compose --profile https up -d
+```
+
+**e. 验证**
+
+```bash
+# 内部模式
+curl http://localhost:8000/health
+# 期望：{"status":"ok","service":"synkord-core","components":{"database":"ok"}}
+
+# HTTPS 模式
+curl https://synkord.yourcompany.com/api/health
+```
+
+#### 第 2 步：通知团队成员装桌面端
+
+把这段复制到邮件 / 钉钉 / 飞书 / Slack：
+
+```
+📦 Synkord 团队服务已上线
+
+桌面端下载（任选一台电脑）：
+  macOS / Windows / Linux: https://github.com/synkord/synkord/releases/latest
+
+首次打开后：
+  1. 登录页填入服务器地址：http://服务器IP:8000
+     （HTTPS 模式：https://synkord.yourcompany.com）
+  2. 默认账号： admin  密码： admin123（首次登录立即改！）
+  3. 切换地址：设置 → 后端连接 → 服务器域名
+```
+
+**桌面端文件名（带版本号）：**
+
+| 平台 | 文件名 |
+|---|---|
+| macOS (Apple Silicon) | `Synkord-{version}-arm64.dmg` |
+| macOS (Intel) | `Synkord-{version}-x64.dmg` |
+| Windows | `Synkord-Setup-{version}-x64.exe` |
+| Linux | `Synkord-{version}-x64.AppImage` · `.deb` |
+
+> 首次运行会看到 OS 自身的"未知发布者"告警（[为什么不签名？](docs/deployment.md#7-安装提示)），点"仍要运行"即可。
+
+#### 第 3 步：日常运维速查
+
+```bash
+# 升级（改 .env 里 SYNKORD_IMAGE_TAG，再拉+起）
+sed -i 's/^SYNKORD_IMAGE_TAG=.*/SYNKORD_IMAGE_TAG=0.4.0/' .env
+docker compose pull && docker compose up -d
+
+# 备份（写到 ./backups/）
+./backup.sh
+
+# 恢复
+docker compose stop synkord
+cp ./backups/backup-20260708-030000.db ./data/synkord.db
+docker compose up -d
+
+# 看日志
+docker compose logs -f synkord
+
+# 重启 / 停 / 启
+docker compose restart synkord
+docker compose stop
+docker compose down     # 删容器（./data 数据保留）
+```
+
+#### 故障排查
+
+| 症状 | 排查 |
+|---|---|
+| `docker compose ps` 显示 unhealthy | `docker compose logs synkord` 看启动错误 |
+| 桌面端 network error | 服务器防火墙是否放行 8000（内部）/80,443（HTTPS） |
+| 401 / 密码错 | 看 [deploy/docker/README.md#安全清单](deploy/docker/README.md) |
+| HTTPS 模式证书签不下来 | DNS A 记录是否生效（`dig synkord.yourcompany.com`） |
+
+---
+
+### 场景二：单机试用（先跑起来看看）
+
+只在一台电脑上同时跑服务端 + 桌面端：
+
+```bash
+# 1. 装 Docker（场景一里有命令）
+# 2. 起服务端
+mkdir -p ~/synkord && cd ~/synkord
+curl -fsSL https://codeload.github.com/synkord/synkord/tar.gz/refs/heads/main | \
+  tar -xz --strip-components=2 synkord-main/deploy/docker
+cp .env.example .env
+sed -i "s/__REPLACE_WITH_64_HEX_CHARS__/$(openssl rand -hex 32)/" .env
+docker compose up -d
+
+# 3. 装桌面端（从上面表格下载）
+# 4. 桌面端登录页填：http://localhost:8000
+# 5. admin / admin123 登录，立即改密码
+```
+
+---
+
+完整版（生产级安全清单、监控、PostgreSQL 升级路径）：[**deploy/docker/README.md**](deploy/docker/README.md) · [docs/deployment.md](docs/deployment.md)
+
+---
+
+### 附：开发者工具（不是部署方式）
+
+**CLI** — 命令行推 / 拉契约、查接口
 
 ```bash
 # macOS / Linux
@@ -78,12 +240,12 @@ scoop install synkord
 # 或 Go install
 go install github.com/synkord/synkord/synkord-cli@latest
 
-# 首次使用
-synkord login --server https://your-synkord-host
+# 首次使用（指向团队或本机的服务端）
+synkord login --server http://localhost:8000
 synkord push-spec --spec ./openapi.json
 ```
 
-### 方式 D：从源码开发
+**从源码开发** — 改代码 / 提 PR
 
 ```bash
 # 后端
@@ -158,7 +320,7 @@ synkord/
 │
 ├── synkord-cli/                # Go CLI（CI 推送 / Git Hook 校验）
 │
-├── deploy/server/              # 自托管部署（Go + SQLite + Caddy）
+├── deploy/docker/              # 自托管部署（Docker，唯一推荐）
 │
 ├── .github/                    # CI/CD + Issue / PR 模板
 │   ├── workflows/                # GitHub Actions

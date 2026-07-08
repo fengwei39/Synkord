@@ -135,7 +135,7 @@ curl http://localhost:8000/health
 # 期望：{"status":"ok","service":"synkord-core","components":{"database":"ok"}}
 
 # HTTPS 模式
-curl https://synkord.yourcompany.com/api/health
+curl https://synkord.yourcompany.com/health
 ```
 
 #### 第 2 步：通知团队成员装桌面端
@@ -146,7 +146,7 @@ curl https://synkord.yourcompany.com/api/health
 📦 Synkord 团队服务已上线
 
 桌面端下载（任选一台电脑）：
-  macOS / Windows / Linux: https://github.com/synkord/synkord/releases/latest
+  macOS / Windows: https://github.com/synkord/synkord/releases/latest
 
 首次打开后：
   1. 登录页填入服务器地址：http://服务器IP:8000
@@ -162,9 +162,9 @@ curl https://synkord.yourcompany.com/api/health
 | macOS (Apple Silicon) | `Synkord-{version}-arm64.dmg` |
 | macOS (Intel) | `Synkord-{version}-x64.dmg` |
 | Windows | `Synkord-Setup-{version}-x64.exe` |
-| Linux | `Synkord-{version}-x64.AppImage` · `.deb` |
 
 > 首次运行会看到 OS 自身的"未知发布者"告警（[为什么不签名？](docs/deployment.md#7-安装提示)），点"仍要运行"即可。
+> Linux 目前未纳入自动 release 产物，可按 [部署方案](docs/deployment.md#2-桌面端electron) 本地构建。
 
 #### 第 3 步：日常运维速查
 

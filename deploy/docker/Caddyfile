@@ -21,8 +21,8 @@
         header_up X-Forwarded-Proto {scheme}
     }
 
-    # MCP 端点
-    reverse_proxy /mcp/* synkord:8000
+    # 健康检查
+    reverse_proxy /health synkord:8000
 
     # 前端（独立部署在 CDN / OSS / Cloudflare Pages）
     # 不部署独立前端时，把这条改成 `file_server` + `root * /srv/frontend`

@@ -88,7 +88,7 @@ docker compose --profile https up -d
 
 # 4. 等 30 秒，Caddy 自动签 Let's Encrypt 证书
 docker compose logs -f caddy
-curl https://synkord.yourcompany.com/api/health
+curl https://synkord.yourcompany.com/health
 ```
 
 防火墙只开 80 / 443 即可。

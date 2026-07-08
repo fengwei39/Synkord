@@ -12,7 +12,7 @@ RUN CGO_ENABLED=0 go build -trimpath \
 
 FROM alpine:3.20
 
-RUN apk add --no-cache ca-certificates wget
+RUN apk add --no-cache ca-certificates sqlite wget
 
 # 非 root 用户（UID 65532，与 deploy/docker/docker-compose.yml user: 对齐）
 RUN addgroup -g 65532 -S synkord \

@@ -121,7 +121,7 @@ git push origin v0.2.0
 https://github.com/synkord/synkord/actions/workflows/release.yml
 
 # 大约 5-10 分钟（4 个 job 并行 + 1 个汇总）
-# 4 类产物：客户端 macOS / 客户端 Windows / Go 后端 / SQLite 部署包
+# 4 类产物：客户端 macOS / 客户端 Windows / Go 后端 / Docker 镜像
 ```
 
 ### 4.6 检查 release
@@ -133,13 +133,12 @@ https://github.com/synkord/synkord/releases/tag/v0.2.0
 # 2. 检查 asset 是否齐全
 # - Synkord-*.dmg
 # - Synkord-Setup-*-x64.exe
-# - synkord-core-linux-amd64
-# - synkord-cli-*
-# - Synkord-Setup-x64.exe (Windows)
 # 注：Docker 镜像不作为 release asset，直接推到 ghcr.io：
-#   ghcr.io/synkord/synkord-core:vX.Y.Z / :X.Y.Z / :latest
+#   ghcr.io/synkord/synkord-core:vX.Y.Z / :X.Y.Z / :X.Y / :latest
+# - synkord-core-linux-amd64
 # - Synkord-x.x.x-arm64.dmg (macOS)
-# - Synkord-x.x.x-x64.AppImage + .deb (Linux)
+# - Synkord-x.x.x-x64.dmg (macOS Intel)
+# - Synkord-Setup-x.x.x-x64.exe (Windows)
 # - checksums.txt
 
 # 3. 验证 SHA256

@@ -193,7 +193,7 @@ jobs:
         with:
           name: client-windows
           path: |
-            frontend/release/*.exe
+            frontend/release/Synkord-Setup-*.exe
             frontend/release/*.zip
           if-no-files-found: error
 

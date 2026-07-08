@@ -1,6 +1,6 @@
 <div align="center">
 
-# Synkord
+<img src="assets/brand/synkord-logo-light.svg" alt="Synkord" width="420" />
 
 **让 AI 在 IDE 里真正理解你的 API**
 
@@ -12,7 +12,7 @@ MCP 时代的 API 知识层 — 把后端契约集中管理，让 Cursor / VSCod
 [![Release](https://img.shields.io/badge/release-client%20%2B%20server-blue)](https://github.com/synkord/synkord/releases)
 [![GitHub stars](https://img.shields.io/github/stars/synkord/synkord?style=social)](https://github.com/synkord/synkord/stargazers)
 
-[快速开始](#-快速开始) · [部署](#-部署) · [文档](docs/) · [贡献](CONTRIBUTING.md)
+[快速开始](#-快速开始) · [部署](#-部署) · [文档](docs/) · [品牌资产](docs/brand.md) · [贡献](CONTRIBUTING.md)
 
 </div>
 

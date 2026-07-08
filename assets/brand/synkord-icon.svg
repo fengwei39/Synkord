@@ -1,4 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Synkord">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Synkord icon</title>
+  <desc id="desc">Transparent source-traced Synkord synchronization mark.</desc>
   <defs>
     <linearGradient id="synkord-blue" x1="96" y1="64" x2="416" y2="448" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#1267ff"/>

@@ -9,6 +9,9 @@ declare global {
       getAPIBase: () => Promise<string>
       setAPIBase: (apiBase: string) => Promise<{ ok: boolean; apiBase: string }>
       clearAPIBase: () => Promise<{ ok: boolean; apiBase: string }>
+      getAppVersion: () => Promise<{ version: string; packaged: boolean }>
+      checkForUpdates: () => Promise<UpdateCheckResult>
+      installUpdate: () => Promise<UpdateInstallResult>
       backendLogin: (apiBase: string, username: string, password: string) => Promise<Record<string, unknown>>
       backendMe: (apiBase: string, token: string) => Promise<Record<string, unknown>>
       mcpGetStatus: () => Promise<MCPStatus>
@@ -45,6 +48,20 @@ declare global {
     inPath: boolean          // 是否在 PATH 中
     version: string | null   // 当前版本（执行 CLI 获得）
     runError?: string | null
+  }
+
+  interface UpdateCheckResult {
+    status: 'available' | 'none' | 'unavailable' | 'error'
+    currentVersion?: string
+    latestVersion?: string
+    packaged?: boolean
+    message?: string
+    info?: Record<string, unknown>
+  }
+
+  interface UpdateInstallResult {
+    status: 'installing' | 'unavailable' | 'error'
+    message?: string
   }
 
   // MCP 服务状态

@@ -21,6 +21,7 @@ import {
   type ServerProtocol,
 } from '../api/baseUrl';
 import WindowControlBar from '../components/WindowControlBar';
+import VersionBadge from '../components/VersionBadge';
 
 const { Title, Text, Link } = Typography;
 
@@ -122,7 +123,16 @@ export default function Login() {
           WebkitAppRegion: 'drag',
         } as React.CSSProperties}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 500 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: 13,
+            fontWeight: 500,
+            WebkitAppRegion: 'no-drag',
+          } as React.CSSProperties}
+        >
           <span style={{
             width: 22, height: 22, borderRadius: 4,
             background: 'rgba(255,255,255,0.2)',
@@ -130,6 +140,7 @@ export default function Login() {
             fontSize: 12, fontWeight: 700,
           }}>S</span>
           Synkord
+          <VersionBadge />
         </div>
         <WindowControlBar size="small" />
       </div>

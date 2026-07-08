@@ -30,6 +30,13 @@ const { app, BrowserWindow, ipcMain, shell, dialog } = electron
 const cliInstaller = require('./cli-installer.cjs')
 // electron-updater 仅在打包后的生产环境加载；开发模式 dev 模式下不要触发更新
 let autoUpdater = null
+let updateState = {
+  checking: false,
+  downloading: false,
+  downloaded: false,
+  availableInfo: null,
+  error: null,
+}
 if (app.isPackaged) {
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -511,6 +518,67 @@ function registerIpc() {
   ipcMain.handle('mcp:get-api-base', () => getAPIBase())
   ipcMain.handle('mcp:set-api-base', (_event, apiBase) => setAPIBase(apiBase))
   ipcMain.handle('mcp:clear-api-base', () => clearAPIBase())
+  ipcMain.handle('app:get-version', () => ({
+    version: app.getVersion(),
+    packaged: app.isPackaged,
+  }))
+  ipcMain.handle('update:check', async () => {
+    if (!autoUpdater) {
+      return {
+        status: 'unavailable',
+        currentVersion: app.getVersion(),
+        packaged: app.isPackaged,
+        message: app.isPackaged ? '更新模块不可用' : '开发模式不支持在线更新',
+      }
+    }
+    updateState.checking = true
+    updateState.error = null
+    try {
+      const result = await autoUpdater.checkForUpdates()
+      const info = result?.updateInfo || updateState.availableInfo
+      updateState.checking = false
+      if (updateState.availableInfo || (info?.version && info.version !== app.getVersion())) {
+        return {
+          status: 'available',
+          currentVersion: app.getVersion(),
+          latestVersion: (updateState.availableInfo || info).version,
+          info: updateState.availableInfo || info,
+        }
+      }
+      return {
+        status: 'none',
+        currentVersion: app.getVersion(),
+        latestVersion: info?.version || app.getVersion(),
+      }
+    } catch (err) {
+      updateState.checking = false
+      updateState.error = err.message
+      return {
+        status: 'error',
+        currentVersion: app.getVersion(),
+        message: err.message,
+      }
+    }
+  })
+  ipcMain.handle('update:install', async () => {
+    if (!autoUpdater) {
+      return { status: 'unavailable', message: app.isPackaged ? '更新模块不可用' : '开发模式不支持在线更新' }
+    }
+    try {
+      if (!updateState.downloaded) {
+        updateState.downloading = true
+        await autoUpdater.downloadUpdate()
+        updateState.downloading = false
+        updateState.downloaded = true
+      }
+      autoUpdater.quitAndInstall(false, true)
+      return { status: 'installing' }
+    } catch (err) {
+      updateState.downloading = false
+      updateState.error = err.message
+      return { status: 'error', message: err.message }
+    }
+  })
   ipcMain.handle('auth:login', (_event, payload) => {
     return backendJsonRequest({
       apiBase: payload?.apiBase,
@@ -726,72 +794,38 @@ app.whenReady().then(async () => {
  */
 function setupAutoUpdater() {
   if (!autoUpdater) return
-  let downloading = false
-
-  const promptToDownload = (info) => {
-    if (!info || !info.version) return
-    const choice = dialog.showMessageBoxSync({
-      type: 'info',
-      title: '发现新版本',
-      message: `Synkord ${info.version} 已发布`,
-      detail: `当前版本：${app.getVersion()}\n新版本：${info.version}\n\n是否立即下载并安装？`,
-      buttons: ['立即下载', '稍后提醒'],
-      defaultId: 0,
-      cancelId: 1,
-    })
-    if (choice === 0) {
-      downloading = true
-      autoUpdater.downloadUpdate().catch((err) => {
-        console.error('[auto-update] download failed:', err)
-        downloading = false
-      })
-    }
-  }
-
-  const promptToInstall = () => {
-    const choice = dialog.showMessageBoxSync({
-      type: 'info',
-      title: '更新已就绪',
-      message: '新版本已下载完成，重启后生效。',
-      detail: '你也可以稍后退出应用时自动安装。',
-      buttons: ['立即重启', '稍后'],
-      defaultId: 0,
-      cancelId: 1,
-    })
-    if (choice === 0) {
-      autoUpdater.quitAndInstall(false, true)
-    }
-  }
 
   autoUpdater.on('checking-for-update', () => {
+    updateState.checking = true
     console.log('[auto-update] checking for update…')
   })
   autoUpdater.on('update-available', (info) => {
+    updateState.checking = false
+    updateState.availableInfo = info
+    updateState.downloaded = false
     console.log(`[auto-update] available: ${info.version}`)
-    promptToDownload(info)
   })
   autoUpdater.on('update-not-available', () => {
+    updateState.checking = false
+    updateState.availableInfo = null
     console.log('[auto-update] no update available')
   })
   autoUpdater.on('download-progress', (progress) => {
+    updateState.downloading = true
     console.log(`[auto-update] downloading ${progress.percent.toFixed(1)}%`)
   })
   autoUpdater.on('update-downloaded', (info) => {
+    updateState.downloading = false
+    updateState.downloaded = true
+    updateState.availableInfo = info
     console.log(`[auto-update] downloaded ${info.version}`)
-    downloading = false
-    promptToInstall()
   })
   autoUpdater.on('error', (err) => {
+    updateState.checking = false
+    updateState.downloading = false
+    updateState.error = err.message
     console.error('[auto-update] error:', err)
-    downloading = false
   })
-
-  // 延迟 3 秒再检查，避免阻塞窗口渲染
-  setTimeout(() => {
-    autoUpdater.checkForUpdates().catch((err) => {
-      console.warn('[auto-update] check failed:', err)
-    })
-  }, 3000)
 }
 
 app.on('window-all-closed', async () => {

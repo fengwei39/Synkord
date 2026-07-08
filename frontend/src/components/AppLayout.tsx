@@ -15,6 +15,7 @@ import { ContractSwitcher } from './ContractSwitcher'
 import { McpStatusDot } from './McpStatusDot'
 import WindowControlBar from './WindowControlBar'
 import ContractCreateModal from './ContractCreateModal'
+import VersionBadge from './VersionBadge'
 
 export default function AppLayout() {
   const navigate = useNavigate()
@@ -46,6 +47,7 @@ export default function AppLayout() {
         >
           <div className="synkord-logo-mark">S</div>
           <span>Synkord</span>
+          <VersionBadge />
         </div>
 
         {/* 顶级导航 Tab */}

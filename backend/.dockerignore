@@ -1,0 +1,12 @@
+.git
+.github
+data/
+*.db
+*.db-wal
+*.db-shm
+*.test
+*.out
+README.md
+.vscode
+.DS_Store
+*.log

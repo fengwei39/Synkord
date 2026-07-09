@@ -3,7 +3,7 @@
 // synkord is the cross-language client for synkord-core REST API.
 // It is invoked from three places (per docs/ai-development-guide.md §12.4):
 //
-//   - backend CI pipeline:     synkord push-spec --spec ./openapi.json
+//   - backend CI pipeline:     synkord push-spec --contract <contract_id> --spec ./openapi.json
 //   - frontend Git pre-commit: synkord validate-deps --used-entities X --used-apis Y
 //
 // Authentication: the CLI authenticates against /api/auth/login with
@@ -77,8 +77,8 @@ Commands:
   help            Show this help
 
 Environment:
-  SYNKOORD_SERVER   default server URL (overridden by --server)
-  SYNKOORD_TOKEN    default JWT (overridden by --token)
+  SYNKORD_SERVER    default server URL (overridden by --server)
+  SYNKORD_TOKEN     default JWT (overridden by --token)
 
 Per docs/ai-development-guide.md §12.4, this CLI talks REST only.
 MCP is reserved for IDE/AI assistants (Cursor/VSCode/Codex).

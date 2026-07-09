@@ -9,8 +9,8 @@
 | 变更 | 说明 |
 |---|---|
 | 删除所有 `team_id` 参数 | 团队概念删除 |
-| 资源 URI 前缀 `synkord://projects/*` → `synkord://contracts/*` | 命名统一 |
-| `validate_code_against_contract` 输入参数微调 | `contract_id` 改为可选 |
+| 资源 URI 前缀 `synkord://projects/*` → `synkord://active-contract` / `synkord://api/*` / `synkord://entity/*` | 命名统一 |
+| `validate_code_against_contract` 输入参数微调 | `language` 可选，校验结果始终以 `{ valid, issues }` 返回 |
 
 ---
 
@@ -25,42 +25,20 @@
 
 ### 1.2 与 Synkord UI 的关系
 
-- **不持有同步状态**：MCP server 不与 UI 共享状态，所有变更走事件推送
+- **本地状态文件同步**：MCP server 通过 `active-contract.json` 获取活跃契约集，运行中按 1s 轮询刷新
 - **不假定默认契约集**：每次启动 Connect 时从 `active-contract.json` 读取
-- **不缓存用户上下文**：每个工具调用自包含
+- **用户上下文来自本地凭据**：工具调用使用本地登录凭据访问后端
 
 ### 1.3 协议版本
 
-- 当前实现：**MCP 2025-06（Streamable HTTP）**
-- 锁定版本，跟随 Cursor / Claude Desktop 升级节奏
+- 当前实现：**MCP STDIO**；HTTP 模式为桌面端内部调试/兼容入口
+- 锁定当前 Cursor / Claude Desktop 可用协议，后续跟随生态升级
 
 ---
 
 ## 二、工具规范
 
 ### 2.1 元工具
-
-#### `get_user_info`
-
-获取当前用户信息。
-
-**输入**：
-| 参数 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| （无） | - | - | - |
-
-**输出**：
-```typescript
-{
-  user_id: string
-  username: string
-  email?: string
-}
-```
-
-**调用链**：`GET /api/auth/me`
-
----
 
 #### `list_contracts`
 
@@ -120,7 +98,7 @@ Array<{
 |---|---|---|---|
 | `contract_id` | string | 否 | 不传 = 活跃契约集 |
 | `keyword` | string | 否 | 路径/名称/描述模糊搜索 |
-| `method` | enum: GET\|POST\|PUT\|DELETE\|PATCH | 否 | 方法过滤 |
+| `method` | enum: GET\|POST\|PUT\|DELETE\|PATCH\|HEAD\|OPTIONS\|TRACE | 否 | 方法过滤 |
 | `tag` | string | 否 | tag 过滤 |
 | `include_deprecated` | boolean | 否 | 默认 false |
 
@@ -144,8 +122,8 @@ Array<{
 ```
 
 **错误**：
-- `NO_ACTIVE_CONTRACT` — 未传 `contract_id` 且无活跃契约集
-- `CONTRACT_NOT_FOUND` — `contract_id` 不存在或无权访问
+- `NOT_FOUND` — 未设置活跃契约集，或指定资源不存在/不可访问
+- `UNAUTHORIZED` — 登录态缺失或过期
 
 ---
 
@@ -262,11 +240,7 @@ Array<{
 | 参数 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `code_snippet` | string | 是 | 用户写的代码 |
-| `language` | enum: typescript\|javascript\|python\|go\|java | 是 | 代码语言 |
-| `check_against.api_ids` | string[] | 否 | 校验这些 API 的入参/返回 |
-| `check_against.entity_ids` | string[] | 否 | 校验这些实体的类型 |
-| `check_against.operation` | enum: request\|response\|both | 否 | 默认 both |
-| `contract_id` | string | 否 | 不传 = 活跃契约集 |
+| `language` | enum: typescript\|javascript\|python\|go\|java\|plain | 否 | 代码语言；默认 plain |
 
 **输出**：
 ```typescript
@@ -282,7 +256,7 @@ Array<{
 }
 ```
 
-**当 `valid = false` 时抛 `CONTRACT_VIOLATION` 错误**，把 issues 放在 `details.issues`。
+当 `valid = false` 时仍返回正常工具结果，AI 应读取 `issues` 并按 `severity='error'` 的项修复代码。
 
 ---
 
@@ -314,6 +288,8 @@ Array<{
 }>
 ```
 
+> **字段对齐（v1.2 修复冲突 #2）**：`api` 严格只含上述 4 字段，**不**返回 `parameters / request_body / responses / schema_content` 等大字段。AI 若需详情，请改用 `get_api_detail(api_id)`。
+
 ---
 
 #### `search_entities_across_contracts`
@@ -340,25 +316,37 @@ Array<{
 }>
 ```
 
+> **字段对齐（v1.2 修复冲突 #6）**：`entity` 严格只含上述 3 字段，**不**返回 `schema_content` 全文。AI 若需详情，请改用 `get_entity_detail(entity_id)`。
+
 ---
 
 ## 三、Resources
 
 AI 可通过 `resources/read` 被动读取的资源。
 
+### 3.1 静态资源（无参数）
+
 | URI | 内容 |
 |---|---|
 | `synkord://active-contract` | 活跃契约集元信息（contract_id, contract_name） |
-| `synkord://active-contract/summary` | 摘要：api_count, entity_count, recently_changed |
-| `synkord://active-contract/apis/{api_id}` | 单个 API 完整定义 |
-| `synkord://active-contract/entities/{entity_id}` | 单个实体完整定义 |
-| `synkord://contracts` | 全部契约集列表（用于跨查询） |
+| `synkord://status` | MCP server 运行状态（版本、协议、启动时间） |
+| `synkord://tools-manifest` | 当前可用工具及 inputSchema |
+
+### 3.2 资源模板（URI Template RFC 6570）
+
+| URI Template | 内容 |
+|---|---|
+| `synkord://entity/{name}` | 按实体名称读取实体定义（name 为实体名，如 `UserDTO`） |
+| `synkord://api/{method}/{path}` | 按 HTTP 方法 + 路径读取 API 定义（method 不区分大小写） |
+
+> **资源类型**（v1.2 修复）：表中带 `{xxx}` 的为资源模板，AI 客户端通过 `resources/templates/list` 取得模板，再用实际值替换占位符调用 `resources/read`。`synkord://active-contract` / `synkord://status` / `synkord://tools-manifest` 是静态资源，AI 直接 `resources/read` 即可。
+> 旧版文档曾混入"激活项目"措辞（[§〇 v1.2 变更](mcp-spec.md#) 已删除 Team 实体），当前唯一活跃资源统一以 `active-contract` 命名。
 
 **典型工作流**：
 ```
 1. AI 启动对话 → 读 synkord://active-contract → 知道当前契约集
-2. AI 读 synkord://active-contract/summary → 知道有哪些 API/Entity
-3. AI 按需 get_api_detail / get_entity_detail 拿具体合同
+2. AI 调用 get_contract_apis / get_contract_entities 获取概览
+3. AI 按需 get_api_detail / get_entity_detail 或读取模板资源拿具体合同
 4. AI 写完代码后调 validate_code_against_contract 自检
 5. 如有问题，回到步骤 3 细化查询
 ```
@@ -371,11 +359,9 @@ AI 可通过 `resources/read` 被动读取的资源。
 
 ```typescript
 {
-  error: string                          // 错误码
+  code: string                           // 错误码
   message: string                        // 人类可读
-  hint?: string                          // AI 可执行的下一步
-  details?: Record<string, unknown>      // 详细数据
-  recoverable: boolean                   // AI 能否自行恢复
+  details?: Record<string, unknown>      // 详细数据（可选）
 }
 ```
 
@@ -383,61 +369,45 @@ AI 可通过 `resources/read` 被动读取的资源。
 
 | ErrorCode | message | hint | recoverable | 何时触发 |
 |---|---|---|---|---|
-| `NO_ACTIVE_CONTRACT` | "No active contract selected" | "请在 Synkord 桌面客户端选择契约集" | true | 用户没选活跃契约集就调业务工具 |
-| `CONTRACT_NOT_FOUND` | "Contract 'X' not found or not accessible" | "用 list_contracts() 查找可用契约集" | true | contract_id 不存在或无权访问 |
-| `API_NOT_FOUND` | "API 'X' not found" | "用 get_contract_apis() 查找可用 API" | true | api_id 不存在 |
-| `ENTITY_NOT_FOUND` | "Entity 'X' not found" | "用 get_contract_entities() 查找可用实体" | true | entity_id 不存在 |
-| `MISSING_PARAM` | "X is required" | 提示调哪个工具 | true | 必填参数缺失 |
-| `INVALID_PARAM` | "X is invalid" | 提示正确的格式 | true | 参数格式错误 |
-| `AUTH_EXPIRED` | "User session expired" | "请在 Synkord 客户端重新登录" | false | JWT 过期 |
-| `CONTRACT_VIOLATION` | "代码不符合契约" | "查看 details.issues 修复所有 error 级别问题" | true | validate_code_against_contract 发现违规 |
-| `BACKEND_UNAVAILABLE` | "后端不可达" | "检查网络" | true | 后端 5xx |
-| `RATE_LIMITED` | "请求过于频繁" | "稍后重试" | true | 429 |
-| `INTERNAL_ERROR` | "内部错误" | "联系管理员" | false | 兜底 |
+| `INVALID_ARGS` | 参数缺失、格式错误、请求体过大 | 必填参数缺失、输入非法、body 超限 |
+| `NOT_FOUND` | 资源不存在或没有活跃契约集 | 无活跃契约集、contract/api/entity 不存在 |
+| `UNAUTHORIZED` | 登录态缺失或过期 | 本地凭据不存在、token 无效或后端返回 401/403 |
+| `TOOL_NOT_ALLOWED` | 工具未注册或不允许调用 | 调用了工具清单之外的名称 |
+| `UPSTREAM_FAILURE` | 后端不可用或限流 | 网络错误、429、502/503 |
+| `TIMEOUT` | 调用超时 | 后端请求超过 30s |
+| `INTERNAL` | 内部错误 | 未分类异常 |
 
 ### 4.3 错误响应示例
 
 ```json
 // 用户没选契约集
 {
-  "error": "NO_ACTIVE_CONTRACT",
+  "code": "NOT_FOUND",
   "message": "No active contract selected",
-  "hint": "请在 Synkord 桌面客户端选择契约集后再让 AI 调用 MCP",
-  "recoverable": true
+  "message": "no active contract context"
 }
 
 // 跨契约集查询时给错 ID
 {
-  "error": "CONTRACT_NOT_FOUND",
+  "code": "NOT_FOUND",
   "message": "Contract 'C-xyz' not found or not accessible",
-  "hint": "请用 list_contracts() 查找可用的契约集 ID",
-  "recoverable": true
+  "message": "Contract 'C-xyz' not found or not accessible"
 }
 
 // 校验失败
 {
-  "error": "CONTRACT_VIOLATION",
-  "message": "代码不符合契约：3 个错误、2 个警告",
-  "hint": "查看 details.issues 修复所有 error 级别问题",
-  "details": {
-    "issues": [
-      { "severity": "error", "line": 12, "field": "orderId",
-        "message": "Order.id 类型应为 string，但使用了 number",
-        "suggestion": "检查参数类型，应该是 string" },
-      { "severity": "warning", "line": 18, "field": "createdAt",
-        "message": "Order.createdAt 字段不存在",
-        "suggestion": "Order 没有 createdAt 字段，可能是 created_at" }
-    ]
-  },
-  "recoverable": true
+  "valid": false,
+  "issues": [
+    { "severity": "error", "line": 12, "field": "orderId",
+      "message": "Order.id 类型应为 string，但使用了 number",
+      "suggestion": "检查参数类型，应该是 string" }
+  ]
 }
 
 // 认证过期
 {
-  "error": "AUTH_EXPIRED",
-  "message": "User session expired",
-  "hint": "请在 Synkord 桌面客户端重新登录",
-  "recoverable": false
+  "code": "UNAUTHORIZED",
+  "message": "auth token is required"
 }
 ```
 
@@ -499,7 +469,7 @@ AI 可通过 `resources/read` 被动读取的资源。
 读取 synkord://active-contract 资源，确认当前契约集。
 
 ### Step 2: 获取 API/Entity 概览
-读取 synkord://active-contract/summary 或调用 list 工具。
+调用 get_contract_apis / get_contract_entities 获取概览。
 
 ### Step 3: 必要时查询详情
 按需调用 get_api_detail / get_entity_detail。
@@ -509,7 +479,7 @@ AI 可通过 `resources/read` 被动读取的资源。
 
 ## 错误处理
 - 缺参数 → 先调 list 工具找 ID
-- 不可访问 → 用 list_contracts 重新查询
+- 不可访问或 NOT_FOUND → 用 list_contracts 重新查询
 - 校验失败 → 按 issues 修复
 ```
 

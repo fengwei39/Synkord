@@ -271,6 +271,30 @@ function broadcastMcpStatus() {
   mainWindow.webContents.send('mcp:event', status)
 }
 
+/**
+ * 修复冲突 #4：把 mcpState 真实 pid/port/state 同步到后端 MCPStatus 单例表
+ * 后端 GET /mcp/status 与 GET /mcp/summary 读这张表，状态卡才能正确展示。
+ */
+async function reportMcpStateToBackend() {
+  try {
+    const apiBase = currentApiBase()
+    const path = '/mcp/state'
+    await backendJsonRequest({
+      apiBase,
+      path,
+      method: 'POST',
+      body: {
+        state: mcpState.state,
+        pid: mcpState.pid,
+        port: mcpState.port,
+        last_error: mcpState.last_error || '',
+      },
+    })
+  } catch (err) {
+    console.warn('[main] report mcp state to backend failed:', err.message)
+  }
+}
+
 async function startMCPServer() {
   if (mcpState.state === 'running' || mcpState.state === 'starting') {
     return mcpStatus()
@@ -348,6 +372,8 @@ async function startMCPServer() {
         mcpState.url = `http://${HOST}:${mcpState.port}/mcp`
         mcpState.started_at = new Date().toISOString()
         broadcastMcpStatus()
+        // 修复冲突 #4：state=running 时上报后端
+        reportMcpStateToBackend().catch(() => {})
         resolve(mcpStatus())
       } else if (msg?.type === 'connection') {
         mcpState.last_connection = { client: msg.client || 'unknown', at: new Date().toISOString() }
@@ -365,6 +391,8 @@ async function startMCPServer() {
         mcpState.state = 'failed'
         mcpState.last_error = `connect exited unexpectedly: code=${code} signal=${signal}`
         broadcastMcpStatus()
+        // 修复冲突 #4：state=failed 时上报后端
+        reportMcpStateToBackend().catch(() => {})
         reject(new Error(mcpState.last_error))
         return
       }
@@ -376,6 +404,8 @@ async function startMCPServer() {
         mcpState.url = null
         mcpState.process = null
         broadcastMcpStatus()
+        // 修复冲突 #4：state=stopped 时上报后端
+        reportMcpStateToBackend().catch(() => {})
       }
     })
 
@@ -401,6 +431,8 @@ async function stopMCPServer() {
   mcpState.port = null
   mcpState.url = null
   broadcastMcpStatus()
+  // 修复冲突 #4：手动 stop 时也上报后端
+  reportMcpStateToBackend().catch(() => {})
 
   if (proc) {
     try {
@@ -604,6 +636,18 @@ function registerIpc() {
 
   // 上下文：active contract（v1.2）
   ipcMain.handle('mcp:get-active-contract', () => activeContractStore.get())
+  ipcMain.handle('mcp:set-active-contract', (_event, contract) => {
+    if (!contract?.contract_id) {
+      activeContractStore.clear()
+      return activeContractStore.get()
+    }
+    activeContractStore.set(contract.contract_id, contract.contract_name || '')
+    return activeContractStore.get()
+  })
+  ipcMain.handle('mcp:clear-active-contract', () => {
+    activeContractStore.clear()
+    return { ok: true }
+  })
 
   // IDE 配置
   ipcMain.handle('mcp:get-ide-config', () => getIdeConfig())

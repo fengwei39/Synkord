@@ -1,16 +1,17 @@
 # CLI 独立发版
-# 触发：CLI 目录变更并 push 到 dev/main
-# 目的：CLI 改动频繁，不希望每次都要打整个 monorepo 的 tag 才能发版
+# 触发：打 CLI 独立 tag (cli-v*.*.*) 时执行
 # 流程：构建 3 平台二进制 → 创建 draft pre-release → 人工确认后 publish
+#
+# 与 release.yml 的关系：
+#   - release.yml 负责 v*.*.* 正式版本（含桌面端 / 后端二进制 / GitHub Release）
+#   - 本 workflow 负责 cli-v*.*.* 草稿预发布（仅 CLI 多平台二进制）
+# 两者 tag 命名空间不冲突，独立并行。
 name: CLI Release
 
 on:
   push:
-    paths:
-      - 'synkord-cli/**'
-      - '.github/workflows/cli-release.yml'
-    branches: [dev, main]
-  workflow_dispatch:        # 手动触发
+    tags:
+      - 'cli-v*.*.*'
 
 permissions:
   contents: write
@@ -62,12 +63,13 @@ jobs:
           CGO_ENABLED: 0
         run: |
           mkdir -p ../dist
-          go build -trimpath -ldflags="-s -w" -o ../dist/${{ matrix.binary }} .
+          VERSION="v$(cat ../VERSION)"
+          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o ../dist/${{ matrix.asset }} .
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
-          path: dist/${{ matrix.binary }}
+          path: dist/${{ matrix.asset }}
           if-no-files-found: error
 
   release:
@@ -77,6 +79,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -91,11 +95,17 @@ jobs:
 
       - name: Read version
         id: ver
-        working-directory: synkord-cli
         run: |
-          VERSION=$(grep -oP 'const version = "\K[^"]+' main.go)
-          echo "version=v${VERSION}" >> $GITHUB_OUTPUT
-          echo "tag=cli-v${VERSION}" >> $GITHUB_OUTPUT
+          # tag 触发：tag 形如 cli-vX.Y.Z，从 GITHUB_REF_NAME 拆出版本
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"            # cli-v0.2.0
+            VERSION="${TAG#cli-}"               # v0.2.0
+          else
+            VERSION="v$(cat VERSION)"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=cli-${VERSION}" >> $GITHUB_OUTPUT
+          echo "Resolved CLI version: ${VERSION} (tag: cli-${VERSION})"
 
       - name: Create draft release
         uses: softprops/action-gh-release@v2

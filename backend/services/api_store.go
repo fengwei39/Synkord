@@ -16,14 +16,14 @@ import (
 
 // ImportOpenAPIResult 导入结果
 type ImportOpenAPIResult struct {
-	ContractID   string               `json:"contract_id"`
-	SpecID       string               `json:"spec_id"`
-	SpecName     string               `json:"spec_name"`
-	SpecVersion  string               `json:"spec_version"`
-	APICount     int                  `json:"api_count"`
-	RefCount     int                  `json:"ref_count"`
-	DepCount     int                  `json:"dependency_count"`
-	APIs         []models.APIEndpoint `json:"apis"`
+	ContractID  string               `json:"contract_id"`
+	SpecID      string               `json:"spec_id"`
+	SpecName    string               `json:"spec_name"`
+	SpecVersion string               `json:"spec_version"`
+	APICount    int                  `json:"api_count"`
+	RefCount    int                  `json:"ref_count"`
+	DepCount    int                  `json:"dependency_count"`
+	APIs        []models.APIEndpoint `json:"apis"`
 }
 
 func ErrUnsupportedAPIImportFormat(format string) error {
@@ -81,15 +81,15 @@ func CreateContractAPI(db *gorm.DB, contractID string, api *models.APIEndpoint) 
 // CreateContractAPIFromInput 从前端入参创建接口（处理 tags / parameters / requestBody 等 JSON 字段）
 func CreateContractAPIFromInput(db *gorm.DB, contractID string, input any) (*models.APIEndpoint, error) {
 	type apiInput struct {
-		Path        string                 `json:"path"`
-		Method      string                 `json:"method"`
-		Summary     string                 `json:"summary"`
-		Description string                 `json:"description"`
-		Tags        []string               `json:"tags"`
-		Parameters  []map[string]any       `json:"parameters"`
-		RequestBody map[string]any         `json:"request_body"`
-		Responses   map[string]any         `json:"responses"`
-		Deprecated  bool                   `json:"deprecated"`
+		Path        string           `json:"path"`
+		Method      string           `json:"method"`
+		Summary     string           `json:"summary"`
+		Description string           `json:"description"`
+		Tags        []string         `json:"tags"`
+		Parameters  []map[string]any `json:"parameters"`
+		RequestBody map[string]any   `json:"request_body"`
+		Responses   map[string]any   `json:"responses"`
+		Deprecated  bool             `json:"deprecated"`
 	}
 	var in apiInput
 	b, err := json.Marshal(input)
@@ -126,17 +126,20 @@ func CreateContractAPIFromInput(db *gorm.DB, contractID string, input any) (*mod
 // v1.2 修订：仅允许白名单字段，避免通过 patch 篡改 contract_id 等关键外键
 func UpdateContractAPI(db *gorm.DB, contractID, apiID string, patch map[string]interface{}) (*models.APIEndpoint, error) {
 	allowed := map[string]bool{
-		"path":             true,
-		"method":           true,
-		"summary":          true,
-		"description":      true,
-		"tags":             true,
-		"parameters_json":  true,
+		"path":              true,
+		"method":            true,
+		"summary":           true,
+		"description":       true,
+		"tags":              true,
+		"parameters":        true,
+		"request_body":      true,
+		"responses":         true,
+		"parameters_json":   true,
 		"request_body_json": true,
-		"responses_json":   true,
-		"security_json":    true,
-		"deprecated":       true,
-		"version":          true,
+		"responses_json":    true,
+		"security_json":     true,
+		"deprecated":        true,
+		"version":           true,
 	}
 	safe := map[string]interface{}{}
 	for k, v := range patch {
@@ -150,6 +153,25 @@ func UpdateContractAPI(db *gorm.DB, contractID, apiID string, patch map[string]i
 	}
 	if v, ok := safe["method"].(string); ok {
 		safe["method"] = strings.ToUpper(v)
+	}
+	if v, ok := safe["tags"]; ok {
+		b, _ := json.Marshal(v)
+		safe["tags"] = string(b)
+	}
+	if v, ok := safe["parameters"]; ok {
+		b, _ := json.Marshal(v)
+		safe["parameters_json"] = string(b)
+		delete(safe, "parameters")
+	}
+	if v, ok := safe["request_body"]; ok {
+		b, _ := json.Marshal(v)
+		safe["request_body_json"] = string(b)
+		delete(safe, "request_body")
+	}
+	if v, ok := safe["responses"]; ok {
+		b, _ := json.Marshal(v)
+		safe["responses_json"] = string(b)
+		delete(safe, "responses")
 	}
 	if err := db.Model(&models.APIEndpoint{}).
 		Where("id = ? AND contract_id = ?", apiID, contractID).
@@ -330,12 +352,12 @@ func ImportOpenAPISpec(db *gorm.DB, contractID, spec string) (*ImportOpenAPIResu
 				}
 				depSeen[key] = true
 				dep := models.Dependency{
-					ContractID:    contractID,
-					EntityName:    entityName,
-					APIPath:       endpoint.Path,
-					APIMethod:     endpoint.Method,
+					ContractID:     contractID,
+					EntityName:     entityName,
+					APIPath:        endpoint.Path,
+					APIMethod:      endpoint.Method,
 					DependencyType: "api_entity",
-					Source:        "openapi",
+					Source:         "openapi",
 				}
 				if err := tx.Create(&dep).Error; err != nil {
 					tx.Rollback()

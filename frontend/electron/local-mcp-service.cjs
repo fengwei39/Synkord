@@ -115,7 +115,7 @@ const { initAccessLog, logAccess, closeAccessLog, info, warn, error, debug } = r
 const { redactSensitive, getClientIp, readJsonFile } = require('./mcp-core/utils.cjs');
 const { callTool } = require('./mcp-core/backend-client.cjs');
 
-// 注册 5 个内置工具（仅一次）
+// 注册内置工具（仅一次）
 registerBuiltinTools();
 
 // ============================================================================
@@ -125,10 +125,12 @@ registerBuiltinTools();
 const loader = new ConfigLoader();
 
 async function loadFromDisk() {
-  const authPath = path.join(SYNKORD_HOME, 'user-auth.json');
-  const ctxPath = path.join(SYNKORD_HOME, 'active-context.json');
-  const auth = await readJsonFile(authPath);
-  const ctx = await readJsonFile(ctxPath);
+  const authPath = path.join(SYNKORD_HOME, 'credentials.json');
+  const legacyAuthPath = path.join(SYNKORD_HOME, 'user-auth.json');
+  const ctxPath = path.join(SYNKORD_HOME, 'active-contract.json');
+  const legacyCtxPath = path.join(SYNKORD_HOME, 'active-context.json');
+  const auth = (await readJsonFile(authPath)) || (await readJsonFile(legacyAuthPath));
+  const ctx = (await readJsonFile(ctxPath)) || (await readJsonFile(legacyCtxPath));
   // 文件不存在时也调用，setMemory* 会清空旧值
   loader.setMemoryContext(ctx);
   loader.setMemoryAuth(auth);
@@ -413,7 +415,7 @@ async function handleRpcMethod(req) {
 /**
  * 静态资源列表（无参数）
  * - synkord://status：server 运行状态（版本、协议、启动时间）
- * - synkord://active-project：当前激活项目（来自 ConfigLoader 内存）
+ * - synkord://active-contract：当前激活契约集（来自 ConfigLoader 内存）
  * - synkord://tools-manifest：工具清单（含每个工具的 inputSchema）
  */
 function buildStaticResources() {
@@ -521,20 +523,21 @@ async function readResource(uri, loader) {
   const entityMatch = uri.match(/^synkord:\/\/entity\/(.+)$/);
   if (entityMatch) {
     const name = decodeURIComponent(entityMatch[1]);
-    // 复用 tool handler 的逻辑获取单个实体
     const resp = await callTool({
       loader,
       auth,
-      tool: 'get_entity_dependencies',
-      args: { model_name: name },
+      tool: 'get_contract_entities',
+      args: { keyword: name },
     });
+    const items = resp?.result?.items || resp?.items || [];
+    const entity = items.find((item) => item.name === name) || items[0] || null;
     return {
       contents: [{
         uri,
         mimeType: 'application/json',
         text: JSON.stringify({
           entity_name: name,
-          data: resp?.result || resp || null,
+          data: entity,
         }, null, 2),
       }],
     };
@@ -548,9 +551,11 @@ async function readResource(uri, loader) {
     const resp = await callTool({
       loader,
       auth,
-      tool: 'get_api_dependencies',
-      args: { api_path: apiPath, api_method: method },
+      tool: 'get_contract_apis',
+      args: { keyword: apiPath, method, include_deprecated: true },
     });
+    const items = resp?.result?.items || resp?.items || [];
+    const api = items.find((item) => item.path === apiPath && item.method === method) || items[0] || null;
     return {
       contents: [{
         uri,
@@ -558,7 +563,7 @@ async function readResource(uri, loader) {
         text: JSON.stringify({
           api_method: method,
           api_path: apiPath,
-          data: resp?.result || resp || null,
+          data: api,
         }, null, 2),
       }],
     };

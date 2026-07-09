@@ -30,8 +30,8 @@
 │ Electron 桌面应用                                          │
 │  ├─ React UI（数据管理 / 契约集浏览 / MCP 控制）            │
 │  ├─ Auth Manager（持有 JWT、自动 refresh）                  │
-│  ├─ Auth Gateway（本地 HTTP 127.0.0.1、注入 JWT）          │
-│  └─ Connect 子进程（MCP 协议层、无状态）                    │
+│  ├─ Auth Gateway（本地 HTTP 127.0.0.1、供后续代理模式）      │
+│  └─ local-mcp-service（MCP 协议层、STDIO 为主）              │
 └───────────────────────────▲─────────────────────────────────┘
                             │ MCP 协议（STDIO / HTTP）
                             │
@@ -96,17 +96,17 @@
 
 | 层 | 凭证 | 持有方 | 用途 |
 |---|---|---|---|
-| Layer 1: User ↔ Synkord Web | Session Cookie（HttpOnly, Secure, SameSite=Lax） | 浏览器 | 在 Web UI 里管理数据 |
+| Layer 1: User ↔ Synkord Web | JWT（当前 Web MVP 存 localStorage；生产建议升级 HttpOnly Cookie） | 浏览器 | 在 Web UI 里管理数据 |
 | Layer 2: Electron ↔ Backend | JWT (短期 15min) + Refresh Token (长期 30d) | **Auth Manager** | 所有插件调用后端 |
-| Layer 3: IDE ↔ Connect | STDIO 无凭证；HTTP 用本地 Bearer | Connect 自己签发 | IDE 认证到 Connect |
+| Layer 3: IDE ↔ local-mcp-service | STDIO 无凭证；HTTP 用本地 Bearer | MCP 子进程 | IDE 认证到 MCP |
 
 ### 3.2 关键不变量
 
-1. **插件永不见真实 JWT**——只调 Auth Gateway
-2. **Auth Gateway 是 JWT 的唯一出口**——所有插件调用都经过这里注入 JWT
+1. **当前 MCP 使用本地登录凭据访问后端**——凭据由 Auth Manager 写入本地安全目录
+2. **Auth Gateway 已在主进程启动**——用于后续代理模式；当前 MCP 工具通过后端客户端直连 `/api/*`
 3. **Token 刷新统一在 Auth Manager**——对插件透明（无感）
 4. **本地 Bearer 泄漏无法直接访问后端**——格式与 JWT 不同
-5. **用户登出** = Auth Manager 清凭证 + Gateway 拒绝转发 + 通知 Connect 退出
+5. **用户登出** = Auth Manager 清凭证 + Gateway 拒绝转发 + MCP 子进程失去可用凭据
 6. **Auth Gateway 只监听 127.0.0.1**——端口随机，不暴露给网络
 
 ### 3.3 数据流：AI 查询契约集
@@ -114,12 +114,10 @@
 ```
 Cursor (STDIO)
   ↓ { method: "tools/call", name: "get_contract_apis" }
-Connect (MCP 子进程)
+local-mcp-service (MCP 子进程)
   ↓ 解析参数，默认用活跃契约集
-Auth Gateway (本地 HTTP 127.0.0.1:随机端口)
-  ↓ 注入 Authorization: Bearer <jwt>
-  ↓ 添加 X-Mcp-Instance: <id>
-  ↓ 写 audit log
+backend-client
+  ↓ 读取本地 credentials.json，注入 Authorization: Bearer <jwt>
 Synkord Backend
   ↓ 验证 JWT → 返回数据
 ... 反向回到 AI
@@ -132,7 +130,7 @@ Synkord Backend
 ├── credentials.json         (0600)   JWT + Refresh Token + 用户信息
 ├── active-contract.json     (0600)   活跃契约集 ID + 设置时间
 ├── connect-token.json       (0600)   HTTP 模式本地 Bearer
-└── audit.log                         Auth Gateway 审计日志
+└── audit.log                         本地 MCP / Gateway 审计日志
 ```
 
 **Refresh Token 加密**（推荐）：用用户登录密码派生的密钥加密（PBKDF2 + WebCrypto），启动时让用户输入一次密码解锁。
@@ -149,8 +147,9 @@ electron/
 ├── preload.cjs                    contextBridge 暴露 API
 ├── auth-manager.cjs               JWT 持有、自动 refresh
 ├── auth-gateway.cjs               本地 HTTP、注入 JWT
-├── connect.cjs                    MCP Connect 子进程
-└── ipc-handlers.cjs               所有 IPC handler 注册
+├── local-mcp-service.cjs          MCP 子进程（STDIO / HTTP 兼容入口）
+├── mcp-core/                      MCP 后端客户端、错误、鉴权、注册表
+└── mcp-tools/                     内置工具实现
 ```
 
 ### 4.2 Auth Manager 职责
@@ -171,7 +170,7 @@ electron/
 | 职责 | 说明 |
 |---|---|
 | 启动时随机选端口 | 仅监听 127.0.0.1 |
-| 注册/管理插件实例 | Connect 启动时调用 `/gw/register` 提交 instance_id |
+| 注册/管理插件实例 | Gateway 模式下插件启动时调用 `/gw/register` 提交 instance_id |
 | 注入 JWT | 转发请求到后端时自动加 Authorization 头 |
 | 注入审计头 | `X-Gateway-Instance`、`X-Gateway-At` |
 | 转发请求 | `/gw/api/*` → 后端 `/api/*` |
@@ -182,30 +181,29 @@ electron/
 - `GET /gw/health` — 健康检查
 - `* /gw/api/*` — 转发到后端 `/api/*`
 
-### 4.4 Connect 职责
+### 4.4 local-mcp-service 职责
 
 | 职责 | 说明 |
 |---|---|
-| 启动时注册到 Gateway | 提交 instance_id |
 | 提供 MCP 协议 | STDIO 或 HTTP |
-| 调用 Gateway 访问后端 | 走 `/gw/api/*`（不直接调后端） |
-| 维护活跃契约集缓存 | 启动时从文件读，运行中监听主进程推送 |
-| 不持有 JWT | 永不接触 |
+| 调用后端 | 当前通过 `backend-client` 直连后端 `/api/*`，携带本地 JWT |
+| 维护活跃契约集缓存 | 启动时从文件读，运行中 1s 轮询刷新 |
+| 错误模型 | 使用 `INVALID_ARGS`、`NOT_FOUND`、`UNAUTHORIZED`、`UPSTREAM_FAILURE`、`TIMEOUT`、`INTERNAL` 等通用 MCP 错误码 |
 
 ### 4.5 活跃契约集同步机制
 
-**禁止轮询**。使用事件推送：
+当前实现使用本地状态文件 + 1s 轮询：
 
 ```
 用户切换契约集
   ↓
 渲染进程调用 IPC: 'mcp:setActiveContract'
   ↓
-主进程更新 active-contract.json (原子写)
+后端更新 active_contract 表；桌面端主进程同步 active-contract.json (原子写)
   ↓
-主进程通过 IPC/WebSocket 通知 Connect
+local-mcp-service 轮询到 `active-contract.json` 变化
   ↓
-Connect 更新内存中的活跃契约集
+local-mcp-service 更新内存中的活跃契约集
   ↓
 下次 MCP 工具调用立即生效
 ```
@@ -213,9 +211,9 @@ Connect 更新内存中的活跃契约集
 **契约集切换器**：
 - 顶栏 chip 点击 → 下拉
 - 选中 → 渲染进程调 `PUT /api/mcp/active-contract`
-- 后端写 `active-contract.json`
-- 后端通过 IPC 推送给 Connect
-- Connect 更新内存
+- 后端写 `active_contract` 表
+- 桌面端主进程同步写 `active-contract.json`
+- local-mcp-service 通过 1s 轮询刷新内存
 
 ---
 
@@ -264,12 +262,12 @@ ContractContext.setActiveContract(id)
     ↓
 PUT /api/mcp/active-contract
     ↓
-[后端] 写 active-contract.json
-[后端] IPC 推送给 Connect（运行中的）
+[后端] 写 active_contract 表
+[桌面端主进程] 同步 active-contract.json
     ↓
-[Connect] 更新内存中的 activeContractId
+[local-mcp-service] 1s 轮询刷新 active-contract.json
     ↓
-下次 MCP 工具调用立即使用新契约集
+下次 MCP 工具调用立即使用新契约集（最坏 1s 延迟）
 ```
 
 ---
@@ -322,13 +320,13 @@ interface ApiError {
 |---|---|---|---|---|
 | R1 | `/projects` → `/contracts` 改动影响书签 | 低 | 中 | 301 重定向 |
 | R2 | MCP 协议升级 | 高 | 中 | 锁定版本，跟随 Cursor 升级 |
-| R3 | Node.js 版本差异导致 Connect 启动失败 | 中 | 高 | Connect 内嵌 Node 运行时（打包） |
+| R3 | Node.js 版本差异导致 MCP 子进程启动失败 | 中 | 高 | Electron 内置 Node 运行时（打包） |
 | R4 | Token 刷新竞态 | 中 | 低 | Auth Manager 单飞 refresh |
 | R5 | AI 误解活跃契约集含义 | 中 | 中 | 文档明确 + prompt 模板 |
 | R6 | validate_code_against_contract 准确率低 | 高 | 中 | MVP 用正则，覆盖 70% 场景，逐步迭代 |
 | R7 | Auth Gateway 端口冲突 | 低 | 低 | 启动时探测可用端口 |
 | R8 | 成员管理误操作（误删创建者） | 高 | 低 | 创建者不可被移除或降级（后端硬约束 + 前端 UI 隐藏） |
-| R9 | 用户切换契约集后 Connect 还没同步 | 中 | 低 | 事件推送机制 < 50ms，无需轮询 |
+| R9 | 用户切换契约集后 MCP 还没同步 | 中 | 低 | 当前 1s 轮询；后续可演进为事件推送 |
 
 ---
 

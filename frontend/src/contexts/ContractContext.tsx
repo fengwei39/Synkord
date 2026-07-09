@@ -107,11 +107,17 @@ export function ContractProvider({ children }: { children: React.ReactNode }) {
 
   const setActiveContract = useCallback(async (contractId: string) => {
     const active = await setActiveContractApi(contractId)
+    if (active?.contract_id && window.synkord?.mcpSetActiveContract) {
+      await window.synkord.mcpSetActiveContract(active)
+    }
     setActiveContractState(active)
   }, [])
 
   const clearActiveContract = useCallback(async () => {
     await setActiveContractApi('') // 后端会处理空值
+    if (window.synkord?.mcpClearActiveContract) {
+      await window.synkord.mcpClearActiveContract()
+    }
     setActiveContractState(null)
   }, [])
 

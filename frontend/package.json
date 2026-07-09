@@ -2,7 +2,7 @@
   "name": "synkord-frontend",
   "productName": "Synkord",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.1.0-alpha.1",
   "description": "Synkord — MCP 时代的 API 知识层",
   "author": {
     "name": "Synkord Team",
@@ -97,7 +97,7 @@
       "target": "nsis",
       "extraResources": [
         {
-          "from": "electron/bin/synkord-windows-amd64.exe",
+          "from": "electron/bin/synkord.exe",
           "to": "synkord.exe"
         }
       ]
@@ -105,10 +105,7 @@
     "mac": {
       "target": [
         {
-          "target": "dmg",
-          "arch": [
-            "arm64"
-          ]
+          "target": "dmg"
         }
       ],
       "category": "public.app-category.developer-tools",
@@ -119,7 +116,7 @@
       "notarize": false,
       "extraResources": [
         {
-          "from": "electron/bin/synkord-darwin-arm64",
+          "from": "electron/bin/synkord",
           "to": "synkord"
         }
       ]

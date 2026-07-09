@@ -39,15 +39,20 @@ func createContractEntity(c *gin.Context) {
 	}
 	userID := c.GetString("user_id")
 	var req struct {
-		Name          string `json:"name" binding:"required"`
-		Description   string `json:"description"`
-		SchemaContent string `json:"schema_content" binding:"required"`
+		Name          string        `json:"name" binding:"required"`
+		Description   string        `json:"description"`
+		SchemaContent string        `json:"schema_content"`
+		Fields        []interface{} `json:"fields"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
 	}
-	entity, err := services.CreateContractEntity(database.DB, contractID, req.Name, req.Description, req.SchemaContent, userID)
+	schemaContent := req.SchemaContent
+	if schemaContent == "" && len(req.Fields) > 0 {
+		schemaContent = marshalAny(buildSchemaFromFields(req.Name, req.Fields))
+	}
+	entity, err := services.CreateContractEntity(database.DB, contractID, req.Name, req.Description, schemaContent, userID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
@@ -79,16 +84,26 @@ func updateContractEntity(c *gin.Context) {
 	entityID := c.Param("entityId")
 	userID := c.GetString("user_id")
 	var req struct {
-		Name          *string `json:"name"`
-		Description   *string `json:"description"`
-		SchemaContent *string `json:"schema_content"`
-		ChangeSummary *string `json:"change_summary"`
+		Name          *string       `json:"name"`
+		Description   *string       `json:"description"`
+		SchemaContent *string       `json:"schema_content"`
+		Fields        []interface{} `json:"fields"`
+		ChangeSummary *string       `json:"change_summary"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
 	}
-	entity, err := services.UpdateContractEntity(database.DB, contractID, entityID, userID, req.Name, req.Description, req.SchemaContent, req.ChangeSummary)
+	schemaContent := req.SchemaContent
+	if schemaContent == nil && len(req.Fields) > 0 {
+		name := ""
+		if req.Name != nil {
+			name = *req.Name
+		}
+		schema := marshalAny(buildSchemaFromFields(name, req.Fields))
+		schemaContent = &schema
+	}
+	entity, err := services.UpdateContractEntity(database.DB, contractID, entityID, userID, req.Name, req.Description, schemaContent, req.ChangeSummary)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
@@ -252,9 +267,32 @@ func extractRefsFromSchema(schemaContent string) []string {
 	return result
 }
 
+// ApiSummary 跨契约集搜索 API 时返回的精简视图（对齐 docs/requirements.md §4.11）
+// 仅暴露 ai_id/path/method/summary 四个字段，避免 schema_content 等大字段污染 MCP 响应
+type ApiSummary struct {
+	APIID   string `json:"api_id"`
+	Path    string `json:"path"`
+	Method  string `json:"method"`
+	Summary string `json:"summary"`
+}
+
+// EntitySummary 跨契约集搜索 实体时返回的精简视图（对齐 docs/requirements.md §4.11）
+type EntitySummary struct {
+	EntityID    string `json:"entity_id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
 // searchAPIsAcrossContracts 跨契约集搜索 API
+// 修复冲突 #2：返回 ApiSummary（仅 4 字段），禁止透传完整 APIEndpoint + schema_content
 func searchAPIsAcrossContracts(c *gin.Context) {
 	keyword := c.Query("keyword")
+	filterContractID := c.Query("contract_id")
+	method := c.Query("method")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "30"))
+	if limit <= 0 || limit > 100 {
+		limit = 30
+	}
 	userID := c.GetString("user_id")
 	if keyword == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": "keyword is required"})
@@ -266,25 +304,45 @@ func searchAPIsAcrossContracts(c *gin.Context) {
 		return
 	}
 	type item struct {
-		ContractID   string `json:"contract_id"`
-		ContractName string `json:"contract_name"`
-		API          any    `json:"api"`
+		ContractID   string     `json:"contract_id"`
+		ContractName string     `json:"contract_name"`
+		API          ApiSummary `json:"api"`
 	}
 	results := []item{}
 	for _, ct := range contracts {
-		apis, _, _ := services.ListContractAPIs(database.DB, ct.ID, keyword, "", "", true, 0, 30)
+		if filterContractID != "" && ct.ID != filterContractID {
+			continue
+		}
+		apis, _, _ := services.ListContractAPIs(database.DB, ct.ID, keyword, method, "", true, 0, limit)
 		for _, a := range apis {
 			results = append(results, item{
-				ContractID: ct.ID, ContractName: ct.Name, API: a,
+				ContractID:   ct.ID,
+				ContractName: ct.Name,
+				API: ApiSummary{
+					APIID:   a.ID,
+					Path:    a.Path,
+					Method:  a.Method,
+					Summary: a.Summary,
+				},
 			})
+			if len(results) >= limit {
+				c.JSON(http.StatusOK, results)
+				return
+			}
 		}
 	}
 	c.JSON(http.StatusOK, results)
 }
 
 // searchEntitiesAcrossContracts 跨契约集搜索实体
+// 修复冲突 #6：返回 EntitySummary（仅 3 字段），禁止透传完整 DataModel + schema_content
 func searchEntitiesAcrossContracts(c *gin.Context) {
 	keyword := c.Query("keyword")
+	filterContractID := c.Query("contract_id")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "30"))
+	if limit <= 0 || limit > 100 {
+		limit = 30
+	}
 	userID := c.GetString("user_id")
 	if keyword == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": "keyword is required"})
@@ -296,17 +354,30 @@ func searchEntitiesAcrossContracts(c *gin.Context) {
 		return
 	}
 	type item struct {
-		ContractID   string `json:"contract_id"`
-		ContractName string `json:"contract_name"`
-		Entity       any    `json:"entity"`
+		ContractID   string       `json:"contract_id"`
+		ContractName string       `json:"contract_name"`
+		Entity       EntitySummary `json:"entity"`
 	}
 	results := []item{}
 	for _, ct := range contracts {
-		entities, _, _ := services.ListContractEntities(database.DB, ct.ID, keyword, 0, 30)
+		if filterContractID != "" && ct.ID != filterContractID {
+			continue
+		}
+		entities, _, _ := services.ListContractEntities(database.DB, ct.ID, keyword, 0, limit)
 		for _, e := range entities {
 			results = append(results, item{
-				ContractID: ct.ID, ContractName: ct.Name, Entity: e,
+				ContractID:   ct.ID,
+				ContractName: ct.Name,
+				Entity: EntitySummary{
+					EntityID:    e.ID,
+					Name:        e.Name,
+					Description: e.Description,
+				},
 			})
+			if len(results) >= limit {
+				c.JSON(http.StatusOK, results)
+				return
+			}
 		}
 	}
 	c.JSON(http.StatusOK, results)

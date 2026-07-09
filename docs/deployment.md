@@ -21,7 +21,7 @@
 | 形态 | 目标 | 工作量级 | 现状 |
 |---|---|---|---|
 | **A. 桌面端** | 单用户 / 小团队 | O(天) | ✅ 已就绪（electron-builder 全平台） |
-| **B. 自托管服务端** | 5–50 人团队 | O(周) | ✅ 部署方案就绪（`deploy/selfhost/`） |
+| **B. 自托管服务端** | 5–50 人团队 | O(周) | ✅ 部署方案就绪（[`deploy/docker/`](../deploy/docker/)，推荐） |
 | **C. SaaS 多租户** | 50+ 客户 | O(月) | ⏳ 商业化阶段 |
 
 **关键架构特点**：
@@ -41,7 +41,7 @@ cd frontend
 pnpm install
 pnpm build              # 产出 dist/
 pnpm dist:win           # → release/Synkord-Setup-0.1.0-x64.exe
-pnpm dist:mac           # → release/Synkord-0.1.0-arm64.dmg
+pnpm dist:mac           # → release/Synkord-0.1.0-{arch}.dmg
 pnpm dist:linux         # → release/Synkord-0.1.0-x64.AppImage + .deb
 ```
 
@@ -74,19 +74,36 @@ pnpm dist:linux         # → release/Synkord-0.1.0-x64.AppImage + .deb
 
 ## 3. 自托管服务端（Go + SQLite）
 
-**详细步骤**：[`deploy/server/README.md`](../deploy/server/README.md)
+**详细步骤**：[`deploy/docker/README.md`](../deploy/docker/README.md)
 
-**发布包部署**：
+**Docker 快速部署**：
 
 ```bash
-sudo mkdir -p /opt/synkord
-sudo cp synkord-core-linux-amd64 /opt/synkord/synkord-core
-sudo chmod +x /opt/synkord/synkord-core
-sudo tar -xzf synkord-sqlite-deploy-X.Y.Z.tar.gz -C /opt/synkord
-sudo /opt/synkord/init-db.sh
+mkdir -p /opt/synkord && cd /opt/synkord
+# 拉本目录的 docker-compose.yml / .env.example / Caddyfile / backup.sh
+cp .env.example .env && vi .env       # 改 SYNKORD_JWT_SECRET
+docker compose up -d                   # 内部 / VPN / Tunnel 模式
+# 或公网 HTTPS：
+# docker compose --profile https up -d
 ```
 
 ### 架构
+
+**内部 / VPN / Tunnel 模式**：
+
+```
+              ┌────────────────────┐
+              │ synkord (container)│  :8000
+              │ Go + Gin + GORM    │  UID 65532 (非 root)
+              │ read-only fs       │  /app/data bind-mount
+              └─────────┬──────────┘
+                        │
+              ┌─────────▼──────────┐
+              │ ./data/synkord.db  │  SQLite（bind-mount，operator 可 scp）
+              └────────────────────┘
+```
+
+**HTTPS 模式**（加 `--profile https`）：
 
 ```
               ┌────────────┐
@@ -100,16 +117,16 @@ sudo /opt/synkord/init-db.sh
               └─────┬──────┘
                     │
               ┌─────▼──────┐
-              │ synkord.db │  SQLite（volume 持久化）
+              │ synkord.db │  SQLite（bind-mount 持久化）
               └────────────┘
 ```
 
-### 反代路由
+### 反代路由（HTTPS 模式）
 
 | 路径 | 后端 |
 |---|---|
-| `/api/*` | synkord-core:8000 |
-| `/mcp/*` | synkord-core:8000（远程 MCP 端点）|
+| `/api/*` | synkord:8000 |
+| `/health` | synkord:8000 |
 | `/*` | 前端 CDN / OSS / Cloudflare Pages |
 
 Caddyfile 已配：
@@ -125,7 +142,7 @@ Caddyfile 已配：
 | 团队规模 | 部署形态 | 改造点 |
 |---|---|---|
 | 1-10 人 | 桌面端单机 | 零 |
-| 5-50 人 | 自托管 + SQLite | 当前 [`deploy/selfhost/`](../deploy/selfhost/) |
+| 5-50 人 | 自托管 + SQLite | 当前 [`deploy/docker/`](../deploy/docker/) |
 | 50-200 人 | 自托管 + PostgreSQL | 换 DB driver，加连接池 |
 | 200+ 人 | K8s 多副本 + PG 主从 + Redis | 无状态化 + 多租户 |
 | 商业化 | SaaS 多租户 | 加 tenant_id / SSO / 对象存储 |
@@ -192,8 +209,8 @@ PR 触发，三端并行：
 |---|---|---|
 | `resolve` | （内部）| 从 tag 抽 `vX.Y.Z`，下游用 |
 | `backend` | Go 后端：`synkord-core-linux-amd64` | `-ldflags "-X main.version=$VERSION"` |
-| `sqlite-package` | SQLite 部署辅助包：`synkord-sqlite-deploy-X.Y.Z.tar.gz` | `VERSION` |
-| `desktop` | 客户端 2 个：macOS DMG、Windows NSIS | `frontend/package.json` `version` |
+| `docker` | Docker 镜像：`ghcr.io/synkord/synkord-core:vX.Y.Z` / `X.Y.Z` / `X.Y` / `latest` | `docker/metadata-action` |
+| `desktop` | 客户端 3 个：macOS Apple Silicon DMG、macOS Intel DMG、Windows NSIS | `frontend/package.json` `version` |
 
 汇总 job 收集所有 artifact → 生成 SHA256SUMS → 创建 GitHub Release。
 
@@ -252,8 +269,8 @@ BIN="synkord"
 synkord login --server https://synkord.yourcompany.com
 # 提示输入用户名/密码，token 存到 ~/.synkord/token
 
-synkord push-spec --spec ./openapi.json
-synkord validate-deps --used-entities User,Order --used-apis /api/users/{id},/api/orders
+synkord push-spec --contract <contract_id> --spec ./openapi.json
+synkord validate-deps --contract <contract_id> --used-entities User,Order --used-apis "GET /api/users/{id},GET /api/orders"
 ```
 
 详见 [synkord-cli/main.go 帮助](../synkord-cli/main.go)。
@@ -293,10 +310,9 @@ curl -s https://synkord.yourcompany.com/health
 # }
 ```
 
-systemd 服务由 `deploy/server/init-db.sh` 安装：
-- `Restart=on-failure`
-- 失败 5 秒后自动重启
-- 日志通过 `journalctl -u synkord -f` 查看
+Docker Compose 容器由 `restart: unless-stopped` 自动管理：
+- 失败自动重启
+- 日志通过 `docker compose logs -f synkord` 查看
 
 ### 8.2 推荐接入的监控
 
@@ -309,7 +325,7 @@ systemd 服务由 `deploy/server/init-db.sh` 安装：
 
 ### 8.3 备份策略
 
-**当前实现**（`deploy/selfhost/docker-compose.yml` 中 `backup` service，注释状态）：
+**当前实现**（[`deploy/docker/backup.sh`](../deploy/docker/backup.sh) 一键备份）：
 
 ```yaml
 # 每天 03:00 把 SQLite 备份到 /backup 卷
@@ -325,8 +341,8 @@ systemd 服务由 `deploy/server/init-db.sh` 安装：
 
 ```bash
 # 推荐的 offsite 备份脚本
-docker compose exec synkord-core sqlite3 /app/data/synkord.db ".backup /app/data/backup.db"
-docker compose cp synkord-core:/app/data/backup.db - | \
+docker compose exec synkord sqlite3 /app/data/synkord.db ".backup /app/data/backup.db"
+docker compose cp synkord:/app/data/backup.db - | \
   aws s3 cp - s3://your-bucket/synkord/$(date +%F).db
 ```
 
@@ -364,7 +380,8 @@ docker compose cp synkord-core:/app/data/backup.db - | \
                          └────────┬─────────┘
                                   │
                          ┌────────▼─────────┐
-                         │   SQLite (WAL)   │
+                         │   SQLite         │
+                         │ journal=DELETE   │
                          │   synkord.db     │
                          └──────────────────┘
 ```
@@ -401,13 +418,13 @@ docker compose cp synkord-core:/app/data/backup.db - | \
 docker compose ps
 
 # 进入后端容器调试
-docker compose exec synkord-core sh
+docker compose exec synkord sh
 
 # 看后端日志（实时）
-docker compose logs -f synkord-core
+docker compose logs -f synkord
 
 # 重启单个服务
-docker compose restart synkord-core
+docker compose restart synkord
 
 # 停全部
 docker compose down
@@ -419,8 +436,8 @@ docker compose down -v
 docker compose pull && docker compose up -d
 
 # 备份
-docker compose exec synkord-core sqlite3 /app/data/synkord.db ".backup /app/data/backup.db"
-docker compose cp synkord-core:/app/data/backup.db ./backup-$(date +%F).db
+docker compose exec synkord sqlite3 /app/data/synkord.db ".backup /app/data/backup.db"
+docker compose cp synkord:/app/data/backup.db ./backup-$(date +%F).db
 
 # 健康检查
 curl -s https://$SYNKORD_DOMAIN/health | jq
@@ -432,10 +449,10 @@ curl -s https://$SYNKORD_DOMAIN/health | jq
 
 | 症状 | 检查 |
 |---|---|
-| 启动后 502 | `docker compose logs synkord-core` 看 `JWT_SECRET` / `MCP_TOKEN` 是否设置 |
+| 启动后 502 | `docker compose logs synkord` 看 `SYNKORD_JWT_SECRET` 是否设置 |
 | 前端 404 | 域名 DNS 解析 + Caddyfile 的 `{$SYNKORD_DOMAIN}` 是否对 |
 | 桌面端更新失败 | `electron-log` 日志在 `%APPDATA%/Synkord/logs/main.log` |
 | MCP 工具调用失败 | `/api/mcp/access-log` 看请求；`mcp_audit_logs` 表查历史 |
-| 数据库被锁 | SQLite WAL 模式下并发写偶尔锁，重启容器即可 |
+| 数据库被锁 | 当前 SQLite 使用 `journal_mode=DELETE`；优先检查是否有长事务、备份/复制进程或宿主机文件锁，必要时重启容器 |
 
 更多问题参考 [docs/troubleshooting.md](troubleshooting.md)。

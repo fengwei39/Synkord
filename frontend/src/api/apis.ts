@@ -25,7 +25,7 @@ export interface ApiDefinition {
   id: string
   contract_id: string
   path: string
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS'
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS' | 'TRACE'
   summary: string
   description?: string
   tags: string[]
@@ -33,7 +33,6 @@ export interface ApiDefinition {
   parameters?: ApiParameter[]
   request_body?: ApiRequestBody
   responses: Record<string, ApiResponse>
-  examples?: Record<string, unknown>
   created_at: string
   updated_at: string
 }

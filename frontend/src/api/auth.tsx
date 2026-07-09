@@ -91,10 +91,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       error.message = `${error?.message || '登录失败'}（请求地址：${loginBaseURL}/auth/login）`
       throw error
     }
-    const { access_token, ...userData } = data
-    localStorage.setItem('synkord_token', access_token)
+    const accessToken = data.access_token || data.token
+    const userData = data.user || {
+      id: data.id,
+      username: data.username,
+      role: data.role,
+      email: data.email,
+    }
+    localStorage.setItem('synkord_token', accessToken)
     localStorage.setItem('synkord_user', JSON.stringify(userData))
-    setToken(access_token)
+    setToken(accessToken)
     setUser(userData)
   }, [])
 

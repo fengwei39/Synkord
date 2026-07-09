@@ -1,6 +1,6 @@
 # Synkord Release
 #
-# 完整发布闭环：tag (v*.*.*) 触发 → 抽版本号 → 客户端/后端/SQLite 部署包构建 → GitHub Release
+# 完整发布闭环：tag (v*.*.*) 触发 → 抽版本号 → 客户端/后端构建 → GitHub Release
 #
 # 维护者发布流程：
 #   1. 合并 dev → main
@@ -9,22 +9,18 @@
 #   4. git tag v0.2.0
 #   5. git push origin main --tags        # → 触发本 workflow
 #   6. 自动产出：
-#      - 客户端 2 个：macOS DMG、Windows NSIS
+#      - 客户端 3 个：macOS Apple Silicon DMG、macOS Intel DMG、Windows NSIS
 #      - 后端 Go 1 个：synkord-core-linux-amd64
-#      - SQLite 部署包 1 个：init-db.sh / backup.sh / Caddyfile / README
-#      - GitHub Release (含 SHA256SUMS)
+#      - GitHub Release (含 checksums.txt)
+#
+# Docker 镜像由独立的 .github/workflows/docker-publish.yml 负责（同样 v*.*.* 触发），
+# 避免与本 workflow 的 docker job 重复推送。本 workflow 的 docker job 永久 `if: false` 跳过。
 name: Release
 
 on:
   push:
     tags:
       - 'v*.*.*'
-  workflow_dispatch:
-    inputs:
-      version:
-        description: '手动发布版本（如 v0.2.0），留空从当前 VERSION 文件读取'
-        required: false
-        default: ''
 
 permissions:
   contents: write   # 创建 release
@@ -76,51 +72,38 @@ jobs:
           if-no-files-found: error
 
   # --------------------------------------------------------------------------
-  # SQLite 部署包（内部团队部署用）
-  # 包含：init-db.sh + backup.sh + Caddyfile + README
-  # --------------------------------------------------------------------------
-  sqlite-package:
-    name: SQLite Deploy Package
-    runs-on: ubuntu-latest
-    needs: [resolve]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Stage SQLite deploy files
-        run: |
-          mkdir -p dist-sqlite
-          cp deploy/server/init-db.sh dist-sqlite/
-          cp deploy/server/backup.sh dist-sqlite/
-          cp deploy/server/Caddyfile dist-sqlite/
-          cp deploy/server/README.md dist-sqlite/
-          chmod +x dist-sqlite/init-db.sh dist-sqlite/backup.sh
-          ls -la dist-sqlite/
-
-      - name: Create tarball
-        run: |
-          cd dist-sqlite
-          tar -czf "../synkord-sqlite-deploy-${{ needs.resolve.outputs.version_stripped }}.tar.gz" .
-          ls -la "../synkord-sqlite-deploy-${{ needs.resolve.outputs.version_stripped }}.tar.gz"
-
-      - name: Upload SQLite package
-        uses: actions/upload-artifact@v4
-        with:
-          name: synkord-sqlite-deploy
-          path: synkord-sqlite-deploy-*.tar.gz
-          if-no-files-found: error
-
-  # --------------------------------------------------------------------------
   # 桌面端：electron-builder 安装包（读 frontend/package.json 的 version）
   # 内置 CLI：通过 extraResources 嵌入到安装包，用户可在终端用 `synkord` 命令
   # --------------------------------------------------------------------------
   desktop:
-    name: Desktop (${{ matrix.os }})
+    name: Desktop (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     needs: [resolve]
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        include:
+          - name: macOS Apple Silicon
+            os: macos-latest
+            platform: mac
+            arch: arm64
+            goos: darwin
+            goarch: arm64
+            artifact: client-macos-arm64
+          - name: macOS Intel
+            os: macos-13
+            platform: mac
+            arch: x64
+            goos: darwin
+            goarch: amd64
+            artifact: client-macos-x64
+          - name: Windows
+            os: windows-latest
+            platform: win
+            arch: x64
+            goos: windows
+            goarch: amd64
+            artifact: client-windows-x64
     defaults:
       run:
         working-directory: frontend
@@ -149,20 +132,20 @@ jobs:
           cache-dependency-path: synkord-cli/go.mod
 
       # 桌面端内置 CLI：先编译 CLI 到 electron/bin/，再让 electron-builder 把它打进 extraResources
-      - name: Build CLI (${{ matrix.os }})
+      - name: Build CLI (${{ matrix.name }})
         working-directory: synkord-cli
         shell: bash    # Windows runner 默认 pwsh，bash 语法（[[ ]]、&&、${}）会报 ParserError
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
-          GOOS: ${{ matrix.os == 'windows-latest' && 'windows' || 'darwin' }}
-          GOARCH: ${{ matrix.os == 'windows-latest' && 'amd64' || 'arm64' }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
         run: |
           mkdir -p ../frontend/electron/bin
           EXT=""
           if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
           CGO_ENABLED=0 go build -trimpath \
             -ldflags="-s -w -X main.version=${VERSION}" \
-            -o ../frontend/electron/bin/synkord-${GOOS}-${GOARCH}${EXT} .
+            -o ../frontend/electron/bin/synkord${EXT} .
           ls -la ../frontend/electron/bin/
 
       - name: Build Desktop
@@ -172,30 +155,81 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: |
-          case "${{ matrix.os }}" in
-            macos-latest)   pnpm dist:mac ;;
-            windows-latest) pnpm dist:win ;;
+          pnpm run build
+          case "${{ matrix.platform }}" in
+            mac) pnpm exec electron-builder --mac --${{ matrix.arch }} ;;
+            win) pnpm exec electron-builder --win --${{ matrix.arch }} ;;
           esac
 
       - name: Upload (macOS)
-        if: matrix.os == 'macos-latest'
+        if: matrix.platform == 'mac'
         uses: actions/upload-artifact@v4
         with:
-          name: client-macos
+          name: ${{ matrix.artifact }}
           path: |
             frontend/release/*.dmg
             frontend/release/*.zip
           if-no-files-found: error
 
       - name: Upload (Windows)
-        if: matrix.os == 'windows-latest'
+        if: matrix.platform == 'win'
         uses: actions/upload-artifact@v4
         with:
-          name: client-windows
+          name: ${{ matrix.artifact }}
           path: |
-            frontend/release/*.exe
+            frontend/release/Synkord-Setup-*.exe
             frontend/release/*.zip
           if-no-files-found: error
+
+  # --------------------------------------------------------------------------
+  # Docker 镜像：tag 触发时构建并推送到 ghcr.io
+  # 由 deploy/docker/docker-compose.yml 引用：ghcr.io/synkord/synkord-core:X.Y.Z
+  #
+  # [2026-07 修复] 镜像推送已迁移到独立的 .github/workflows/docker-publish.yml，
+  # 本 job 永久 `if: false` 跳过，避免 v*.*.* tag push 时双 workflow 重复推送。
+  # --------------------------------------------------------------------------
+  docker:
+    name: Docker Image (DISABLED — 镜像由 docker-publish.yml 负责)
+    if: false
+    runs-on: ubuntu-latest
+    needs: [resolve, backend]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/synkord-core
+          tags: |
+            type=raw,value=${{ needs.resolve.outputs.version }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(needs.resolve.outputs.version, '-') }}
+
+      - name: Build & push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
 
   # --------------------------------------------------------------------------
   # 解析版本号（最先跑，给所有下游 job 用）
@@ -210,13 +244,8 @@ jobs:
       - uses: actions/checkout@v4
       - id: parse
         run: |
-          # 三种触发场景：
-          #   1. tag push（vX.Y.Z）→ 从 GITHUB_REF_NAME 拿
-          #   2. workflow_dispatch + 输入 version → 用输入
-          #   3. workflow_dispatch 无输入 → 从 VERSION 文件读
-          if [ -n "${{ inputs.version }}" ]; then
-            V="${{ inputs.version }}"
-          elif [[ "${{ github.ref_type }}" == "tag" ]]; then
+          # tag push 触发：从 GITHUB_REF_NAME 拿版本号（必为 v*.*.* 形式）
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
             V="${GITHUB_REF_NAME}"
           else
             V="$(cat VERSION 2>/dev/null || echo 'dev')"
@@ -233,7 +262,7 @@ jobs:
   release:
     name: GitHub Release
     runs-on: ubuntu-latest
-    needs: [backend, desktop, sqlite-package, resolve]
+    needs: [backend, desktop, resolve]
     permissions:
       contents: write
     steps:
@@ -263,16 +292,25 @@ jobs:
 
             ### 客户端（成员安装）
             - **macOS** (Apple Silicon): `Synkord-${{ needs.resolve.outputs.version_stripped }}-arm64.dmg`
+            - **macOS** (Intel): `Synkord-${{ needs.resolve.outputs.version_stripped }}-x64.dmg`
             - **Windows**: `Synkord-Setup-${{ needs.resolve.outputs.version_stripped }}-x64.exe`
 
             客户端首次打开时，在登录页填写管理员给出的服务器域名；登录后也可在 **设置 → 后端连接** 修改。
 
             ### 服务端（管理员部署）
-            只需要部署一台后端服务：
-            - Go 后端二进制：`synkord-core-linux-amd64`
-            - SQLite 部署辅助包：`synkord-sqlite-deploy-${{ needs.resolve.outputs.version_stripped }}.tar.gz`
+            部署一台后端，团队成员共享。**推荐 Docker 部署**，详见 [deploy/docker/README.md](deploy/docker/README.md)：
 
-            部署说明见 SQLite 部署包内 `README.md`，核心流程：把二进制放到 `/opt/synkord/synkord-core`，解压部署包，执行 `sudo /opt/synkord/init-db.sh`，再配置 Caddy 域名。健康检查地址为 `/health`。
+            ```bash
+            mkdir -p /opt/synkord && cd /opt/synkord
+            curl -fsSL https://codeload.github.com/synkord/synkord/tar.gz/refs/heads/main | \
+              tar -xz --strip-components=2 synkord-main/deploy/docker
+            cp .env.example .env
+            sed -i "s/__REPLACE_WITH_64_HEX_CHARS__/$(openssl rand -hex 32)/" .env
+            docker compose up -d
+            curl http://localhost:8000/health
+            ```
+
+            Docker 镜像：`ghcr.io/synkord/synkord-core:${{ needs.resolve.outputs.version_stripped }}`
 
             验证：
             ```sh

@@ -168,11 +168,18 @@ func CreateContract(db *gorm.DB, userID, name, description string) (*models.Cont
 	return c, nil
 }
 
-// UpdateContract 更新契约集（仅 owner）
+// UpdateContract 更新契约集。
+// name/description 允许 owner/editor；archived 仅 owner。
 func UpdateContract(db *gorm.DB, contractID, userID string, name, description *string, archived *bool) (*models.ContractSet, error) {
 	role, err := getMemberRole(db, contractID, userID)
-	if err != nil || role != models.ContractRoleOwner {
-		return nil, errors.New("only owner can update contract")
+	if err != nil {
+		return nil, errors.New("editor or owner required")
+	}
+	if role != models.ContractRoleOwner && role != models.ContractRoleEditor {
+		return nil, errors.New("editor or owner required")
+	}
+	if archived != nil && role != models.ContractRoleOwner {
+		return nil, errors.New("only owner can archive contract")
 	}
 
 	c, err := GetContractByID(db, contractID)
@@ -450,6 +457,7 @@ func AddContractMember(db *gorm.DB, contractID, actingUserID, targetUserID strin
 	}
 	// 关联 username 用于返回
 	m.User = &u
+	m.Username = u.Username
 	return m, nil
 }
 

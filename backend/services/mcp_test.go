@@ -115,7 +115,7 @@ func TestMCPAuditLogLifecycle(t *testing.T) {
 		t.Fatal("audit ID empty")
 	}
 
-	items, total, err := ListMCPAuditLogs(db, 0, 10)
+	items, total, err := ListMCPAuditLogs(db, 0, 10, "", "", "", "")
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}

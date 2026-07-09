@@ -24,7 +24,7 @@
 ## 标准工作流
 
 1. 读取 synkord://active-contract 资源，确认当前契约集
-2. 读取 synkord://active-contract/summary 了解 API/Entity 数量
+2. 调用 get_contract_apis / get_contract_entities 了解 API/Entity 概览
 3. 按需 get_api_detail / get_entity_detail 拿具体定义
 4. 写代码
 5. validate_code_against_contract 自检
@@ -108,15 +108,16 @@ Synkord MCP exposes:
 
 # Resources
 - synkord://active-contract
-- synkord://active-contract/summary
-- synkord://active-contract/apis/{api_id}
-- synkord://active-contract/entities/{entity_id}
+- synkord://status
+- synkord://tools-manifest
+- synkord://api/{method}/{path}
+- synkord://entity/{name}
 
 # Workflow
 
 ## 1. Discovery
 Read synkord://active-contract to know the current contract set.
-Read synkord://active-contract/summary for a quick overview.
+Call get_contract_apis and get_contract_entities for a quick overview.
 
 ## 2. Detail Lookup
 Before writing any HTTP call:
@@ -209,10 +210,10 @@ Fix all error-level issues. Warnings are optional but recommended.
 Synkord MCP 报错了：错误码 XXX，message XXX。
 帮我分析可能的原因。
 可能的错误码：
-- NO_ACTIVE_CONTRACT: 没设置活跃契约集
+- NOT_FOUND: 没设置活跃契约集，或资源不存在 / 不可访问
 - CONTRACT_NOT_FOUND: contract_id 错误
 - AUTH_EXPIRED: Synkord 登录过期
-- CONTRACT_VIOLATION: 代码不符合契约
+- validate_code_against_contract 返回 valid=false: 代码不符合契约，请按 issues 修复
 ```
 
 ---

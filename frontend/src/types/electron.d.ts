@@ -20,6 +20,8 @@ declare global {
       mcpRestart: () => Promise<MCPStatus>
       /** v1.2：返回当前活跃契约集（替代旧 activeProject） */
       mcpGetActiveContract: () => Promise<ActiveContract | null>
+      mcpSetActiveContract: (contract: ActiveContract) => Promise<ActiveContract | null>
+      mcpClearActiveContract: () => Promise<{ ok: boolean }>
       mcpGetIDEConfig: () => Promise<IdeConfig>
       mcpGetAccessLog: (limit?: number) => Promise<{
         items: AccessLogEntry[]

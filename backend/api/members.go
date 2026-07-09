@@ -29,16 +29,30 @@ func listMembers(c *gin.Context) {
 
 func addMember(c *gin.Context) {
 	var req struct {
-		UserID string                  `json:"user_id" binding:"required"`
-		Role   models.ContractSetRole  `json:"role" binding:"required"`
+		UserID   string                 `json:"user_id"`
+		Username string                 `json:"username"`
+		Role     models.ContractSetRole `json:"role" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
 	}
+	targetUserID := req.UserID
+	if targetUserID == "" && req.Username != "" {
+		var user models.User
+		if err := database.DB.Where("username = ?", req.Username).First(&user).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"detail": "target user not found"})
+			return
+		}
+		targetUserID = user.ID
+	}
+	if targetUserID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "user_id or username is required"})
+		return
+	}
 	contractID := c.Param("id")
 	actingUserID := c.GetString("user_id")
-	member, err := services.AddContractMember(database.DB, contractID, actingUserID, req.UserID, req.Role)
+	member, err := services.AddContractMember(database.DB, contractID, actingUserID, targetUserID, req.Role)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return

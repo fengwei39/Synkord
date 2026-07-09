@@ -36,6 +36,7 @@ async function handler(args, context) {
     args: { api_id: apiId, contract_id: contractID },
   });
   const data = resp?.result || resp || {};
+  const api = normalizeApi(data);
 
   return {
     content: [
@@ -47,13 +48,38 @@ async function handler(args, context) {
               contract_id: contractID || context.context.contract_id,
               contract_name: context.context.contract_name,
             },
-            api: data,
+            api,
           },
           null,
           2,
         ),
       },
     ],
+  };
+}
+
+function parseJSON(raw, fallback) {
+  if (raw === undefined || raw === null || raw === '') return fallback;
+  if (typeof raw !== 'string') return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeApi(api) {
+  return {
+    api_id: api.id,
+    path: api.path,
+    method: api.method,
+    summary: api.summary,
+    description: api.description,
+    tags: parseJSON(api.tags, []),
+    deprecated: api.deprecated === true,
+    parameters: parseJSON(api.parameters_json ?? api.parameters, []),
+    request_body: parseJSON(api.request_body_json ?? api.request_body, null),
+    responses: parseJSON(api.responses_json ?? api.responses, {}),
   };
 }
 

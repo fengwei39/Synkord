@@ -2,7 +2,7 @@
 // 详见 docs/ui-spec.md §一、docs/architecture.md §二
 
 import { useEffect } from 'react'
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Spin } from 'antd'
 import AppLayout from './components/AppLayout'
 import McpConsole from './pages/McpConsole'
@@ -31,6 +31,12 @@ function ContractNewRedirect() {
     navigate('/contracts', { replace: true })
   }, [openCreateModal, navigate])
   return null
+}
+
+function ProjectsRedirect() {
+  const location = useLocation()
+  const suffix = location.pathname.replace(/^\/projects/, '') || ''
+  return <Navigate to={`/contracts${suffix}${location.search}`} replace />
 }
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -76,6 +82,12 @@ export default function App() {
           <Route path="contracts/:id/models/:modelId" element={<ContractEntityDetail />} />
           <Route path="contracts/:id/members" element={<ContractMembers />} />
           <Route path="contracts/:id/import" element={<ContractImport />} />
+
+          {/* v1.2 旧路由兼容 */}
+          <Route path="projects/*" element={<ProjectsRedirect />} />
+          <Route path="teams/*" element={<Navigate to="/mcp" replace />} />
+          <Route path="members" element={<Navigate to="/mcp" replace />} />
+          <Route path="contracts/:id/mcp" element={<Navigate to="/mcp" replace />} />
 
           {/* 设置 */}
           <Route path="settings" element={<Settings />} />

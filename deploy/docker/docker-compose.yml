@@ -1,0 +1,97 @@
+# Synkord Docker 部署（推荐）
+#
+# 两种使用模式：
+#   内部 / VPN / Tailscale / Cloudflare Tunnel 后面：
+#     docker compose up -d
+#
+#   公网 + HTTPS（自动签 Let's Encrypt 证书）：
+#     1. 在 .env 里填 SYNKORD_DOMAIN 和 LETSENCRYPT_EMAIL
+#     2. docker compose --profile https up -d
+#
+# 升级：
+#   改 .env 里的 SYNKORD_IMAGE_TAG → docker compose pull && docker compose up -d
+#
+# 数据：
+#   ./data 目录 bind-mount 到容器 /app/data，.db 文件直接在这。
+#   想自带数据：scp synkord.db ./data/synkord.db 即可。
+#
+# 备份：
+#   ./backup.sh（用 sqlite3 .backup 拿一致性快照；当前默认 journal_mode=DELETE）
+
+services:
+  # --------------------------------------------------------------------------
+  # Synkord 后端（Go + Gin + SQLite）
+  # --------------------------------------------------------------------------
+  synkord:
+    image: ghcr.io/synkord/synkord-core:${SYNKORD_IMAGE_TAG:-0.3.0}
+    container_name: synkord
+    restart: unless-stopped
+    user: "65532:65532"   # 非 root；与 alpine 镜像里的 synkord 用户对齐
+    read_only: true       # 根文件系统只读；只能写 /tmp 和 /app/data
+    tmpfs:
+      - /tmp:size=64m
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # .env 里没填时给个安全默认；用户必须自己设 JWT_SECRET
+      - SYNKORD_PORT=8000
+      - SYNKORD_DB_PATH=/app/data/synkord.db
+      - SYNKORD_ENV=production   # 强制 JWT_SECRET 校验
+    volumes:
+      - ./data:/app/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.2'
+          memory: 128M
+
+  # --------------------------------------------------------------------------
+  # Caddy 反向代理（仅在 https profile 下启动）
+  # 自动申请 / 续期 Let's Encrypt 证书
+  # --------------------------------------------------------------------------
+  caddy:
+    image: caddy:2
+    container_name: synkord-caddy
+    restart: unless-stopped
+    profiles: ["https"]
+    depends_on:
+      synkord:
+        condition: service_healthy
+    ports:
+      - "80:80"      # HTTP → HTTPS 重定向 + ACME 验证
+      - "443:443"    # HTTPS
+    environment:
+      - TZ=${TZ:-UTC}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  caddy_data:
+  caddy_config:

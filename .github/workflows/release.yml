@@ -90,8 +90,12 @@ jobs:
             goos: darwin
             goarch: arm64
             artifact: client-macos-arm64
+          # [2026-07 修复] `macos-13` runner 已由 GitHub 弃用(参考 microsoft/LightGBM#7082),
+          # 队列时间动辄数小时甚至无机器可派。改用 `macos-latest`(Apple Silicon)
+          # 跑 `electron-builder --mac --x64` 仍能正常产出 Intel-compatible DMG(actool 走
+          # 交叉编译路径),保留双架构交付。
           - name: macOS Intel
-            os: macos-13
+            os: macos-latest
             platform: mac
             arch: x64
             goos: darwin

@@ -176,8 +176,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
+          # 用 *.exe 而非版本硬编码 glob: electron-builder NSIS 实际产物为
+          # `${productName} Setup ${version}.exe`(空格),旧的 `Synkord-Setup-*.exe`
+          # 因为连字符 vs 空格不匹配触发 `if-no-files-found: error`。对齐 macOS 的 `*.dmg` 风格。
           path: |
-            frontend/release/Synkord-Setup-*.exe
+            frontend/release/*.exe
             frontend/release/*.zip
           if-no-files-found: error
 

@@ -285,16 +285,17 @@ jobs:
           cat checksums.txt
 
       - name: Create Release
-        # [2026-07 修复 (round 8)] round 7 仍然失败,且失败点未明(无 job log 访问)。
-        # 大幅简化:
-        #   - 删除 heredoc body(规避 bash heredoc + 转义复杂性)
-        #   - 使用 gh 自带的 --generate-notes(标准做法)
-        #   - pre-release flag 通过 -F flag 直接判断
-        #   - per-file upload 保留(简单可靠)
+        # [2026-07 修复 (round 9)] Previous rounds failed because `gh release create --target <sha>`
+        # invokes `git rev-parse` internally to validate the SHA. The `release` job's runner
+        # working directory is NOT a git checkout (no `actions/checkout@v4` step in this job
+        # — we only need `dist/`), so `git rev-parse` errored:
+        #   "fatal: not a git repository (or any of the parent directories): .git"
+        # Fix: use `--target main` (branch name) instead of a SHA. gh validates branches
+        # remotely, no local git required. main has our commit (because we merged dev→main
+        # before tagging), so the release points at the same commit.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.resolve.outputs.version }}
-          COMMIT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           PREREL=""
@@ -302,10 +303,10 @@ jobs:
 
           # Idempotent: only create if release doesn't exist
           if ! gh release view "$VERSION" >/dev/null 2>&1; then
-            echo "Creating release $VERSION @ $COMMIT_SHA..."
+            echo "Creating release $VERSION ..."
             gh release create "$VERSION" \
               --title "$VERSION" \
-              --target "$COMMIT_SHA" \
+              --target main \
               $PREREL \
               --generate-notes
           else

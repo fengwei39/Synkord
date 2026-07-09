@@ -285,17 +285,17 @@ jobs:
           cat checksums.txt
 
       - name: Create Release
-        # [2026-07 修复 (round 6)] softprops action v2 与 v3 都会创建 release body 成功但上传 assets
-        # 失败 (assets 永远 0)。改用原生 gh CLI:
-        #   - gh release create: idempotent(已存在则只上传)
-        #   - gh release upload: 逐文件上传,一个失败不会拖累其他,失败文件清单明确
-        # 上传的 shell 步骤直接使用 GITHUB_TOKEN(无新 secret 需求),ubuntu-latest runner 自带 gh CLI。
+        # [2026-07 修复 (round 7)] round 6 的 `git rev-parse HEAD` 在 `cd dist` 之后执行
+        # 失败(dist/ 不在 git repo 内)。改用 Actions 内置 `${{ github.sha }}` 取 SHA,
+        # 而且放在 `cd dist` 之前。其余逻辑保留:gh release create (idempotent) + per-file upload。
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          COMMIT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          cd dist
-          VERSION="${{ needs.resolve.outputs.version }}"
 
-          # Build release body (same content as legacy softprops body)
+          # Build release body (heredoc BEFORE `cd dist`, uses $VERSION only)
           BODY=$(cat <<EOF
           ## Synkord $VERSION
 
@@ -337,17 +337,20 @@ jobs:
 
           # Idempotent create
           if ! gh release view "$VERSION" >/dev/null 2>&1; then
-            echo "Creating release $VERSION..."
+            echo "Creating release $VERSION @ $COMMIT_SHA..."
             PREREL_FLAG=""
             if [[ "$VERSION" == *-* ]]; then PREREL_FLAG="--prerelease"; fi
             gh release create "$VERSION" \
               --title "$VERSION" \
-              --target "$(git rev-parse HEAD)" \
+              --target "$COMMIT_SHA" \
               $PREREL_FLAG \
               --notes "$BODY"
           else
             echo "Release $VERSION already exists; uploading assets only..."
           fi
+
+          # Move into dist for asset upload
+          cd dist
 
           # Per-file uploads (no glob → no softprops-related breakage)
           UPLOADED=0; FAILED=0; FAILED_FILES=()
@@ -369,5 +372,3 @@ jobs:
             echo "failed files: ${FAILED_FILES[@]}"
             exit 1
           fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

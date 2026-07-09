@@ -39,13 +39,37 @@ export default function AppLayout() {
   return (
     <div className="synkord-shell">
       <header className="synkord-titlebar">
-        {/* Logo */}
+        {/* Logo + Synkord + 版本徽标 — 与登录页顶栏样式保持一致 */}
         <div
-          className="synkord-brand"
           onClick={handleLogoClick}
-          style={{ cursor: 'pointer' }}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            paddingLeft: 14,
+            fontSize: 13,
+            fontWeight: 500,
+            color: '#1f2d46',
+            cursor: 'pointer',
+            WebkitAppRegion: 'no-drag',
+          } as React.CSSProperties}
         >
-          <div className="synkord-logo-mark">S</div>
+          <span
+            style={{
+              width: 22,
+              height: 22,
+              borderRadius: 4,
+              background: 'linear-gradient(135deg, #8f6bff, #38bdf8)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#fff',
+              fontSize: 12,
+              fontWeight: 700,
+            }}
+          >
+            S
+          </span>
           <span>Synkord</span>
           <VersionBadge />
         </div>

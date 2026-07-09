@@ -165,6 +165,21 @@ jobs:
             win) pnpm exec electron-builder --win --${{ matrix.arch }} ;;
           esac
 
+      - name: Normalize macOS asset names
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for f in release/*.dmg release/*.zip; do
+            base="$(basename "$f")"
+            ext="${base##*.}"
+            stem="${base%.*}"
+            if [[ "$stem" != *"-${{ matrix.arch }}"* ]]; then
+              mv "$f" "release/${stem}-${{ matrix.arch }}.${ext}"
+            fi
+          done
+          ls -la release/
+
       - name: Upload (macOS)
         if: matrix.platform == 'mac'
         uses: actions/upload-artifact@v4

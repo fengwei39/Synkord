@@ -6,10 +6,13 @@ import {
   EditOutlined,
   LinkOutlined,
   LockOutlined,
+  MailOutlined,
   SaveOutlined,
+  UserAddOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../api/auth';
+import { extractUserErrorMessage } from '../api/client';
 import {
   API_BASE_RAW_STORAGE_KEY,
   API_BASE_STORAGE_KEY,
@@ -27,10 +30,12 @@ const { Title, Text, Link } = Typography;
 
 export default function Login() {
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, register } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { message } = AntApp.useApp();
+  const [registerOpen, setRegisterOpen] = useState(false);
+  const [registerLoading, setRegisterLoading] = useState(false);
 
   // 初始值：localStorage > 默认（/api，在桌面端进程内嵌时用）
   const initialBase = localStorage.getItem(API_BASE_STORAGE_KEY) || '/api';
@@ -95,9 +100,24 @@ export default function Login() {
         navigate('/mcp', { replace: true })
       }
     } catch (error: any) {
-      message.error(error?.response?.data?.detail || error?.message || '用户名或密码错误')
+      message.error(extractUserErrorMessage(error, '用户名或密码错误'))
     } finally {
       setLoading(false)
+    }
+  }
+
+  const onRegister = async (values: { username: string; password: string; email?: string }) => {
+    setRegisterLoading(true)
+    try {
+      const registerBase = assertValidApiBase(apiBase)
+      await register(values.username, values.password, values.email, registerBase)
+      message.success('注册成功，已自动登录')
+      setRegisterOpen(false)
+      navigate('/mcp', { replace: true })
+    } catch (error: any) {
+      message.error(extractUserErrorMessage(error, '注册失败'))
+    } finally {
+      setRegisterLoading(false)
     }
   }
 
@@ -226,6 +246,11 @@ export default function Login() {
                   登录
                 </Button>
               </Form.Item>
+              <div style={{ textAlign: 'center', marginTop: -8 }}>
+                <Button type="link" icon={<UserAddOutlined />} onClick={() => setRegisterOpen(true)}>
+                  还没有账号？注册
+                </Button>
+              </div>
             </Form>
           )}
 
@@ -286,6 +311,52 @@ export default function Login() {
             </Text>
           )}
         </Space>
+      </Modal>
+
+      <Modal
+        title={<Space><UserAddOutlined /><span>注册账号</span></Space>}
+        open={registerOpen}
+        onCancel={() => setRegisterOpen(false)}
+        footer={null}
+        destroyOnClose
+      >
+        <Text type="secondary" style={{ display: 'block', marginBottom: 16, fontSize: 12 }}>
+          团队内部自托管开放注册，注册成功后将自动登录。
+        </Text>
+        <Form onFinish={onRegister} size="large" layout="vertical">
+          <Form.Item
+            name="username"
+            label="用户名"
+            rules={[
+              { required: true, message: '请输入用户名' },
+              { min: 2, max: 64, message: '2-64 个字符' },
+            ]}
+          >
+            <Input prefix={<UserOutlined />} placeholder="用户名" autoComplete="username" />
+          </Form.Item>
+          <Form.Item
+            name="email"
+            label="邮箱（可选）"
+            rules={[{ type: 'email', message: '邮箱格式不正确' }]}
+          >
+            <Input prefix={<MailOutlined />} placeholder="email@example.com" autoComplete="email" />
+          </Form.Item>
+          <Form.Item
+            name="password"
+            label="密码"
+            rules={[
+              { required: true, message: '请输入密码' },
+              { min: 6, message: '至少 6 个字符' },
+            ]}
+          >
+            <Input.Password prefix={<LockOutlined />} placeholder="密码" autoComplete="new-password" />
+          </Form.Item>
+          <Form.Item style={{ marginBottom: 0 }}>
+            <Button type="primary" htmlType="submit" loading={registerLoading} block>
+              注册并登录
+            </Button>
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   );

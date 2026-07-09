@@ -23,7 +23,7 @@ func RegisterAuthRoutes(r *gin.RouterGroup, cfg *config.Config) {
 			}
 			user, err := services.AuthenticateUser(database.DB, req.Username, req.Password)
 			if err != nil {
-				c.JSON(401, gin.H{"detail": "Invalid credentials"})
+				c.JSON(401, gin.H{"detail": "用户名或密码错误"})
 				return
 			}
 			token, err := services.GenerateToken(cfg, user)

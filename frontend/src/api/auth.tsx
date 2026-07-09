@@ -18,6 +18,7 @@ interface AuthContextType {
   token: string | null
   bootstrapping: boolean
   login: (username: string, password: string, apiBase?: string) => Promise<void>
+  register: (username: string, password: string, email?: string, apiBase?: string) => Promise<void>
   logout: () => void
 }
 
@@ -26,6 +27,7 @@ const AuthContext = createContext<AuthContextType>({
   token: null,
   bootstrapping: false,
   login: async () => {},
+  register: async () => {},
   logout: () => {},
 })
 
@@ -88,7 +90,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         data = resp.data
       }
     } catch (error: any) {
-      error.message = `${error?.message || '登录失败'}（请求地址：${loginBaseURL}/auth/login）`
+      // 不包装 error.message：保留后端 detail / IPC 原始消息，由调用方决定如何提示
+      throw error
+    }
+    const accessToken = data.access_token || data.token
+    const userData = data.user || {
+      id: data.id,
+      username: data.username,
+      role: data.role,
+      email: data.email,
+    }
+    localStorage.setItem('synkord_token', accessToken)
+    localStorage.setItem('synkord_user', JSON.stringify(userData))
+    setToken(accessToken)
+    setUser(userData)
+  }, [])
+
+  // 开放自注册：成功后直接登录态
+  const register = useCallback(async (username: string, password: string, email?: string, apiBase?: string) => {
+    const registerBaseURL = await resolveRequestApiBase(apiBase)
+    apiClient.defaults.baseURL = registerBaseURL
+    let data: any
+    try {
+      const resp = await apiClient.post(
+        '/auth/register',
+        { username, password, email: email || undefined },
+        { baseURL: registerBaseURL },
+      )
+      data = resp.data
+    } catch (error: any) {
+      // 不包装 error.message，保留后端 detail，由调用方决定如何提示
       throw error
     }
     const accessToken = data.access_token || data.token
@@ -137,7 +168,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [token, logout])
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, bootstrapping }}>
+    <AuthContext.Provider value={{ user, token, login, register, logout, bootstrapping }}>
       {children}
     </AuthContext.Provider>
   )

@@ -37,7 +37,7 @@ func loginHandler(cfg *config.Config) gin.HandlerFunc {
 		}
 		user, err := services.AuthenticateUser(database.DB, req.Username, req.Password)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"detail": "Invalid credentials"})
+			c.JSON(http.StatusUnauthorized, gin.H{"detail": "用户名或密码错误"})
 			return
 		}
 		token, err := services.GenerateToken(cfg, user)
@@ -129,6 +129,7 @@ func RegisterAuthRoutesV2(r *gin.RouterGroup, cfg *config.Config) {
 		})
 		auth.POST("/refresh", refreshTokenHandler(cfg))
 		auth.GET("/me", meHandler())
+		auth.POST("/register", registerHandler(cfg)) // 开放自注册（无中间件）
 
 		// admin：用户管理（从老 RegisterAuthRoutes 恢复，避免 v1.2 失落）
 		auth.POST("/users", middleware.RequireAdmin(), createUserHandler())
@@ -213,5 +214,52 @@ func changePasswordHandler() gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})
+	}
+}
+
+// registerHandler 开放自注册（v1.3：团队自托管简化）
+// - 不引入全局角色概念；新用户 role 字段为 viewer（业务上不读此字段）
+// - 自动签发 access + refresh token，调用方登录态直接建立
+func registerHandler(cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Username string `json:"username" binding:"required,min=2,max=64"`
+			Password string `json:"password" binding:"required,min=6"`
+			Email    string `json:"email"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+			return
+		}
+		// 用户名查重
+		var existing models.User
+		if err := database.DB.Where("username = ?", req.Username).First(&existing).Error; err == nil {
+			c.JSON(http.StatusConflict, gin.H{"detail": "用户名已被使用"})
+			return
+		}
+		user, err := services.CreateUserWithEmail(database.DB, req.Username, req.Email, req.Password, string(models.RoleViewer))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+			return
+		}
+		// 自动登录：签发 token + refresh
+		token, err := services.GenerateToken(cfg, user)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"detail": "token 生成失败"})
+			return
+		}
+		refreshToken, err := services.GenerateRefreshToken(cfg, user)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"detail": "refresh token 生成失败"})
+			return
+		}
+		c.JSON(http.StatusOK, LoginResponse{
+			AccessToken:  token,
+			Token:        token,
+			RefreshToken: refreshToken,
+			TokenType:    "bearer",
+			ExpiresIn:    int(services.AccessTokenTTL.Seconds()),
+			User:         *user,
+		})
 	}
 }

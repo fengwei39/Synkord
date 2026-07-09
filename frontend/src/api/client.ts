@@ -84,12 +84,22 @@ function toApiError(error: AxiosError): ApiError {
   const status = error.response.status
   const data = error.response.data as Record<string, unknown> | undefined
   const backendCode = (data?.code as string) ?? 'UNKNOWN_ERROR'
-  const backendMessage = (data?.message as string) ?? '请求失败'
+  // 优先读后端用的 detail 字段；fallback 到 message；最后兜底中文
+  const backendMessage = (data?.detail as string) ?? (data?.message as string) ?? '请求失败'
   const backendHint = data?.hint as string | undefined
   const backendDetails = data?.details as Record<string, unknown> | undefined
 
-  // 401 - 授权过期
+  // 401 - 区分登录失败 vs token 过期
   if (status === 401) {
+    const isLoginEndpoint = (error.config?.url || '').includes('/auth/login')
+    if (isLoginEndpoint) {
+      return {
+        code: 'INVALID_CREDENTIALS',
+        message: backendMessage || '用户名或密码错误',
+        httpStatus: 401,
+        recoverable: true,
+      }
+    }
     return {
       code: 'AUTH_EXPIRED',
       message: '登录已过期',
@@ -199,6 +209,24 @@ apiClient.interceptors.response.use(
     return Promise.reject(apiError)
   },
 )
+
+/**
+ * 从任意错误对象提取用户可读的中文提示
+ * - 优先 error.message（已被拦截器标准化为 ApiError）
+ * - 兼容 Electron IPC 错误：剥掉 "Error invoking remote method 'X': Error: " 前缀
+ * - 兜底为通用文案
+ */
+export function extractUserErrorMessage(error: unknown, fallback: string): string {
+  const raw = (error as any)?.message
+  if (typeof raw !== 'string' || !raw) return fallback
+  // 匹配 Electron IPC 前缀：Error invoking remote method 'X': Error: <actual>
+  const m = raw.match(/^Error invoking remote method '[^']+':\s*Error:\s*(.+)$/s)
+  if (m) return m[1].trim() || fallback
+  // 匹配普通 Error 前缀：Error: <actual>
+  const m2 = raw.match(/^Error:\s*(.+)$/s)
+  if (m2) return m2[1].trim() || fallback
+  return raw || fallback
+}
 
 export default apiClient
 export type { ApiError }

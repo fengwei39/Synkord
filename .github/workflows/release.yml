@@ -285,7 +285,10 @@ jobs:
           cat checksums.txt
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        # [2026-07 修复] v2 在多次 round 中创建 release 成功但上传 assets 始终失败(release body 写入但
+        # assets 列表为空)。v3 是 Node 20→24 的 runtime bump,依赖更新,但 GitHub 偶发修复也常合并到浮动
+        # 主线。改用 @v3 触发 round 5 验证。
+        uses: softprops/action-gh-release@v3
         with:
           name: ${{ needs.resolve.outputs.version }}
           tag_name: ${{ needs.resolve.outputs.version }}

@@ -273,6 +273,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -285,14 +287,8 @@ jobs:
           cat checksums.txt
 
       - name: Create Release
-        # [2026-07 修复 (round 9)] Previous rounds failed because `gh release create --target <sha>`
-        # invokes `git rev-parse` internally to validate the SHA. The `release` job's runner
-        # working directory is NOT a git checkout (no `actions/checkout@v4` step in this job
-        # — we only need `dist/`), so `git rev-parse` errored:
-        #   "fatal: not a git repository (or any of the parent directories): .git"
-        # Fix: use `--target main` (branch name) instead of a SHA. gh validates branches
-        # remotely, no local git required. main has our commit (because we merged dev→main
-        # before tagging), so the release points at the same commit.
+        # gh release create invokes git locally while validating --target, so keep
+        # actions/checkout above even though this job primarily uploads artifacts.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.resolve.outputs.version }}

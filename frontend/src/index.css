@@ -1438,39 +1438,55 @@ select {
   font-weight: 600;
 }
 
+/* ============================================================================
+   Window Control Bar — 最小化 / 最大化 / 关闭
+   风格参照豆包桌面端：等宽方块、薄线条图标
+   - 默认：透明背景，描边图标
+   - 悬停（最小/最大）：整块灰色背景 #e5e5e5
+   - 悬停（关闭）：整块红色 #e81123，图标变白
+   - 按下：背景加深一档
+   ============================================================================ */
+
 .window-controls {
   display: inline-flex;
-  align-items: center;
-  gap: 0;
-  margin-left: 4px;
-  padding-left: 6px;
-  border-left: 1px solid #dfe4ee;
+  align-items: stretch; /* 让 .window-button 撑满父级高度，按钮贴顶贴底，无纵向间距 */
   height: 100%;
+  margin-right: -10px; /* 抵消父容器 .synkord-title-actions 的 padding-right: 10px，让按钮组贴到窗口最右侧 */
   -webkit-app-region: no-drag;
 }
 
 .window-button {
+  width: 46px;
+  height: 100%;
   border: 0;
   background: transparent;
-  width: 30px;
-  height: 100%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #5f6c82;
+  color: #1f1f1f;
   cursor: pointer;
+  font: inherit;
   font-size: 14px;
-  transition: background 0.12s, color 0.12s;
+  -webkit-app-region: no-drag;
+  transition: background 0.1s ease, color 0.1s ease;
 }
 
 .window-button:hover {
-  background: rgba(15, 23, 42, 0.06);
-  color: #17233d;
+  background: #e5e5e5;
 }
 
+.window-button:active {
+  background: #cccccc;
+}
+
+/* 关闭按钮：悬停整块变红 */
 .window-button.close:hover {
-  color: #fff !important;
-  background: #ef4444 !important;
+  background: #e81123;
+  color: #fff;
+}
+
+.window-button.close:active {
+  background: #c50f1f;
 }
 
 .synkord-body {

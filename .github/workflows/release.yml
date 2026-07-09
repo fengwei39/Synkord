@@ -287,24 +287,25 @@ jobs:
           cat checksums.txt
 
       - name: Create Release
-        # gh release create invokes git locally while validating --target, so keep
-        # actions/checkout above even though this job primarily uploads artifacts.
+        # Use the REST API for release creation. `gh release create` shells out to
+        # git for target validation, which has proven fragile in Actions.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
-          PREREL=""
-          if [[ "$VERSION" == *-* ]]; then PREREL="--prerelease"; fi
+          PREREL=false
+          if [[ "$VERSION" == *-* ]]; then PREREL=true; fi
 
           # Idempotent: only create if release doesn't exist
-          if ! gh release view "$VERSION" >/dev/null 2>&1; then
+          if ! gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${VERSION}" >/dev/null 2>&1; then
             echo "Creating release $VERSION ..."
-            gh release create "$VERSION" \
-              --title "$VERSION" \
-              --target main \
-              $PREREL \
-              --generate-notes
+            gh api "repos/${GITHUB_REPOSITORY}/releases" \
+              -f tag_name="$VERSION" \
+              -f target_commitish="${GITHUB_SHA}" \
+              -f name="$VERSION" \
+              -F prerelease="$PREREL" \
+              -F generate_release_notes=true >/dev/null
           else
             echo "Release $VERSION already exists; uploading assets only..."
           fi

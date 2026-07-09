@@ -69,6 +69,13 @@
     "appId": "dev.synkord.desktop",
     "productName": "Synkord",
     "copyright": "Copyright © 2026 Synkord",
+    "publish": {
+      "provider": "github",
+      "owner": "fengwei39",
+      "repo": "Synkord",
+      "releaseType": "release",
+      "vPrefixedTagName": true
+    },
     "asar": true,
     "asarUnpack": [
       "electron/local-mcp-service.cjs",

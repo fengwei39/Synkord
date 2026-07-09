@@ -870,6 +870,16 @@ function setupAutoUpdater() {
     updateState.error = err.message
     console.error('[auto-update] error:', err)
   })
+
+  // 启动 3 秒后静默检查更新；autoDownload=false 不自动下载，
+  // 只有用户在顶栏徽标点「更新」才会下载，避免打扰。
+  setTimeout(() => {
+    if (autoUpdater && !updateState.checking && !updateState.availableInfo) {
+      autoUpdater.checkForUpdates().catch((err) => {
+        console.warn('[auto-update] startup check failed:', err.message)
+      })
+    }
+  }, 3000)
 }
 
 app.on('window-all-closed', async () => {

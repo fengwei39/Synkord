@@ -156,9 +156,13 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: |
           pnpm run build
+          # --publish never: 仍然读取 package.json 的 build.publish 用于生成
+          # latest.yml / latest-mac.yml(electron-updater 客户端依赖它们),
+          # 但跳过真正把 Release 上传到 GitHub 这一步 —
+          # Release 创建由下方 softprops/action-gh-release 负责。
           case "${{ matrix.platform }}" in
-            mac) pnpm exec electron-builder --mac --${{ matrix.arch }} ;;
-            win) pnpm exec electron-builder --win --${{ matrix.arch }} ;;
+            mac) pnpm exec electron-builder --mac --${{ matrix.arch }} --publish never ;;
+            win) pnpm exec electron-builder --win --${{ matrix.arch }} --publish never ;;
           esac
 
       - name: Upload (macOS)

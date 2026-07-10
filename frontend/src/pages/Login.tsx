@@ -162,7 +162,7 @@ export default function Login() {
           Synkord
           <VersionBadge />
         </div>
-        <WindowControlBar size="small" />
+        <WindowControlBar />
       </div>
 
       {/* 登录卡片 */}
